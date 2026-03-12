@@ -1,8 +1,10 @@
 import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-footer',
   standalone: true,
+  imports: [RouterLink],
   template: `
     <footer class="border-t border-secondary-200 bg-white">
       <div class="container-custom py-8 sm:py-12">
@@ -27,7 +29,6 @@ import { Component } from '@angular/core';
             <h4 class="text-sm font-semibold text-secondary-900 mb-4">Product</h4>
             <ul class="space-y-2">
               <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Features</a></li>
-              <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Pricing</a></li>
               <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Documentation</a></li>
             </ul>
           </div>
@@ -37,8 +38,6 @@ import { Component } from '@angular/core';
             <h4 class="text-sm font-semibold text-secondary-900 mb-4">Company</h4>
             <ul class="space-y-2">
               <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">About</a></li>
-              <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Blog</a></li>
-              <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Contact</a></li>
             </ul>
           </div>
 
@@ -48,7 +47,7 @@ import { Component } from '@angular/core';
             <ul class="space-y-2">
               <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Privacy</a></li>
               <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Terms</a></li>
-              <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">License</a></li>
+              <li><a routerLink="/license" class="text-sm text-muted hover:text-primary-600 transition-colors">License</a></li>
             </ul>
           </div>
         </div>
