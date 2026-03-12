@@ -4,6 +4,7 @@ import { HomePageComponent } from './pages/home.page';
 import { DashboardPageComponent } from './pages/dashboard.page';
 import { LicensePageComponent } from './pages/license.page';
 import { PlaceholderPageComponent } from './pages/placeholder.page';
+import { DocsDeploymentPageComponent } from './pages/docs/deployment.page';
 
 export const routes: Routes = [
   {
@@ -13,6 +14,7 @@ export const routes: Routes = [
       { path: '', component: HomePageComponent },
       { path: 'dashboard', component: DashboardPageComponent },
       { path: 'license', component: LicensePageComponent },
+      { path: 'docs/deployment', component: DocsDeploymentPageComponent },
       { path: 'app/:id', component: PlaceholderPageComponent },
       { path: '**', component: PlaceholderPageComponent },
     ],

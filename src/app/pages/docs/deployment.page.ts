@@ -69,8 +69,7 @@ import { Component } from '@angular/core';
           </p>
 
           <div class="bg-black rounded-lg p-4 overflow-x-auto">
-            <pre class="text-white text-sm font-mono"><code>
-{`# Server Configuration
+            <pre class="text-white text-sm font-mono"><code># Server Configuration
 PORT=3000
 NODE_ENV=production
 
@@ -87,8 +86,7 @@ MAX_CONCURRENT_REQUESTS=5
 
 # Deployment Mode
 DEPLOYMENT_MODE=cloud  # or 'self-hosted'
-ENABLE_GPU=true`}
-            </code></pre>
+ENABLE_GPU=true</code></pre>
           </div>
 
           <p class="text-secondary-700 text-sm mt-3">
