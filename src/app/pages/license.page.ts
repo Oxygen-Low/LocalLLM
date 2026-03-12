@@ -25,7 +25,7 @@ import { RouterLink } from '@angular/router';
         <!-- License Content -->
         <div class="card p-8 sm:p-12 max-w-4xl">
           <div class="prose prose-lg max-w-none text-secondary-900">
-            <pre class="bg-secondary-50 p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono border border-secondary-200">
+            <pre class="bg-black text-white p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono border border-secondary-200">
 Copyright (c) 2024 Local.LLM Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
