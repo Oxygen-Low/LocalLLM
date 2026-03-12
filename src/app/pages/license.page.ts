@@ -24,7 +24,7 @@ import { RouterLink } from '@angular/router';
 
         <!-- License Content -->
         <div class="card p-8 sm:p-12 max-w-4xl">
-          <div class="prose prose-lg max-w-none text-secondary-700">
+          <div class="prose prose-lg max-w-none text-secondary-900">
             <pre class="bg-secondary-50 p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono border border-secondary-200">
 Copyright (c) 2024 Local.LLM Contributors
 
@@ -49,7 +49,7 @@ SOFTWARE.</pre>
 
           <div class="mt-8 pt-8 border-t border-secondary-200">
             <h3 class="text-lg font-bold text-secondary-900 mb-3">What this means:</h3>
-            <ul class="space-y-3 text-secondary-700">
+            <ul class="space-y-3 text-secondary-900">
               <li class="flex gap-3">
                 <span class="text-primary-600 font-bold flex-shrink-0">✓</span>
                 <span><strong>Use freely:</strong> You can use Local.LLM for commercial or personal projects</span>
