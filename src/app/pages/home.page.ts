@@ -31,7 +31,7 @@ import { HeroComponent } from '../components/hero.component';
               </div>
               <h3 class="text-lg font-bold text-secondary-900 mb-2">Lightning Fast</h3>
               <p class="text-muted text-sm">
-                Run models locally with no network latency. Instant responses and complete control.
+                Cloud deployment with ultra-low latency, or self-host for local AI processing. Instant responses and complete control.
               </p>
             </div>
 
@@ -42,9 +42,9 @@ import { HeroComponent } from '../components/hero.component';
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
-              <h3 class="text-lg font-bold text-secondary-900 mb-2">100% Private</h3>
+              <h3 class="text-lg font-bold text-secondary-900 mb-2">Data Security</h3>
               <p class="text-muted text-sm">
-                Your data never leaves your machine. Complete privacy and security for sensitive work.
+                Choose cloud hosting for convenience or self-host for complete data privacy. Your choice, your data, your control.
               </p>
             </div>
 
@@ -57,7 +57,7 @@ import { HeroComponent } from '../components/hero.component';
               </div>
               <h3 class="text-lg font-bold text-secondary-900 mb-2">Open Source</h3>
               <p class="text-muted text-sm">
-                Transparent, community-driven development. Extend and customize for your needs.
+                Transparent, community-driven development. Deploy anywhere, extend, and customize for your needs.
               </p>
             </div>
 
@@ -70,7 +70,7 @@ import { HeroComponent } from '../components/hero.component';
               </div>
               <h3 class="text-lg font-bold text-secondary-900 mb-2">Easy Integration</h3>
               <p class="text-muted text-sm">
-                Simple APIs and web interface for integrating AI into your workflow seamlessly.
+                Simple APIs and web interface. Integrate AI into your workflow whether cloud or self-hosted.
               </p>
             </div>
 
@@ -83,7 +83,7 @@ import { HeroComponent } from '../components/hero.component';
               </div>
               <h3 class="text-lg font-bold text-secondary-900 mb-2">Performance Monitor</h3>
               <p class="text-muted text-sm">
-                Real-time metrics and insights into model performance and resource usage.
+                Real-time metrics and insights into model performance and resource usage across all deployments.
               </p>
             </div>
 
@@ -94,9 +94,9 @@ import { HeroComponent } from '../components/hero.component';
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                 </svg>
               </div>
-              <h3 class="text-lg font-bold text-secondary-900 mb-2">Customizable</h3>
+              <h3 class="text-lg font-bold text-secondary-900 mb-2">Flexible Deployment</h3>
               <p class="text-muted text-sm">
-                Configure models, parameters, and settings for your specific use cases.
+                Deploy on our cloud infrastructure or host it yourself on your own servers. Full flexibility.
               </p>
             </div>
           </div>
@@ -110,7 +110,7 @@ import { HeroComponent } from '../components/hero.component';
             Ready to Get Started?
           </h2>
           <p class="text-lg text-muted mb-8 max-w-2xl mx-auto">
-            Access your dashboard and start running powerful AI models locally right now.
+            Access your dashboard and start running powerful AI applications on the cloud or self-hosted.
           </p>
           <a href="/dashboard" class="btn-primary inline-block">
             Launch Dashboard

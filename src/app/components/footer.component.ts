@@ -18,7 +18,7 @@ import { Component } from '@angular/core';
               </span>
             </div>
             <p class="text-sm text-muted">
-              Your unified hub for local AI applications.
+              Unified AI hub. Cloud or self-hosted.
             </p>
           </div>
 

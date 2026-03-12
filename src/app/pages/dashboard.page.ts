@@ -16,10 +16,10 @@ import { CommonModule } from '@angular/common';
             Dashboard
           </div>
           <h1 class="text-4xl sm:text-5xl font-bold text-secondary-900 mb-4">
-            AI Applications
+            AI Applications Hub
           </h1>
           <p class="text-lg text-muted">
-            Browse and launch your available AI applications. Each tool is optimized for speed and privacy.
+            Access your suite of AI applications. Available on our cloud platform or self-hosted on your infrastructure.
           </p>
         </div>
 

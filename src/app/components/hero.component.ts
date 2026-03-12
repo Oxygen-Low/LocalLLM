@@ -23,17 +23,17 @@ import { RouterLink } from '@angular/router';
           <!-- Badge -->
           <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 text-primary-700 text-sm font-medium mb-6 sm:mb-8">
             <span class="w-2 h-2 bg-primary-600 rounded-full"></span>
-            Unified AI Hub for Your Desktop
+            Unified AI Hub - Cloud or Self-Hosted
           </div>
 
           <!-- Headline -->
           <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-secondary-900 mb-6 leading-tight">
-            Run AI Applications Locally
+            Your AI Applications, Your Way
           </h1>
 
           <!-- Subheading -->
           <p class="text-lg sm:text-xl text-muted mb-8 sm:mb-10 leading-relaxed">
-            Local.LLM is your unified platform for accessing and managing multiple AI applications right on your machine. Fast, private, and completely under your control.
+            Local.LLM is your unified platform for accessing and managing multiple AI applications. Deploy to our cloud or host it yourself. Fast, secure, and completely under your control.
           </p>
 
           <!-- Features Grid -->
@@ -44,7 +44,7 @@ import { RouterLink } from '@angular/router';
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                 </svg>
               </div>
-              <span class="text-secondary-700 font-medium">100% Private</span>
+              <span class="text-secondary-700 font-medium">Cloud & Self-Hosted</span>
             </div>
             <div class="flex items-center justify-center sm:justify-start gap-3">
               <div class="w-5 h-5 rounded-full bg-accent-600 flex-shrink-0 flex items-center justify-center">
@@ -52,7 +52,7 @@ import { RouterLink } from '@angular/router';
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                 </svg>
               </div>
-              <span class="text-secondary-700 font-medium">Lightning Fast</span>
+              <span class="text-secondary-700 font-medium">Enterprise Ready</span>
             </div>
             <div class="flex items-center justify-center sm:justify-start gap-3">
               <div class="w-5 h-5 rounded-full bg-accent-600 flex-shrink-0 flex items-center justify-center">
