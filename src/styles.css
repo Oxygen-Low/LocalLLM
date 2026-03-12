@@ -1,3 +1,73 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white text-secondary-900 font-sans;
+  }
+
+  h1 {
+    @apply text-4xl font-bold text-secondary-900;
+  }
+
+  h2 {
+    @apply text-3xl font-bold text-secondary-900;
+  }
+
+  h3 {
+    @apply text-2xl font-semibold text-secondary-900;
+  }
+
+  h4 {
+    @apply text-xl font-semibold text-secondary-800;
+  }
+
+  p {
+    @apply text-secondary-700;
+  }
+
+  a {
+    @apply text-primary-600 hover:text-primary-700 transition-colors;
+  }
+}
+
+@layer components {
+  .container-custom {
+    @apply mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl;
+  }
+
+  .btn-primary {
+    @apply px-6 py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-secondary-200 text-secondary-900 font-semibold rounded-lg hover:bg-secondary-300 transition-colors focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2;
+  }
+
+  .btn-ghost {
+    @apply px-6 py-3 text-secondary-900 font-semibold rounded-lg hover:bg-secondary-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-secondary-200 shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  .section-padding {
+    @apply py-12 sm:py-16 lg:py-20;
+  }
+
+  .gradient-primary {
+    @apply bg-gradient-to-br from-primary-50 to-secondary-50;
+  }
+
+  .text-muted {
+    @apply text-secondary-600;
+  }
+}
