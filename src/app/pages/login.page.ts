@@ -127,7 +127,12 @@ export class LoginPageComponent {
       if (result.success) {
         this.router.navigate(['/dashboard']);
       } else {
-        this.errorMessage.set(result.error ?? 'Login failed');
+        const remaining = this.authService.getRemainingAttempts(this.username.trim().toLowerCase());
+        if (remaining > 0 && remaining < 4) {
+          this.errorMessage.set(`${result.error ?? 'Login failed'}. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`);
+        } else {
+          this.errorMessage.set(result.error ?? 'Login failed');
+        }
       }
     } catch {
       this.errorMessage.set('An unexpected error occurred. Please try again.');

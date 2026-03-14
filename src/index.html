@@ -6,6 +6,24 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+
+  <!-- A03: Injection/XSS - Content Security Policy -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self';
+      script-src 'self';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data:;
+      connect-src 'self';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';">
+
+  <!-- A05: Security Misconfiguration - Security Headers -->
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Permissions-Policy"
+    content="camera=(), microphone=(), geolocation=(), payment=()">
 </head>
 <body>
   <app-root></app-root>
