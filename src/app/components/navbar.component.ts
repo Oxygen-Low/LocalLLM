@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+import { AuthService } from '../services/auth.service';
 
 @Component({
   selector: 'app-navbar',
@@ -44,6 +45,24 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
             >
               Docs
             </a>
+            @if (authService.isAuthenticated()) {
+              <div class="flex items-center gap-4 ml-4 pl-4 border-l border-secondary-200">
+                <span class="text-sm text-muted">{{ authService.username() }}</span>
+                <button
+                  (click)="onLogout()"
+                  class="text-sm text-secondary-700 hover:text-red-600 font-medium transition-colors"
+                >
+                  Sign Out
+                </button>
+              </div>
+            } @else {
+              <a
+                routerLink="/login"
+                class="btn-primary ml-4 text-sm"
+              >
+                Sign In
+              </a>
+            }
           </div>
 
           <!-- Mobile Menu Button -->
@@ -101,6 +120,34 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
             >
               Docs
             </a>
+            <div class="border-t border-secondary-200 pt-3 mt-3">
+              @if (authService.isAuthenticated()) {
+                <div class="px-4 py-2 text-sm text-muted mb-2">
+                  Signed in as <span class="font-medium text-secondary-900">{{ authService.username() }}</span>
+                </div>
+                <button
+                  (click)="onLogout(); mobileMenuOpen.set(false)"
+                  class="block w-full text-left px-4 py-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors font-medium"
+                >
+                  Sign Out
+                </button>
+              } @else {
+                <a
+                  routerLink="/login"
+                  (click)="mobileMenuOpen.set(false)"
+                  class="block px-4 py-2 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors font-medium"
+                >
+                  Sign In
+                </a>
+                <a
+                  routerLink="/signup"
+                  (click)="mobileMenuOpen.set(false)"
+                  class="block px-4 py-2 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors font-medium"
+                >
+                  Sign Up
+                </a>
+              }
+            </div>
           </div>
         }
       </div>
@@ -110,7 +157,13 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 export class NavbarComponent {
   mobileMenuOpen = signal(false);
 
+  constructor(public authService: AuthService) {}
+
   toggleMobileMenu() {
     this.mobileMenuOpen.update(value => !value);
+  }
+
+  onLogout() {
+    this.authService.logout();
   }
 }

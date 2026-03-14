@@ -5,6 +5,8 @@ import { HomePageComponent } from './pages/home.page';
 import { DashboardPageComponent } from './pages/dashboard.page';
 import { LicensePageComponent } from './pages/license.page';
 import { PlaceholderPageComponent } from './pages/placeholder.page';
+import { LoginPageComponent } from './pages/login.page';
+import { SignupPageComponent } from './pages/signup.page';
 import { DocsGettingStartedPageComponent } from './pages/docs/getting-started.page';
 import { DocsInstallationPageComponent } from './pages/docs/installation.page';
 import { DocsDeploymentPageComponent } from './pages/docs/deployment.page';
@@ -15,16 +17,19 @@ import { DocsTroubleshootingPageComponent } from './pages/docs/troubleshooting.p
 import { DocsApiAuthPageComponent } from './pages/docs/api-auth.page';
 import { DocsApiApplicationsPageComponent } from './pages/docs/api-applications.page';
 import { DocsApiModelsPageComponent } from './pages/docs/api-models.page';
+import { authGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
+  { path: 'login', component: LoginPageComponent },
+  { path: 'signup', component: SignupPageComponent },
   {
     path: '',
     component: AppLayoutComponent,
     children: [
       { path: '', component: HomePageComponent },
-      { path: 'dashboard', component: DashboardPageComponent },
+      { path: 'dashboard', component: DashboardPageComponent, canActivate: [authGuard] },
       { path: 'license', component: LicensePageComponent },
-      { path: 'app/:id', component: PlaceholderPageComponent },
+      { path: 'app/:id', component: PlaceholderPageComponent, canActivate: [authGuard] },
     ],
   },
   {
