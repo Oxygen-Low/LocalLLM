@@ -3,7 +3,7 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
-    "fusion-angular-tailwind-starter": {
+    "local-llm": {
       "projectType": "application",
       "schematics": {},
       "root": "",
@@ -61,10 +61,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "fusion-angular-tailwind-starter:build:production"
+              "buildTarget": "local-llm:build:production"
             },
             "development": {
-              "buildTarget": "fusion-angular-tailwind-starter:build:development"
+              "buildTarget": "local-llm:build:development"
             }
           },
           "defaultConfiguration": "development"
