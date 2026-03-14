@@ -45,7 +45,7 @@ import { RouterLink } from '@angular/router';
           <div>
             <h4 class="text-sm font-semibold text-secondary-900 mb-4">Legal</h4>
             <ul class="space-y-2">
-              <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Privacy</a></li>
+              <li><a routerLink="/privacy" class="text-sm text-muted hover:text-primary-600 transition-colors">Privacy</a></li>
               <li><a href="#" class="text-sm text-muted hover:text-primary-600 transition-colors">Terms</a></li>
               <li><a routerLink="/license" class="text-sm text-muted hover:text-primary-600 transition-colors">License</a></li>
             </ul>
