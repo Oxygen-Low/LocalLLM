@@ -261,7 +261,9 @@ export class AuthService {
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
-    this.inactivityTimer = setTimeout(() => this.handleInactivityTimeout(), INACTIVITY_TIMEOUT_MS);
+    this.ngZone.runOutsideAngular(() => {
+      this.inactivityTimer = setTimeout(() => this.handleInactivityTimeout(), INACTIVITY_TIMEOUT_MS);
+    });
   }
 
   private handleInactivityTimeout(): void {
