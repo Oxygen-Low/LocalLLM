@@ -1,59 +1,80 @@
-# FusionAngularTailwindStarter
+# Local.LLM
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 20.1.2.
+A unified platform for accessing and managing multiple AI applications. Deploy to the cloud or self-host on your own infrastructure — fast, secure, and completely under your control.
 
-## Development server
+## Features
 
-To start a local development server, run:
+- **Cloud & Self-Hosted** — Run on managed infrastructure or deploy to your own servers
+- **AI Applications Hub** — Chatbot, Code Assistant, Content Generator, Research Tool, Creative Writer, Translator, Image Analyzer, Data Processor, Voice AI, and more
+- **Open Source** — Transparent, community-driven development
+- **Enterprise Ready** — Built for production workloads with security and scalability in mind
+- **Performance Monitoring** — Real-time metrics and insights into model performance and resource usage
 
-```bash
-ng serve
-```
+## Tech Stack
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+- [Angular 20](https://angular.dev) with standalone components
+- [TypeScript](https://www.typescriptlang.org/)
+- [TailwindCSS 3](https://tailwindcss.com/) with Typography plugin
+- [PostCSS](https://postcss.org/) + Autoprefixer
+- Jasmine / Karma for unit testing
 
-## Code scaffolding
+## Getting Started
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+### Prerequisites
 
-```bash
-ng generate component component-name
-```
+- [Node.js](https://nodejs.org/) (LTS recommended)
+- npm
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
+### Install dependencies
 
 ```bash
-ng build
+npm install
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
+### Start the development server
 
 ```bash
-ng test
+npm start
 ```
 
-## Running end-to-end tests
+Open your browser and navigate to `http://localhost:4200/`. The application reloads automatically when source files change.
 
-For end-to-end (e2e) testing, run:
+## Available Scripts
+
+| Command           | Description                              |
+| ----------------- | ---------------------------------------- |
+| `npm start`       | Start the development server             |
+| `npm run build`   | Production build (output to `dist/`)     |
+| `npm run watch`   | Build in watch mode (development config) |
+| `npm test`        | Run unit tests with Karma                |
+
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── components/       # Shared UI components (Navbar, Footer, Hero, AppCard)
+│   ├── layout/           # App and Docs layout wrappers
+│   ├── pages/            # Route-level page components
+│   │   └── docs/         # Documentation pages
+│   ├── app.ts            # Root component
+│   ├── app.config.ts     # Application configuration
+│   └── app.routes.ts     # Route definitions
+├── styles.css            # Global styles (TailwindCSS imports)
+├── index.html            # HTML entry point
+└── main.ts               # Application bootstrap
+```
+
+## Deployment
+
+Build the production bundle and serve the `dist/` directory with any static file host or web server:
 
 ```bash
-ng e2e
+npm run build
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+For self-hosted deployments, see the in-app documentation at `/docs/deployment`.
 
-## Additional Resources
+## License
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+See [LICENSE](LICENSE) for details.
