@@ -199,11 +199,11 @@ import { Component } from '@angular/core';
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/models/gpt-4/complete \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
+  -d '{{ '{' }}
     "prompt": "What is machine learning?",
     "temperature": 0.7,
     "maxTokens": 256
-  }'</pre>
+  {{ '}' }}'</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Response</h3>
@@ -240,23 +240,23 @@ import { Component } from '@angular/core';
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/models/gpt-4/complete-stream \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
+  -d '{{ '{' }}
     "prompt": "Write a poem about nature",
     "temperature": 0.8,
     "maxTokens": 256
-  }'</pre>
+  {{ '}' }}'</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Streaming Response</h3>
           <p class="text-secondary-700 mb-2">Server-Sent Events (SSE) stream:</p>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">data: {"token":"The","index":0}
+            <pre class="text-white text-sm font-mono">data: {{ '{' }}"token":"The","index":0{{ '}' }}
 
-data: {"token":" quiet","index":1}
+data: {{ '{' }}"token":" quiet","index":1{{ '}' }}
 
-data: {"token":" forest","index":2}
+data: {{ '{' }}"token":" forest","index":2{{ '}' }}
 
-data: {"done":true,"totalTokens":42}</pre>
+data: {{ '{' }}"done":true,"totalTokens":42{{ '}' }}</pre>
           </div>
         </section>
 

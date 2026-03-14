@@ -45,7 +45,7 @@ import { Component } from '@angular/core';
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
             <pre class="text-white text-sm font-mono">{{ '{' }}
   "applications": [
-    {
+    {{ '{' }}
       "id": "chatbot",
       "name": "AI Chatbot",
       "description": "Conversational AI for customer support",
@@ -54,8 +54,8 @@ import { Component } from '@angular/core';
       "version": "1.0.0",
       "icon": "chat-bubble",
       "color": "blue"
-    },
-    {
+    {{ '}' }},
+    {{ '{' }}
       "id": "code-assistant",
       "name": "Code Assistant",
       "description": "AI-powered code generation and analysis",
@@ -64,10 +64,10 @@ import { Component } from '@angular/core';
       "version": "2.1.0",
       "icon": "code",
       "color": "purple"
-    }
+    {{ '}' }}
   ],
   "count": 2
-}</pre>
+{{ '}' }}</pre>
           </div>
         </section>
 
@@ -128,12 +128,12 @@ import { Component } from '@angular/core';
     "fr",
     "de"
   ],
-  "rateLimit": {
+  "rateLimit": {{ '{' }}
     "requests": 1000,
     "period": "1h"
-  },
+  {{ '}' }},
   "documentation": "https://locallm.ai/docs/chatbot"
-}</pre>
+{{ '}' }}</pre>
           </div>
         </section>
 
@@ -159,8 +159,8 @@ import { Component } from '@angular/core';
   "metadata": {{ '{' }}
     "userId": "user123",
     "sessionId": "session456"
-  }
-}</pre>
+  {{ '}' }}
+{{ '}' }}</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Example Request</h3>
@@ -168,12 +168,12 @@ import { Component } from '@angular/core';
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/applications/chatbot/launch \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "config": {
+  -d '{{ '{' }}
+    "config": {{ '{' }}
       "model": "gpt-4",
       "temperature": 0.7
-    }
-  }'</pre>
+    {{ '}' }}
+  {{ '}' }}'</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Response</h3>
