@@ -28,12 +28,12 @@ import { RouterLink } from '@angular/router';
 
           <!-- Headline -->
           <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-secondary-900 mb-6 leading-tight">
-            Your AI Applications, Your Way
+            Tools For Everyone
           </h1>
 
           <!-- Subheading -->
           <p class="text-lg sm:text-xl text-muted mb-8 sm:mb-10 leading-relaxed">
-            Local.LLM is your unified platform for accessing and managing multiple AI applications. Deploy to our cloud or host it yourself. Fast, secure, and completely under your control.
+            Local.LLM is your platform for accessing developer, roleplaying, and gaming AI applications. Use our cloud or host it yourself.
           </p>
 
           <!-- Features Grid -->
@@ -77,6 +77,14 @@ import { RouterLink } from '@angular/router';
               class="btn-ghost w-full sm:w-auto text-center"
             >
               View Documentation
+            </a>
+            <a
+              href="https://github.com/Oxygen-Low/LocalLLM"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-ghost w-full sm:w-auto text-center"
+            >
+              View GitHub
             </a>
           </div>
         </div>
