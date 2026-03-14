@@ -1,4 +1,5 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
+import { Title } from '@angular/platform-browser';
 import { RouterOutlet } from '@angular/router';
 import { NavbarComponent } from '../components/navbar.component';
 import { FooterComponent } from '../components/footer.component';
@@ -17,4 +18,10 @@ import { FooterComponent } from '../components/footer.component';
     </div>
   `,
 })
-export class AppLayoutComponent {}
+export class AppLayoutComponent implements OnInit {
+  constructor(private titleService: Title) {}
+
+  ngOnInit() {
+    this.titleService.setTitle('Local.LLM');
+  }
+}
