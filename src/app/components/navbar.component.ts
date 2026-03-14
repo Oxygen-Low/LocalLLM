@@ -37,7 +37,11 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
             >
               Dashboard
             </a>
-            <a href="#" class="text-secondary-700 hover:text-primary-600 font-medium transition-colors">
+            <a
+              routerLink="/docs"
+              routerLinkActive="text-primary-600"
+              class="text-secondary-700 hover:text-primary-600 font-medium transition-colors"
+            >
               Docs
             </a>
           </div>
@@ -90,7 +94,8 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
               Dashboard
             </a>
             <a
-              href="#"
+              routerLink="/docs"
+              routerLinkActive="text-primary-600 bg-primary-50"
               (click)="mobileMenuOpen.set(false)"
               class="block px-4 py-2 rounded-lg text-secondary-700 hover:bg-secondary-100 transition-colors font-medium"
             >
