@@ -1,4 +1,5 @@
-import { Component, signal } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
+import { Title } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 
@@ -144,7 +145,13 @@ export interface DocNavItem {
     </div>
   `,
 })
-export class DocsLayoutComponent {
+export class DocsLayoutComponent implements OnInit {
+  constructor(private titleService: Title) {}
+
+  ngOnInit() {
+    this.titleService.setTitle('Local.LLM Docs');
+  }
+
   mobileSidebarOpen = signal(false);
 
   docNavigation: DocNavItem[] = [
