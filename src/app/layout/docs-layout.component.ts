@@ -17,7 +17,18 @@ export interface DocNavItem {
       <div class="flex flex-1">
         <!-- Sidebar -->
         <aside class="w-64 border-r border-secondary-200 bg-secondary-50 hidden lg:block sticky top-20 h-[calc(100vh-5rem)] overflow-y-auto">
-          <nav class="p-6 space-y-1">
+          <div class="px-6 pt-4 pb-2">
+            <a
+              routerLink="/"
+              aria-label="Close documentation and return to home"
+              class="inline-flex items-center justify-center w-8 h-8 rounded-full text-secondary-500 hover:text-secondary-900 hover:bg-secondary-200 transition-colors"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </a>
+          </div>
+          <nav class="px-6 pb-6 space-y-1">
             @for (item of docNavigation; track item.path) {
               <div>
                 <a
@@ -80,7 +91,19 @@ export interface DocNavItem {
             class="fixed inset-0 bg-black/50 lg:hidden z-30"
           ></div>
           <aside class="fixed inset-y-0 left-0 w-64 bg-secondary-50 border-r border-secondary-200 z-40 pt-20 overflow-y-auto">
-            <nav class="p-6 space-y-1">
+            <div class="px-6 pt-4 pb-2">
+              <a
+                routerLink="/"
+                aria-label="Close documentation and return to home"
+                (click)="mobileSidebarOpen.set(false)"
+                class="inline-flex items-center justify-center w-8 h-8 rounded-full text-secondary-500 hover:text-secondary-900 hover:bg-secondary-200 transition-colors"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </a>
+            </div>
+            <nav class="px-6 pb-6 space-y-1">
               @for (item of docNavigation; track item.path) {
                 <div>
                   <a
