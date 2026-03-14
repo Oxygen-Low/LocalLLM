@@ -73,7 +73,7 @@ import { RouterLink } from '@angular/router';
               Launch Dashboard
             </a>
             <a
-              href="#"
+              routerLink="/docs"
               class="btn-ghost w-full sm:w-auto text-center"
             >
               View Documentation
