@@ -71,11 +71,11 @@ import { Component } from '@angular/core';
 
           <h3 class="text-xl font-semibold text-secondary-900 mb-3">JavaScript/TypeScript Example</h3>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">const response = await fetch('http://localhost:3000/api/models', {
-  headers: {
+            <pre class="text-white text-sm font-mono">const response = await fetch('http://localhost:3000/api/models', {{ '{' }}
+  headers: {{ '{' }}
     'Authorization': 'Bearer YOUR_API_KEY'
-  }
-});
+  {{ '}' }}
+{{ '}' }});
 
 const models = await response.json();</pre>
           </div>
@@ -84,7 +84,7 @@ const models = await response.json();</pre>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
             <pre class="text-white text-sm font-mono">import requests
 
-headers = {'Authorization': 'Bearer YOUR_API_KEY'}
+headers = {{ '{' }}'Authorization': 'Bearer YOUR_API_KEY'{{ '}' }}
 response = requests.get(
     'http://localhost:3000/api/models',
     headers=headers
@@ -114,10 +114,10 @@ models = response.json()</pre>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{
+  -d '{{ '{' }}
     "username": "user@example.com",
     "password": "secure-password"
-  }'</pre>
+  {{ '}' }}'</pre>
           </div>
 
           <p class="text-secondary-700 mb-4">
@@ -150,9 +150,9 @@ models = response.json()</pre>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/auth/refresh \
   -H "Content-Type: application/json" \
-  -d '{
+  -d '{{ '{' }}
     "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-  }'</pre>
+  {{ '}' }}'</pre>
           </div>
         </section>
 
