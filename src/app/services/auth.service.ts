@@ -162,7 +162,7 @@ export class AuthService {
     const users = this.getStoredUsers();
     const normalizedUsername = username.toLowerCase();
 
-    if (users.some((u) => u.username.toLowerCase() === normalizedUsername)) {
+    if (users.some((u) => u.username === normalizedUsername)) {
       return { success: false, error: 'Username already exists' };
     }
 
@@ -170,7 +170,7 @@ export class AuthService {
     const passwordHash = await this.hashPassword(password, salt);
 
     const newUser: StoredUser = {
-      username,
+      username: normalizedUsername,
       passwordHash,
       salt,
       createdAt: new Date().toISOString(),
@@ -178,7 +178,7 @@ export class AuthService {
 
     users.push(newUser);
     this.saveUsers(users);
-    await this.createSession(username);
+    await this.createSession(normalizedUsername);
 
     return { success: true };
   }
@@ -190,7 +190,7 @@ export class AuthService {
     const users = this.getStoredUsers();
     const normalizedUsername = username.toLowerCase();
     const user = users.find(
-      (u) => u.username.toLowerCase() === normalizedUsername
+      (u) => u.username === normalizedUsername
     );
 
     if (!user) {
