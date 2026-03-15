@@ -1,26 +1,41 @@
 import { Component } from '@angular/core';
 import { AppCardComponent, type AIApp } from '../components/app-card.component';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, AppCardComponent],
+  imports: [CommonModule, AppCardComponent, RouterLink],
   template: `
     <div class="min-h-screen bg-gradient-to-b from-white to-secondary-50">
       <div class="container-custom py-12 sm:py-16 lg:py-20">
         <!-- Header -->
         <div class="max-w-3xl mb-12 sm:mb-16">
-          <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 text-primary-700 text-sm font-medium mb-4">
-            <span class="w-2 h-2 bg-primary-600 rounded-full"></span>
-            Dashboard
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 text-primary-700 text-sm font-medium mb-4">
+                <span class="w-2 h-2 bg-primary-600 rounded-full"></span>
+                Dashboard
+              </div>
+              <h1 class="text-4xl sm:text-5xl font-bold text-secondary-900 mb-4">
+                AI Applications Hub
+              </h1>
+              <p class="text-lg text-muted">
+                Access your suite of AI applications. Available on our cloud platform or self-hosted on your infrastructure.
+              </p>
+            </div>
+            <a
+              routerLink="/settings"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors shadow-sm flex-shrink-0"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Settings
+            </a>
           </div>
-          <h1 class="text-4xl sm:text-5xl font-bold text-secondary-900 mb-4">
-            AI Applications Hub
-          </h1>
-          <p class="text-lg text-muted">
-            Access your suite of AI applications. Available on our cloud platform or self-hosted on your infrastructure.
-          </p>
         </div>
 
         <!-- Filter/Search Bar -->

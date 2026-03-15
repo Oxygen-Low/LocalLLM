@@ -18,6 +18,7 @@ import { DocsTroubleshootingPageComponent } from './pages/docs/troubleshooting.p
 import { DocsApiAuthPageComponent } from './pages/docs/api-auth.page';
 import { DocsApiApplicationsPageComponent } from './pages/docs/api-applications.page';
 import { DocsApiModelsPageComponent } from './pages/docs/api-models.page';
+import { SettingsPageComponent } from './pages/settings.page';
 import { authGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
@@ -29,6 +30,7 @@ export const routes: Routes = [
     children: [
       { path: '', component: HomePageComponent },
       { path: 'dashboard', component: DashboardPageComponent, canActivate: [authGuard] },
+      { path: 'settings', component: SettingsPageComponent, canActivate: [authGuard] },
       { path: 'license', component: LicensePageComponent },
       { path: 'privacy', component: PrivacyPageComponent },
       { path: 'app/:id', component: PlaceholderPageComponent, canActivate: [authGuard] },

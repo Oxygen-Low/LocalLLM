@@ -119,6 +119,92 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// PUT /api/auth/change-password
+app.put('/api/auth/change-password', async (req, res) => {
+  try {
+    const { username, currentPassword, newPassword } = req.body;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      return res.status(400).json({ success: false, error: 'Current password is required' });
+    }
+    if (!newPassword || typeof newPassword !== 'string') {
+      return res.status(400).json({ success: false, error: 'New password is required' });
+    }
+
+    const normalizedUsername = username.toLowerCase();
+    const users = readUsers();
+    const userIndex = users.findIndex((u) => u.username === normalizedUsername);
+
+    if (userIndex === -1) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    const user = users[userIndex];
+    const currentHash = await hashPassword(currentPassword, user.salt);
+
+    if (currentHash !== user.passwordHash) {
+      return res.status(401).json({ success: false, error: 'Current password is incorrect' });
+    }
+
+    // Verify new password differs from current password using the same salt
+    const newPasswordWithOldSalt = await hashPassword(newPassword, user.salt);
+    if (newPasswordWithOldSalt === user.passwordHash) {
+      return res.status(400).json({ success: false, error: 'New password must be different from current password' });
+    }
+
+    const newSalt = generateSalt();
+    const newHash = await hashPassword(newPassword, newSalt);
+
+    users[userIndex] = { ...user, passwordHash: newHash, salt: newSalt };
+    writeUsers(users);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/auth/account
+app.delete('/api/auth/account', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ success: false, error: 'Password is required' });
+    }
+
+    const normalizedUsername = username.toLowerCase();
+    const users = readUsers();
+    const userIndex = users.findIndex((u) => u.username === normalizedUsername);
+
+    if (userIndex === -1) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    const user = users[userIndex];
+    const passwordHash = await hashPassword(password, user.salt);
+
+    if (passwordHash !== user.passwordHash) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    users.splice(userIndex, 1);
+    writeUsers(users);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

@@ -347,4 +347,71 @@ export class AuthService {
     this.currentUser.set(null);
     this.securityLogger.log('LOGOUT', 'User logged out', user ?? undefined);
   }
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const user = this.username();
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    const passwordErrors = this.validatePassword(newPassword);
+    if (passwordErrors.length > 0) {
+      return { success: false, error: passwordErrors[0] };
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.http.put<AuthResponse>('/api/auth/change-password', {
+          username: user,
+          currentPassword,
+          newPassword,
+        })
+      );
+
+      if (response.success) {
+        this.securityLogger.log('PASSWORD_CHANGED', 'Password changed successfully', user);
+        return { success: true };
+      }
+
+      return { success: false, error: response.error };
+    } catch (err: unknown) {
+      const error = err as { error?: AuthResponse; status?: number };
+      const message = error.error?.error ?? 'Failed to change password. Please try again.';
+      this.securityLogger.log('PASSWORD_CHANGE_FAILURE', message, user);
+      return { success: false, error: message };
+    }
+  }
+
+  async deleteAccount(
+    password: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const user = this.username();
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<AuthResponse>('/api/auth/account', {
+          body: { username: user, password },
+        })
+      );
+
+      if (response.success) {
+        this.securityLogger.log('ACCOUNT_DELETED', 'Account deleted', user);
+        this.logout();
+        return { success: true };
+      }
+
+      return { success: false, error: response.error };
+    } catch (err: unknown) {
+      const error = err as { error?: AuthResponse; status?: number };
+      const message = error.error?.error ?? 'Failed to delete account. Please try again.';
+      this.securityLogger.log('ACCOUNT_DELETE_FAILURE', message, user);
+      return { success: false, error: message };
+    }
+  }
 }

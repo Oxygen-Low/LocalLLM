@@ -17,7 +17,11 @@ export type SecurityEventType =
   | 'LOGOUT'
   | 'SESSION_EXPIRED'
   | 'SESSION_RESTORED'
-  | 'INACTIVITY_LOGOUT';
+  | 'INACTIVITY_LOGOUT'
+  | 'PASSWORD_CHANGED'
+  | 'PASSWORD_CHANGE_FAILURE'
+  | 'ACCOUNT_DELETED'
+  | 'ACCOUNT_DELETE_FAILURE';
 
 const MAX_LOG_ENTRIES = 100;
 const SECURITY_LOG_KEY = 'localllm_security_log';
