@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -226,12 +226,23 @@ function ensureCerts() {
       process.exit(1);
     }
     try {
-      execSync(
-        'openssl req -x509 -newkey rsa:2048 -keyout ' +
-          JSON.stringify(keyPath) +
-          ' -out ' +
-          JSON.stringify(certPath) +
-          ' -days 365 -nodes -subj "/CN=localhost"',
+      execFileSync(
+        'openssl',
+        [
+          'req',
+          '-x509',
+          '-newkey',
+          'rsa:2048',
+          '-keyout',
+          keyPath,
+          '-out',
+          certPath,
+          '-days',
+          '365',
+          '-nodes',
+          '-subj',
+          '/CN=localhost',
+        ],
         { stdio: 'pipe' }
       );
       console.log('TLS certificates generated.');
