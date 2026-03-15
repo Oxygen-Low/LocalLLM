@@ -1,4 +1,5 @@
-import { Injectable, signal, computed, inject, effect } from '@angular/core';
+import { Injectable, signal, computed, inject, effect, DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from './auth.service';
 import { environment } from '../../environments/environment';
@@ -362,6 +363,7 @@ interface LanguageResponse {
 export class TranslationService {
   private http = inject(HttpClient);
   private authService = inject(AuthService);
+  private destroyRef = inject(DestroyRef);
 
   readonly languages: Language[] = [
     { code: 'en', label: 'English' },
@@ -407,7 +409,7 @@ export class TranslationService {
     try {
       const code = localStorage.getItem(LANGUAGE_STORAGE_KEY);
       if (code) {
-        const savedLanguage = this.languages.find(l => l.code === code);
+        const savedLanguage = this.languages.find(lang => lang.code === code);
         if (savedLanguage) return savedLanguage;
       }
     } catch {
@@ -421,10 +423,11 @@ export class TranslationService {
       .get<LanguageResponse>(`${environment.apiUrl}/api/user/language`, {
         params: { username },
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (response) => {
           if (response.success && response.language) {
-            const lang = this.languages.find(l => l.code === response.language);
+            const lang = this.languages.find(entry => entry.code === response.language);
             if (lang) {
               this.currentLanguage.set(lang);
               try {
@@ -447,6 +450,7 @@ export class TranslationService {
         username,
         language,
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         error: () => {
           // Server unavailable - silently fail, localStorage already updated
