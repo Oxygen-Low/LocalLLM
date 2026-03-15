@@ -7,11 +7,16 @@ describe('DocsLayoutComponent', () => {
   let translationService: TranslationService;
 
   beforeEach(async () => {
+    localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [DocsLayoutComponent, RouterModule.forRoot([])],
     }).compileComponents();
 
     translationService = TestBed.inject(TranslationService);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   it('should create the component', () => {
