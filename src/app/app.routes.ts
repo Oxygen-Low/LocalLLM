@@ -1,63 +1,102 @@
 import { Routes } from '@angular/router';
-import { AppLayoutComponent } from './layout/app-layout.component';
-import { DocsLayoutComponent } from './layout/docs-layout.component';
-import { HomePageComponent } from './pages/home.page';
-import { DashboardPageComponent } from './pages/dashboard.page';
-import { LicensePageComponent } from './pages/license.page';
-import { PrivacyPageComponent } from './pages/privacy.page';
-import { TermsPageComponent } from './pages/terms.page';
-import { PlaceholderPageComponent } from './pages/placeholder.page';
-import { LoginPageComponent } from './pages/login.page';
-import { SignupPageComponent } from './pages/signup.page';
-import { DocsGettingStartedPageComponent } from './pages/docs/getting-started.page';
-import { DocsInstallationPageComponent } from './pages/docs/installation.page';
-import { DocsDeploymentPageComponent } from './pages/docs/deployment.page';
-import { DocsDeploymentDockerPageComponent } from './pages/docs/deployment-docker.page';
-import { DocsDeploymentKubernetesPageComponent } from './pages/docs/deployment-kubernetes.page';
-import { DocsConfigurationPageComponent } from './pages/docs/configuration.page';
-import { DocsTroubleshootingPageComponent } from './pages/docs/troubleshooting.page';
-import { DocsApiAuthPageComponent } from './pages/docs/api-auth.page';
-import { DocsApiApplicationsPageComponent } from './pages/docs/api-applications.page';
-import { DocsApiModelsPageComponent } from './pages/docs/api-models.page';
-import { SettingsPageComponent } from './pages/settings.page';
 import { authGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
-  { path: 'login', component: LoginPageComponent },
-  { path: 'signup', component: SignupPageComponent },
+  {
+    path: 'login',
+    loadComponent: () => import('./pages/login.page').then(m => m.LoginPageComponent),
+  },
+  {
+    path: 'signup',
+    loadComponent: () => import('./pages/signup.page').then(m => m.SignupPageComponent),
+  },
   {
     path: '',
-    component: AppLayoutComponent,
+    loadComponent: () => import('./layout/app-layout.component').then(m => m.AppLayoutComponent),
     children: [
-      { path: '', component: HomePageComponent },
-      { path: 'dashboard', component: DashboardPageComponent, canActivate: [authGuard] },
-      { path: 'settings', component: SettingsPageComponent, canActivate: [authGuard] },
-      { path: 'license', component: LicensePageComponent },
-      { path: 'privacy', component: PrivacyPageComponent },
-      { path: 'terms', component: TermsPageComponent },
-      { path: 'app/:id', component: PlaceholderPageComponent, canActivate: [authGuard] },
+      {
+        path: '',
+        loadComponent: () => import('./pages/home.page').then(m => m.HomePageComponent),
+      },
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./pages/dashboard.page').then(m => m.DashboardPageComponent),
+        canActivate: [authGuard],
+      },
+      {
+        path: 'settings',
+        loadComponent: () => import('./pages/settings.page').then(m => m.SettingsPageComponent),
+        canActivate: [authGuard],
+      },
+      {
+        path: 'license',
+        loadComponent: () => import('./pages/license.page').then(m => m.LicensePageComponent),
+      },
+      {
+        path: 'privacy',
+        loadComponent: () => import('./pages/privacy.page').then(m => m.PrivacyPageComponent),
+      },
+      {
+        path: 'terms',
+        loadComponent: () => import('./pages/terms.page').then(m => m.TermsPageComponent),
+      },
+      {
+        path: 'app/:id',
+        loadComponent: () => import('./pages/placeholder.page').then(m => m.PlaceholderPageComponent),
+        canActivate: [authGuard],
+      },
     ],
   },
   {
     path: 'docs',
-    component: DocsLayoutComponent,
+    loadComponent: () => import('./layout/docs-layout.component').then(m => m.DocsLayoutComponent),
     children: [
       { path: '', redirectTo: 'getting-started', pathMatch: 'full' },
-      { path: 'getting-started', component: DocsGettingStartedPageComponent },
-      { path: 'installation', component: DocsInstallationPageComponent },
-      { path: 'deployment', component: DocsDeploymentPageComponent },
-      { path: 'deployment-docker', component: DocsDeploymentDockerPageComponent },
-      { path: 'deployment-kubernetes', component: DocsDeploymentKubernetesPageComponent },
-      { path: 'configuration', component: DocsConfigurationPageComponent },
-      { path: 'troubleshooting', component: DocsTroubleshootingPageComponent },
+      {
+        path: 'getting-started',
+        loadComponent: () => import('./pages/docs/getting-started.page').then(m => m.DocsGettingStartedPageComponent),
+      },
+      {
+        path: 'installation',
+        loadComponent: () => import('./pages/docs/installation.page').then(m => m.DocsInstallationPageComponent),
+      },
+      {
+        path: 'deployment',
+        loadComponent: () => import('./pages/docs/deployment.page').then(m => m.DocsDeploymentPageComponent),
+      },
+      {
+        path: 'deployment-docker',
+        loadComponent: () => import('./pages/docs/deployment-docker.page').then(m => m.DocsDeploymentDockerPageComponent),
+      },
+      {
+        path: 'deployment-kubernetes',
+        loadComponent: () => import('./pages/docs/deployment-kubernetes.page').then(m => m.DocsDeploymentKubernetesPageComponent),
+      },
+      {
+        path: 'configuration',
+        loadComponent: () => import('./pages/docs/configuration.page').then(m => m.DocsConfigurationPageComponent),
+      },
+      {
+        path: 'troubleshooting',
+        loadComponent: () => import('./pages/docs/troubleshooting.page').then(m => m.DocsTroubleshootingPageComponent),
+      },
       { path: 'api-reference', redirectTo: 'api-auth', pathMatch: 'full' },
-      { path: 'api-auth', component: DocsApiAuthPageComponent },
-      { path: 'api-applications', component: DocsApiApplicationsPageComponent },
-      { path: 'api-models', component: DocsApiModelsPageComponent },
+      {
+        path: 'api-auth',
+        loadComponent: () => import('./pages/docs/api-auth.page').then(m => m.DocsApiAuthPageComponent),
+      },
+      {
+        path: 'api-applications',
+        loadComponent: () => import('./pages/docs/api-applications.page').then(m => m.DocsApiApplicationsPageComponent),
+      },
+      {
+        path: 'api-models',
+        loadComponent: () => import('./pages/docs/api-models.page').then(m => m.DocsApiModelsPageComponent),
+      },
     ],
   },
   {
     path: '**',
-    component: PlaceholderPageComponent,
+    loadComponent: () => import('./pages/placeholder.page').then(m => m.PlaceholderPageComponent),
   },
 ];
