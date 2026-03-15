@@ -3,6 +3,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { rateLimit } = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,8 +13,27 @@ const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 
+// General API rate limiter: 100 requests per 15 minutes per IP
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later.' },
+});
+
+// Stricter rate limiter for auth endpoints: 10 requests per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many authentication attempts, please try again later.' },
+});
+
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
 app.use(express.json());
+app.use('/api', apiLimiter);
 
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {
@@ -50,7 +70,7 @@ function hashPassword(password, salt) {
 }
 
 // POST /api/auth/signup
-app.post('/api/auth/signup', async (req, res) => {
+app.post('/api/auth/signup', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -90,7 +110,7 @@ app.post('/api/auth/signup', async (req, res) => {
 });
 
 // POST /api/auth/login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -120,7 +140,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // PUT /api/auth/change-password
-app.put('/api/auth/change-password', async (req, res) => {
+app.put('/api/auth/change-password', authLimiter, async (req, res) => {
   try {
     const { username, currentPassword, newPassword } = req.body;
 
@@ -169,7 +189,7 @@ app.put('/api/auth/change-password', async (req, res) => {
 });
 
 // DELETE /api/auth/account
-app.delete('/api/auth/account', async (req, res) => {
+app.delete('/api/auth/account', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -208,3 +228,5 @@ app.delete('/api/auth/account', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+module.exports = { app };
