@@ -91,8 +91,8 @@ import { RouterLink } from '@angular/router';
       </div>
 
       <!-- Floating Elements (Decorative) -->
-      <div class="absolute top-20 right-10 w-72 h-72 bg-primary-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse"></div>
-      <div class="absolute bottom-0 left-20 w-72 h-72 bg-accent-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse"></div>
+      <div class="absolute top-20 right-10 w-72 h-72 bg-primary-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse pointer-events-none"></div>
+      <div class="absolute bottom-0 left-20 w-72 h-72 bg-accent-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse pointer-events-none"></div>
     </section>
   `,
 })
