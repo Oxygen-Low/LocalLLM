@@ -5,8 +5,13 @@ describe('TranslationService', () => {
   let service: TranslationService;
 
   beforeEach(() => {
+    localStorage.clear();
     TestBed.configureTestingModule({});
     service = TestBed.inject(TranslationService);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   it('should be created', () => {
@@ -58,5 +63,27 @@ describe('TranslationService', () => {
     expect(service.currentLanguageCode()).toBe('en');
     service.setLanguage({ code: 'ru', label: 'Русский' });
     expect(service.currentLanguageCode()).toBe('ru');
+  });
+
+  it('should persist language selection to localStorage when setLanguage is called', () => {
+    service.setLanguage({ code: 'ko', label: '한국어' });
+    expect(localStorage.getItem('localllm_language')).toBe('ko');
+  });
+
+  it('should restore language from localStorage on initialization', () => {
+    localStorage.setItem('localllm_language', 'ja');
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+    const newService = TestBed.inject(TranslationService);
+    expect(newService.currentLanguage().code).toBe('ja');
+    expect(newService.currentLanguage().label).toBe('日本語');
+  });
+
+  it('should default to English when localStorage contains an unknown language code', () => {
+    localStorage.setItem('localllm_language', 'fr');
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+    const newService = TestBed.inject(TranslationService);
+    expect(newService.currentLanguage().code).toBe('en');
   });
 });

@@ -313,6 +313,8 @@ const translations: TranslationDictionary = {
   },
 };
 
+const LANGUAGE_STORAGE_KEY = 'localllm_language';
+
 @Injectable({
   providedIn: 'root',
 })
@@ -324,12 +326,30 @@ export class TranslationService {
     { code: 'ru', label: 'Русский' },
   ];
 
-  currentLanguage = signal<Language>(this.languages[0]);
+  currentLanguage = signal<Language>(this.loadLanguage());
 
   currentLanguageCode = computed(() => this.currentLanguage().code);
 
   setLanguage(lang: Language): void {
     this.currentLanguage.set(lang);
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, lang.code);
+    } catch {
+      // Storage unavailable - silently fail
+    }
+  }
+
+  private loadLanguage(): Language {
+    try {
+      const code = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      if (code) {
+        const savedLanguage = this.languages.find(l => l.code === code);
+        if (savedLanguage) return savedLanguage;
+      }
+    } catch {
+      // Storage unavailable - silently fail
+    }
+    return this.languages[0];
   }
 
   translate(key: string): string {
