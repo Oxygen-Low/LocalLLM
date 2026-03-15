@@ -47,7 +47,16 @@ module.exports = {
         "4xl": ["2.25rem", { lineHeight: "2.5rem" }],
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: [
+          "Inter",
+          '"Noto Sans JP"',
+          '"Noto Sans CJK JP"',
+          '"Hiragino Sans"',
+          '"Yu Gothic"',
+          "Meiryo",
+          "system-ui",
+          "sans-serif",
+        ],
       },
     },
   },

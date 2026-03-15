@@ -18,10 +18,11 @@ describe('TranslationService', () => {
     expect(service.currentLanguage().label).toBe('English');
   });
 
-  it('should have English and Korean as supported languages', () => {
+  it('should have English, Korean, and Japanese as supported languages', () => {
     expect(service.languages).toEqual([
       { code: 'en', label: 'English' },
       { code: 'ko', label: '한국어' },
+      { code: 'ja', label: '日本語' },
     ]);
   });
 
@@ -36,13 +37,19 @@ describe('TranslationService', () => {
     expect(service.translate('home.features.title')).toBe('강력한 기능');
   });
 
+  it('should return Japanese translations after switching language', () => {
+    service.setLanguage({ code: 'ja', label: '日本語' });
+    expect(service.translate('hero.headline')).toBe('すべての人のためのツール');
+    expect(service.translate('home.features.title')).toBe('強力な機能');
+  });
+
   it('should return the key for unknown translation keys', () => {
     expect(service.translate('unknown.key')).toBe('unknown.key');
   });
 
   it('should update currentLanguageCode when language changes', () => {
     expect(service.currentLanguageCode()).toBe('en');
-    service.setLanguage({ code: 'ko', label: '한국어' });
-    expect(service.currentLanguageCode()).toBe('ko');
+    service.setLanguage({ code: 'ja', label: '日本語' });
+    expect(service.currentLanguageCode()).toBe('ja');
   });
 });
