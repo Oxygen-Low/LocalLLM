@@ -18,7 +18,7 @@ import { RouterLink } from '@angular/router';
             Privacy Policy
           </h1>
           <p class="text-lg text-muted">
-            How Local.LLM collects, uses, and protects your personal data in accordance with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.
+            How Oxygen Low's Software collects, uses, and protects your personal data through the Local.LLM service, in accordance with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.
           </p>
           <p class="text-sm text-muted mt-2">Last updated: March 2026</p>
         </div>
@@ -31,7 +31,7 @@ import { RouterLink } from '@angular/router';
             <section>
               <h2 class="text-2xl font-bold text-secondary-900 mb-3">1. Data Controller</h2>
               <p class="text-secondary-700">
-                Local.LLM ("we", "us", "our") is the data controller responsible for your personal data. If you have any questions about this privacy policy or how we handle your data, please contact us at the details provided in Section 10.
+                Oxygen Low's Software ("we", "us", "our"), operating the Local.LLM service, is the data controller responsible for your personal data. If you have any questions about this privacy policy or how we handle your data, please contact us at the details provided in Section 10.
               </p>
             </section>
 
@@ -208,7 +208,7 @@ import { RouterLink } from '@angular/router';
               </p>
               <div class="bg-secondary-50 rounded-lg p-4 border border-secondary-200 mt-3">
                 <p class="text-secondary-700 text-sm">
-                  <strong>Local.LLM</strong><br>
+                  <strong>Oxygen Low's Software</strong><br>
                   GitHub: <a href="https://github.com/Oxygen-Low/LocalLLM" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-700">github.com/Oxygen-Low/LocalLLM</a>
                 </p>
               </div>
