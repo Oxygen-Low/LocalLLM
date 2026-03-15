@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject, NgZone } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { SecurityLoggerService } from './security-logger.service';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface AuthSession {
   username: string;
@@ -282,7 +283,7 @@ export class AuthService {
 
     try {
       const response = await firstValueFrom(
-        this.http.post<AuthResponse>('/api/auth/signup', { username, password })
+        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/signup`, { username, password })
       );
 
       if (response.success && response.username) {
@@ -320,7 +321,7 @@ export class AuthService {
 
     try {
       const response = await firstValueFrom(
-        this.http.post<AuthResponse>('/api/auth/login', { username, password })
+        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/login`, { username, password })
       );
 
       if (response.success && response.username) {
@@ -364,7 +365,7 @@ export class AuthService {
 
     try {
       const response = await firstValueFrom(
-        this.http.put<AuthResponse>('/api/auth/change-password', {
+        this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-password`, {
           username: user,
           currentPassword,
           newPassword,
@@ -395,7 +396,7 @@ export class AuthService {
 
     try {
       const response = await firstValueFrom(
-        this.http.delete<AuthResponse>('/api/auth/account', {
+        this.http.delete<AuthResponse>(`${environment.apiUrl}/api/auth/account`, {
           body: { username: user, password },
         })
       );
