@@ -55,6 +55,14 @@ export class AuthService {
     this.restoreSession();
   }
 
+  async hashPassword(password: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
   private restoreSession(): void {
     try {
       const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -282,8 +290,9 @@ export class AuthService {
     }
 
     try {
+      const hashedPassword = await this.hashPassword(password);
       const response = await firstValueFrom(
-        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/signup`, { username, password })
+        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/signup`, { username, password: hashedPassword })
       );
 
       if (response.success && response.username) {
@@ -320,8 +329,9 @@ export class AuthService {
     }
 
     try {
+      const hashedPassword = await this.hashPassword(password);
       const response = await firstValueFrom(
-        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/login`, { username, password })
+        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/login`, { username, password: hashedPassword })
       );
 
       if (response.success && response.username) {
@@ -364,11 +374,13 @@ export class AuthService {
     }
 
     try {
+      const hashedCurrentPassword = await this.hashPassword(currentPassword);
+      const hashedNewPassword = await this.hashPassword(newPassword);
       const response = await firstValueFrom(
         this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-password`, {
           username: user,
-          currentPassword,
-          newPassword,
+          currentPassword: hashedCurrentPassword,
+          newPassword: hashedNewPassword,
         })
       );
 
@@ -395,9 +407,10 @@ export class AuthService {
     }
 
     try {
+      const hashedPassword = await this.hashPassword(password);
       const response = await firstValueFrom(
         this.http.delete<AuthResponse>(`${environment.apiUrl}/api/auth/account`, {
-          body: { username: user, password },
+          body: { username: user, password: hashedPassword },
         })
       );
 

@@ -3,7 +3,9 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { rateLimit } = require('express-rate-limit');
+const selfsigned = require('selfsigned');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -244,8 +246,41 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Generate or load self-signed TLS certificate for HTTPS (development only)
+const CERT_DIR = path.join(__dirname, '..', 'data');
+const CERT_KEY_FILE = path.join(CERT_DIR, 'dev-key.pem');
+const CERT_FILE = path.join(CERT_DIR, 'dev-cert.pem');
 
-module.exports = { app };
+function getOrCreateCert() {
+  if (fs.existsSync(CERT_KEY_FILE) && fs.existsSync(CERT_FILE)) {
+    return {
+      key: fs.readFileSync(CERT_KEY_FILE, 'utf-8'),
+      cert: fs.readFileSync(CERT_FILE, 'utf-8'),
+    };
+  }
+
+  const attrs = [{ name: 'commonName', value: 'localhost' }];
+  const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
+
+  if (!fs.existsSync(CERT_DIR)) {
+    fs.mkdirSync(CERT_DIR, { recursive: true });
+  }
+  fs.writeFileSync(CERT_KEY_FILE, pems.private, 'utf-8');
+  fs.writeFileSync(CERT_FILE, pems.cert, 'utf-8');
+
+  return { key: pems.private, cert: pems.cert };
+}
+
+function createHttpsServer() {
+  const httpsOptions = getOrCreateCert();
+  return https.createServer(httpsOptions, app);
+}
+
+if (require.main === module) {
+  const server = createHttpsServer();
+  server.listen(PORT, () => {
+    console.log(`Server running on HTTPS port ${PORT}`);
+  });
+}
+
+module.exports = { app, createHttpsServer };

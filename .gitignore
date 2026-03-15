@@ -46,3 +46,7 @@ Thumbs.db
 
 # Server data (user credentials)
 data/users.json
+
+# Self-signed TLS certificates (development only)
+data/dev-key.pem
+data/dev-cert.pem
