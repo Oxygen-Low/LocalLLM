@@ -311,6 +311,38 @@ const translations: TranslationDictionary = {
     ja: 'トラブルシューティング',
     ru: 'Устранение неполадок',
   },
+
+  // 404 Not Found page
+  'notFound.badge': {
+    en: '404 Error',
+    ko: '404 오류',
+    ja: '404 エラー',
+    ru: 'Ошибка 404',
+  },
+  'notFound.title': {
+    en: 'Page Not Found',
+    ko: '페이지를 찾을 수 없습니다',
+    ja: 'ページが見つかりません',
+    ru: 'Страница не найдена',
+  },
+  'notFound.subtitle': {
+    en: "The page you're looking for doesn't exist or has been moved.",
+    ko: '찾고 계신 페이지가 존재하지 않거나 이동되었습니다.',
+    ja: 'お探しのページは存在しないか、移動した可能性があります。',
+    ru: 'Запрошенная страница не существует или была перемещена.',
+  },
+  'notFound.backHome': {
+    en: 'Back to Home',
+    ko: '홈으로 돌아가기',
+    ja: 'ホームに戻る',
+    ru: 'На главную',
+  },
+  'notFound.viewDocs': {
+    en: 'View Documentation',
+    ko: '문서 보기',
+    ja: 'ドキュメントを見る',
+    ru: 'Открыть документацию',
+  },
 };
 
 const LANGUAGE_STORAGE_KEY = 'localllm_language';

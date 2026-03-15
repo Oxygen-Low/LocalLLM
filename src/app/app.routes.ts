@@ -97,6 +97,6 @@ export const routes: Routes = [
   },
   {
     path: '**',
-    loadComponent: () => import('./pages/placeholder.page').then(m => m.PlaceholderPageComponent),
+    loadComponent: () => import('./pages/not-found.page').then(m => m.NotFoundPageComponent),
   },
 ];
