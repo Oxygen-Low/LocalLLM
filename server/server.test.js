@@ -147,3 +147,80 @@ describe('Rate limiting', () => {
     }
   });
 });
+
+describe('User language preference', () => {
+  const testUsername = 'languser_' + Date.now();
+  const testPassword = 'testpassword123';
+
+  it('should create a test user for language tests', async () => {
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: testUsername,
+      password: testPassword,
+    });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.success, true);
+  });
+
+  it('should default to English when no language is set', async () => {
+    const res = await request(server, 'GET', `/api/user/language?username=${testUsername}`, null);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.language, 'en');
+  });
+
+  it('should update user language preference', async () => {
+    const res = await request(server, 'PUT', '/api/user/language', {
+      username: testUsername,
+      language: 'ko',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.language, 'ko');
+  });
+
+  it('should return the updated language preference', async () => {
+    const res = await request(server, 'GET', `/api/user/language?username=${testUsername}`, null);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.language, 'ko');
+  });
+
+  it('should reject unsupported language codes', async () => {
+    const res = await request(server, 'PUT', '/api/user/language', {
+      username: testUsername,
+      language: 'fr',
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.equal(res.body.error, 'Unsupported language');
+  });
+
+  it('should return 404 for non-existent user on GET', async () => {
+    const res = await request(server, 'GET', '/api/user/language?username=nonexistent_user', null);
+    assert.equal(res.status, 404);
+    assert.equal(res.body.success, false);
+  });
+
+  it('should return 404 for non-existent user on PUT', async () => {
+    const res = await request(server, 'PUT', '/api/user/language', {
+      username: 'nonexistent_user',
+      language: 'ja',
+    });
+    assert.equal(res.status, 404);
+    assert.equal(res.body.success, false);
+  });
+
+  it('should return 400 when username is missing on GET', async () => {
+    const res = await request(server, 'GET', '/api/user/language', null);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('should return 400 when language is missing on PUT', async () => {
+    const res = await request(server, 'PUT', '/api/user/language', {
+      username: testUsername,
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+});

@@ -1,5 +1,9 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TranslationService } from '../../services/translation.service';
+import { AuthService } from '../../services/auth.service';
+import { SecurityLoggerService } from '../../services/security-logger.service';
 import { DocsApiAuthPageComponent } from './api-auth.page';
 import { DocsGettingStartedPageComponent } from './getting-started.page';
 
@@ -9,6 +13,12 @@ describe('Docs content translations', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [DocsGettingStartedPageComponent, DocsApiAuthPageComponent],
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     }).compileComponents();
 
     translationService = TestBed.inject(TranslationService);

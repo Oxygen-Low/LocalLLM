@@ -1,7 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { RouterModule } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { DashboardPageComponent } from './dashboard.page';
 import { TranslationService } from '../services/translation.service';
+import { AuthService } from '../services/auth.service';
+import { SecurityLoggerService } from '../services/security-logger.service';
 
 describe('DashboardPageComponent', () => {
   let translationService: TranslationService;
@@ -10,6 +14,12 @@ describe('DashboardPageComponent', () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [DashboardPageComponent, RouterModule.forRoot([])],
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     }).compileComponents();
 
     translationService = TestBed.inject(TranslationService);

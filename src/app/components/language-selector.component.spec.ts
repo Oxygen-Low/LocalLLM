@@ -1,10 +1,20 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { LanguageSelectorComponent } from './language-selector.component';
+import { AuthService } from '../services/auth.service';
+import { SecurityLoggerService } from '../services/security-logger.service';
 
 describe('LanguageSelectorComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [LanguageSelectorComponent],
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     }).compileComponents();
   });
 

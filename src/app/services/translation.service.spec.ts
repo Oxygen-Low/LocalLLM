@@ -1,17 +1,33 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TranslationService } from './translation.service';
+import { AuthService } from './auth.service';
+import { SecurityLoggerService } from './security-logger.service';
 
 describe('TranslationService', () => {
   let service: TranslationService;
+  let httpMock: HttpTestingController;
 
   beforeEach(() => {
     localStorage.clear();
-    TestBed.configureTestingModule({});
+    sessionStorage.clear();
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
     service = TestBed.inject(TranslationService);
+    httpMock = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => {
+    httpMock.verify();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('should be created', () => {
@@ -73,7 +89,14 @@ describe('TranslationService', () => {
   it('should restore language from localStorage on initialization', () => {
     localStorage.setItem('localllm_language', 'ja');
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
     const newService = TestBed.inject(TranslationService);
     expect(newService.currentLanguage().code).toBe('ja');
     expect(newService.currentLanguage().label).toBe('日本語');
@@ -82,8 +105,60 @@ describe('TranslationService', () => {
   it('should default to English when localStorage contains an unknown language code', () => {
     localStorage.setItem('localllm_language', 'fr');
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
     const newService = TestBed.inject(TranslationService);
     expect(newService.currentLanguage().code).toBe('en');
+  });
+
+  it('should save language to server when user is authenticated', () => {
+    const authService = TestBed.inject(AuthService);
+    // Simulate an authenticated user by directly setting session
+    sessionStorage.setItem('localllm_session', JSON.stringify({
+      username: 'testuser',
+      token: 'fake-token',
+      expiresAt: Date.now() + 86400000,
+    }));
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        AuthService,
+        SecurityLoggerService,
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    const newService = TestBed.inject(TranslationService);
+    const newHttpMock = TestBed.inject(HttpTestingController);
+
+    // The effect should trigger a server fetch for the authenticated user
+    TestBed.flushEffects();
+    const getReq = newHttpMock.expectOne(
+      (req) => req.url === '/api/user/language' && req.params.get('username') === 'testuser'
+    );
+    getReq.flush({ success: true, language: 'ko' });
+
+    expect(newService.currentLanguage().code).toBe('ko');
+
+    // Now set a different language - should PUT to server
+    newService.setLanguage({ code: 'ja', label: '日本語' });
+    const putReq = newHttpMock.expectOne('/api/user/language');
+    expect(putReq.request.method).toBe('PUT');
+    expect(putReq.request.body).toEqual({ username: 'testuser', language: 'ja' });
+    putReq.flush({ success: true, language: 'ja' });
+
+    newHttpMock.verify();
+  });
+
+  it('should not make server requests when user is not authenticated', () => {
+    service.setLanguage({ code: 'ko', label: '한국어' });
+    httpMock.expectNone('/api/user/language');
+    expect(localStorage.getItem('localllm_language')).toBe('ko');
   });
 });

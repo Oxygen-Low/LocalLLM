@@ -246,6 +246,67 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
   }
 });
 
+const SUPPORTED_LANGUAGES = ['en', 'ko', 'ja', 'ru'];
+
+// GET /api/user/language
+app.get('/api/user/language', (req, res) => {
+  try {
+    const { username } = req.query;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    const normalizedUsername = username.toLowerCase();
+    const users = readUsers();
+    const user = users.find((u) => u.username === normalizedUsername);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    res.json({ success: true, language: user.language || 'en' });
+  } catch (err) {
+    console.error('Get language error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/language
+app.put('/api/user/language', (req, res) => {
+  try {
+    const { username, language } = req.body;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    if (!language || typeof language !== 'string') {
+      return res.status(400).json({ success: false, error: 'Language is required' });
+    }
+
+    if (!SUPPORTED_LANGUAGES.includes(language)) {
+      return res.status(400).json({ success: false, error: 'Unsupported language' });
+    }
+
+    const normalizedUsername = username.toLowerCase();
+    const users = readUsers();
+    const userIndex = users.findIndex((u) => u.username === normalizedUsername);
+
+    if (userIndex === -1) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    users[userIndex] = { ...users[userIndex], language };
+    writeUsers(users);
+
+    res.json({ success: true, language });
+  } catch (err) {
+    console.error('Set language error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // Generate or load self-signed TLS certificate for HTTPS (development only)
 const CERT_DIR = path.join(__dirname, '..', 'data');
 const CERT_KEY_FILE = path.join(CERT_DIR, 'dev-key.pem');
