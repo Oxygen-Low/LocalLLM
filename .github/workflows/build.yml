@@ -63,7 +63,7 @@ jobs:
 
       - name: Test sign up
         run: |
-          RESPONSE=$(curl -s -X POST http://localhost:3000/api/auth/signup \
+          RESPONSE=$(curl -sk -X POST https://localhost:3000/api/auth/signup \
             -H "Content-Type: application/json" \
             -d '{"username":"ci_test_user","password":"CITestPass123!"}')
           echo "Sign up response: $RESPONSE"
@@ -71,7 +71,7 @@ jobs:
 
       - name: Test sign in
         run: |
-          RESPONSE=$(curl -s -X POST http://localhost:3000/api/auth/login \
+          RESPONSE=$(curl -sk -X POST https://localhost:3000/api/auth/login \
             -H "Content-Type: application/json" \
             -d '{"username":"ci_test_user","password":"CITestPass123!"}')
           echo "Sign in response: $RESPONSE"
