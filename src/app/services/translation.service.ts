@@ -169,6 +169,148 @@ const translations: TranslationDictionary = {
     ja: 'ダッシュボードを開く',
     ru: 'Открыть панель',
   },
+
+  // Dashboard page
+  'dashboard.badge': {
+    en: 'Dashboard',
+    ko: '대시보드',
+    ja: 'ダッシュボード',
+    ru: 'Панель управления',
+  },
+  'dashboard.title': {
+    en: 'AI Applications Hub',
+    ko: 'AI 애플리케이션 허브',
+    ja: 'AIアプリケーションハブ',
+    ru: 'Центр ИИ-приложений',
+  },
+  'dashboard.subtitle': {
+    en: 'Access your suite of AI applications. Available on our cloud platform or self-hosted on your infrastructure.',
+    ko: 'AI 애플리케이션 모음에 접근하세요. 클라우드 플랫폼 또는 자체 인프라에서 사용할 수 있습니다.',
+    ja: 'AIアプリケーション群にアクセスしましょう。クラウドプラットフォームまたは自社インフラでご利用いただけます。',
+    ru: 'Получите доступ к набору ИИ-приложений. Доступно в облаке или на вашей собственной инфраструктуре.',
+  },
+  'dashboard.settings': {
+    en: 'Settings',
+    ko: '설정',
+    ja: '設定',
+    ru: 'Настройки',
+  },
+  'dashboard.search': {
+    en: 'Search applications...',
+    ko: '애플리케이션 검색...',
+    ja: 'アプリケーションを検索...',
+    ru: 'Поиск приложений...',
+  },
+  'dashboard.filter.all': {
+    en: 'All',
+    ko: '전체',
+    ja: 'すべて',
+    ru: 'Все',
+  },
+  'dashboard.filter.tools': {
+    en: 'Tools',
+    ko: '도구',
+    ja: 'ツール',
+    ru: 'Инструменты',
+  },
+  'dashboard.filter.models': {
+    en: 'Models',
+    ko: '모델',
+    ja: 'モデル',
+    ru: 'Модели',
+  },
+  'dashboard.empty.title': {
+    en: 'No applications found',
+    ko: '애플리케이션을 찾을 수 없습니다',
+    ja: 'アプリケーションが見つかりません',
+    ru: 'Приложения не найдены',
+  },
+  'dashboard.empty.subtitle': {
+    en: 'Try adjusting your search or filters',
+    ko: '검색어나 필터를 조정해 보세요',
+    ja: '検索条件やフィルターを変更してみてください',
+    ru: 'Попробуйте изменить поиск или фильтры',
+  },
+
+  // Docs navigation
+  'docs.nav.getting-started': {
+    en: 'Getting Started',
+    ko: '시작하기',
+    ja: 'はじめに',
+    ru: 'Начало работы',
+  },
+  'docs.nav.installation': {
+    en: 'Installation',
+    ko: '설치',
+    ja: 'インストール',
+    ru: 'Установка',
+  },
+  'docs.nav.cloud-hosted': {
+    en: 'Cloud Hosted',
+    ko: '클라우드 호스팅',
+    ja: 'クラウドホスト',
+    ru: 'Облачный хостинг',
+  },
+  'docs.nav.self-hosted': {
+    en: 'Self-Hosted',
+    ko: '자체 호스팅',
+    ja: 'セルフホスト',
+    ru: 'Собственный хостинг',
+  },
+  'docs.nav.deployment': {
+    en: 'Deployment',
+    ko: '배포',
+    ja: 'デプロイ',
+    ru: 'Развёртывание',
+  },
+  'docs.nav.docker': {
+    en: 'Docker',
+    ko: 'Docker',
+    ja: 'Docker',
+    ru: 'Docker',
+  },
+  'docs.nav.kubernetes': {
+    en: 'Kubernetes',
+    ko: 'Kubernetes',
+    ja: 'Kubernetes',
+    ru: 'Kubernetes',
+  },
+  'docs.nav.api-reference': {
+    en: 'API Reference',
+    ko: 'API 레퍼런스',
+    ja: 'APIリファレンス',
+    ru: 'Справочник API',
+  },
+  'docs.nav.authentication': {
+    en: 'Authentication',
+    ko: '인증',
+    ja: '認証',
+    ru: 'Аутентификация',
+  },
+  'docs.nav.applications': {
+    en: 'Applications',
+    ko: '애플리케이션',
+    ja: 'アプリケーション',
+    ru: 'Приложения',
+  },
+  'docs.nav.models': {
+    en: 'Models',
+    ko: '모델',
+    ja: 'モデル',
+    ru: 'Модели',
+  },
+  'docs.nav.configuration': {
+    en: 'Configuration',
+    ko: '구성',
+    ja: '設定',
+    ru: 'Конфигурация',
+  },
+  'docs.nav.troubleshooting': {
+    en: 'Troubleshooting',
+    ko: '문제 해결',
+    ja: 'トラブルシューティング',
+    ru: 'Устранение неполадок',
+  },
 };
 
 @Injectable({

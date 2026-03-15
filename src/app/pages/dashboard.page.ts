@@ -1,8 +1,9 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { AppCardComponent, type AIApp } from '../components/app-card.component';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LanguageSelectorComponent } from '../components/language-selector.component';
+import { TranslationService } from '../services/translation.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -17,13 +18,13 @@ import { LanguageSelectorComponent } from '../components/language-selector.compo
             <div>
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 text-primary-700 text-sm font-medium mb-4">
                 <span class="w-2 h-2 bg-primary-600 rounded-full"></span>
-                Dashboard
+                {{ t.translate('dashboard.badge') }}
               </div>
               <h1 class="text-4xl sm:text-5xl font-bold text-secondary-900 mb-4">
-                AI Applications Hub
+                {{ t.translate('dashboard.title') }}
               </h1>
               <p class="text-lg text-muted">
-                Access your suite of AI applications. Available on our cloud platform or self-hosted on your infrastructure.
+                {{ t.translate('dashboard.subtitle') }}
               </p>
             </div>
             <a
@@ -34,7 +35,7 @@ import { LanguageSelectorComponent } from '../components/language-selector.compo
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              Settings
+              {{ t.translate('dashboard.settings') }}
             </a>
             <app-language-selector class="flex-shrink-0"></app-language-selector>
           </div>
@@ -46,19 +47,19 @@ import { LanguageSelectorComponent } from '../components/language-selector.compo
             <div class="flex-1 w-full">
               <input
                 type="text"
-                placeholder="Search applications..."
+                [placeholder]="t.translate('dashboard.search')"
                 class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
               />
             </div>
             <div class="flex gap-2">
               <button class="px-4 py-3 rounded-lg border border-secondary-200 hover:bg-secondary-100 transition-colors font-medium text-secondary-900">
-                All
+                {{ t.translate('dashboard.filter.all') }}
               </button>
               <button class="px-4 py-3 rounded-lg border border-secondary-200 hover:bg-secondary-100 transition-colors font-medium text-secondary-900">
-                Tools
+                {{ t.translate('dashboard.filter.tools') }}
               </button>
               <button class="px-4 py-3 rounded-lg border border-secondary-200 hover:bg-secondary-100 transition-colors font-medium text-secondary-900">
-                Models
+                {{ t.translate('dashboard.filter.models') }}
               </button>
             </div>
           </div>
@@ -79,8 +80,8 @@ import { LanguageSelectorComponent } from '../components/language-selector.compo
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 class="text-lg font-semibold text-secondary-900 mb-2">No applications found</h3>
-            <p class="text-muted">Try adjusting your search or filters</p>
+            <h3 class="text-lg font-semibold text-secondary-900 mb-2">{{ t.translate('dashboard.empty.title') }}</h3>
+            <p class="text-muted">{{ t.translate('dashboard.empty.subtitle') }}</p>
           </div>
         }
       </div>
@@ -88,6 +89,7 @@ import { LanguageSelectorComponent } from '../components/language-selector.compo
   `,
 })
 export class DashboardPageComponent {
+  protected t = inject(TranslationService);
   apps: AIApp[] = [
     {
       id: 'chatbot',

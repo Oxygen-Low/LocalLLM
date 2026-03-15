@@ -1,11 +1,12 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, inject } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { LanguageSelectorComponent } from '../components/language-selector.component';
+import { TranslationService } from '../services/translation.service';
 
 export interface DocNavItem {
-  label: string;
+  labelKey: string;
   path: string;
   children?: DocNavItem[];
 }
@@ -39,7 +40,7 @@ export interface DocNavItem {
                   [routerLinkActiveOptions]="{ exact: false }"
                   class="block px-4 py-2 rounded-lg text-secondary-700 hover:text-primary-600 hover:bg-primary-50 transition-colors text-sm"
                 >
-                  {{ item.label }}
+                  {{ t.translate(item.labelKey) }}
                 </a>
                 @if (item.children && item.children.length > 0) {
                   <div class="ml-2 mt-1 space-y-1 pl-2 border-l border-secondary-300">
@@ -50,7 +51,7 @@ export interface DocNavItem {
                         [routerLinkActiveOptions]="{ exact: false }"
                         class="block px-3 py-1.5 rounded text-secondary-600 hover:text-primary-600 transition-colors text-xs"
                       >
-                        {{ child.label }}
+                        {{ t.translate(child.labelKey) }}
                       </a>
                     }
                   </div>
@@ -118,7 +119,7 @@ export interface DocNavItem {
                     (click)="mobileSidebarOpen.set(false)"
                     class="block px-4 py-2 rounded-lg text-secondary-700 hover:text-primary-600 hover:bg-primary-50 transition-colors text-sm"
                   >
-                    {{ item.label }}
+                    {{ t.translate(item.labelKey) }}
                   </a>
                   @if (item.children && item.children.length > 0) {
                     <div class="ml-2 mt-1 space-y-1 pl-2 border-l border-secondary-300">
@@ -130,7 +131,7 @@ export interface DocNavItem {
                           (click)="mobileSidebarOpen.set(false)"
                           class="block px-3 py-1.5 rounded text-secondary-600 hover:text-primary-600 transition-colors text-xs"
                         >
-                          {{ child.label }}
+                          {{ t.translate(child.labelKey) }}
                         </a>
                       }
                     </div>
@@ -153,6 +154,8 @@ export interface DocNavItem {
   `,
 })
 export class DocsLayoutComponent implements OnInit {
+  protected t = inject(TranslationService);
+
   constructor(private titleService: Title) {}
 
   ngOnInit() {
@@ -163,40 +166,40 @@ export class DocsLayoutComponent implements OnInit {
 
   docNavigation: DocNavItem[] = [
     {
-      label: 'Getting Started',
+      labelKey: 'docs.nav.getting-started',
       path: '/docs/getting-started',
     },
     {
-      label: 'Installation',
+      labelKey: 'docs.nav.installation',
       path: '/docs/installation',
       children: [
-        { label: 'Cloud Hosted', path: '/docs/installation' },
-        { label: 'Self-Hosted', path: '/docs/installation-self-hosted' },
+        { labelKey: 'docs.nav.cloud-hosted', path: '/docs/installation' },
+        { labelKey: 'docs.nav.self-hosted', path: '/docs/installation-self-hosted' },
       ],
     },
     {
-      label: 'Deployment',
+      labelKey: 'docs.nav.deployment',
       path: '/docs/deployment',
       children: [
-        { label: 'Docker', path: '/docs/deployment-docker' },
-        { label: 'Kubernetes', path: '/docs/deployment-kubernetes' },
+        { labelKey: 'docs.nav.docker', path: '/docs/deployment-docker' },
+        { labelKey: 'docs.nav.kubernetes', path: '/docs/deployment-kubernetes' },
       ],
     },
     {
-      label: 'API Reference',
+      labelKey: 'docs.nav.api-reference',
       path: '/docs/api',
       children: [
-        { label: 'Authentication', path: '/docs/api-auth' },
-        { label: 'Applications', path: '/docs/api-applications' },
-        { label: 'Models', path: '/docs/api-models' },
+        { labelKey: 'docs.nav.authentication', path: '/docs/api-auth' },
+        { labelKey: 'docs.nav.applications', path: '/docs/api-applications' },
+        { labelKey: 'docs.nav.models', path: '/docs/api-models' },
       ],
     },
     {
-      label: 'Configuration',
+      labelKey: 'docs.nav.configuration',
       path: '/docs/configuration',
     },
     {
-      label: 'Troubleshooting',
+      labelKey: 'docs.nav.troubleshooting',
       path: '/docs/troubleshooting',
     },
   ];
