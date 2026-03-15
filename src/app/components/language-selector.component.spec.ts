@@ -8,7 +8,7 @@ describe('LanguageSelectorComponent', () => {
     }).compileComponents();
   });
 
-  it('should include Japanese as a supported language option', () => {
+  it('should include Russian as a supported language option', () => {
     const fixture = TestBed.createComponent(LanguageSelectorComponent);
     fixture.detectChanges();
 
@@ -18,10 +18,11 @@ describe('LanguageSelectorComponent', () => {
       { code: 'en', label: 'English' },
       { code: 'ko', label: '한국어' },
       { code: 'ja', label: '日本語' },
+      { code: 'ru', label: 'Русский' },
     ]);
   });
 
-  it('should allow selecting Japanese from the language menu', () => {
+  it('should allow selecting Russian from the language menu', () => {
     const fixture = TestBed.createComponent(LanguageSelectorComponent);
     fixture.detectChanges();
 
@@ -29,17 +30,17 @@ describe('LanguageSelectorComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const japaneseOption = Array.from(compiled.querySelectorAll('button[role="option"]')).find(button =>
-      button.textContent?.includes('日本語'),
+    const russianOption = Array.from(compiled.querySelectorAll('button[role="option"]')).find(button =>
+      button.textContent?.includes('Русский'),
     ) as HTMLButtonElement | undefined;
 
-    expect(japaneseOption).toBeTruthy();
+    expect(russianOption).toBeTruthy();
 
-    japaneseOption?.click();
+    russianOption?.click();
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.currentLanguage()).toEqual({ code: 'ja', label: '日本語' });
+    expect(fixture.componentInstance.currentLanguage()).toEqual({ code: 'ru', label: 'Русский' });
     const toggleButton = compiled.querySelector('button[aria-haspopup="listbox"]');
-    expect(toggleButton?.textContent).toContain('日本語');
+    expect(toggleButton?.textContent).toContain('Русский');
   });
 });
