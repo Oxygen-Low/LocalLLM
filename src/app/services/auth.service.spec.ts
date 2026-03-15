@@ -210,6 +210,31 @@ describe('AuthService', () => {
       const result = await loginPromise;
       expect(result.error).toBe('Invalid username or password');
     });
+
+    it('should return connection error when server is unreachable', async () => {
+      const loginPromise = service.login('testuser', 'Password1!');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/login');
+      req.error(new ProgressEvent('error'));
+
+      const result = await loginPromise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Connection failed to server');
+    });
+
+    it('should still record failed attempt on connection error', async () => {
+      expect(service.getRemainingAttempts('conntest')).toBe(5);
+
+      const loginPromise = service.login('conntest', 'Password1!');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/login');
+      req.error(new ProgressEvent('error'));
+
+      await loginPromise;
+      expect(service.getRemainingAttempts('conntest')).toBe(4);
+    });
   });
 
   describe('rate limiting (A04/A07)', () => {

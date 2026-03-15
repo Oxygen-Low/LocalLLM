@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject, NgZone } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { SecurityLoggerService } from './security-logger.service';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
@@ -344,10 +344,16 @@ export class AuthService {
       this.recordFailedAttempt(normalizedUsername);
       this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
       return { success: false, error: 'Invalid username or password' };
-    } catch {
+    } catch (error) {
       this.recordFailedAttempt(normalizedUsername);
-      this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
-      return { success: false, error: 'Invalid username or password' };
+
+      if (error instanceof HttpErrorResponse && error.status > 0) {
+        this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
+        return { success: false, error: 'Invalid username or password' };
+      }
+
+      this.securityLogger.log('LOGIN_FAILURE', 'Connection failed to server', normalizedUsername);
+      return { success: false, error: 'Connection failed to server' };
     }
   }
 
