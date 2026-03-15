@@ -43,3 +43,6 @@ Thumbs.db
 
 # Log files
 *.log
+
+# Server data (user credentials)
+data/users.json

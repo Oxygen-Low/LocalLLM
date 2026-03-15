@@ -1,12 +1,7 @@
 import { Injectable, signal, computed, inject, NgZone } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { SecurityLoggerService } from './security-logger.service';
-
-export interface StoredUser {
-  username: string;
-  passwordHash: string;
-  salt: string;
-  createdAt: string;
-}
+import { firstValueFrom } from 'rxjs';
 
 export interface AuthSession {
   username: string;
@@ -20,12 +15,16 @@ interface LoginAttemptRecord {
   lockedUntil: number | null;
 }
 
-const USERS_STORAGE_KEY = 'localllm_users';
+interface AuthResponse {
+  success: boolean;
+  error?: string;
+  username?: string;
+}
+
 const SESSION_STORAGE_KEY = 'localllm_session';
 const LOGIN_ATTEMPTS_KEY = 'localllm_login_attempts';
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MIN_PASSWORD_LENGTH = 8;
-const PBKDF2_ITERATIONS = 100000;
 
 // A04/A07: Rate limiting and account lockout constants
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -49,6 +48,7 @@ export class AuthService {
 
   private securityLogger = inject(SecurityLoggerService);
   private ngZone = inject(NgZone);
+  private http = inject(HttpClient);
 
   constructor() {
     this.restoreSession();
@@ -72,52 +72,6 @@ export class AuthService {
     } catch {
       sessionStorage.removeItem(SESSION_STORAGE_KEY);
     }
-  }
-
-  private getStoredUsers(): StoredUser[] {
-    try {
-      const data = localStorage.getItem(USERS_STORAGE_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private saveUsers(users: StoredUser[]): void {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-  }
-
-  private async generateSalt(): Promise<string> {
-    const array = new Uint8Array(16);
-    crypto.getRandomValues(array);
-    return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  private async hashPassword(password: string, salt: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(password),
-      'PBKDF2',
-      false,
-      ['deriveBits']
-    );
-
-    const saltBuffer = encoder.encode(salt);
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt: saltBuffer,
-        iterations: PBKDF2_ITERATIONS,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      256
-    );
-
-    return Array.from(new Uint8Array(derivedBits), (b) =>
-      b.toString(16).padStart(2, '0')
-    ).join('');
   }
 
   private async generateSessionToken(): Promise<string> {
@@ -326,30 +280,25 @@ export class AuthService {
       return { success: false, error: passwordErrors[0] };
     }
 
-    const users = this.getStoredUsers();
-    const normalizedUsername = username.toLowerCase();
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AuthResponse>('/api/auth/signup', { username, password })
+      );
 
-    if (users.some((u) => u.username === normalizedUsername)) {
-      this.securityLogger.log('SIGNUP_FAILURE', 'Username already exists', normalizedUsername);
-      return { success: false, error: 'Username already exists' };
+      if (response.success && response.username) {
+        await this.createSession(response.username);
+        this.securityLogger.log('SIGNUP_SUCCESS', 'New account created', response.username);
+        return { success: true };
+      }
+
+      this.securityLogger.log('SIGNUP_FAILURE', response.error ?? 'Unknown error', username);
+      return { success: false, error: response.error };
+    } catch (err: unknown) {
+      const error = err as { error?: AuthResponse; status?: number };
+      const message = error.error?.error ?? 'Failed to create account. Please try again.';
+      this.securityLogger.log('SIGNUP_FAILURE', message, username);
+      return { success: false, error: message };
     }
-
-    const salt = await this.generateSalt();
-    const passwordHash = await this.hashPassword(password, salt);
-
-    const newUser: StoredUser = {
-      username: normalizedUsername,
-      passwordHash,
-      salt,
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    this.saveUsers(users);
-    await this.createSession(normalizedUsername);
-    this.securityLogger.log('SIGNUP_SUCCESS', 'New account created', normalizedUsername);
-
-    return { success: true };
   }
 
   async login(
@@ -369,31 +318,26 @@ export class AuthService {
       };
     }
 
-    const users = this.getStoredUsers();
-    const user = users.find(
-      (u) => u.username === normalizedUsername
-    );
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AuthResponse>('/api/auth/login', { username, password })
+      );
 
-    if (!user) {
+      if (response.success && response.username) {
+        this.clearLoginAttempts(normalizedUsername);
+        await this.createSession(response.username);
+        this.securityLogger.log('LOGIN_SUCCESS', 'User logged in successfully', response.username);
+        return { success: true };
+      }
+
+      this.recordFailedAttempt(normalizedUsername);
+      this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
+      return { success: false, error: 'Invalid username or password' };
+    } catch {
       this.recordFailedAttempt(normalizedUsername);
       this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
       return { success: false, error: 'Invalid username or password' };
     }
-
-    const passwordHash = await this.hashPassword(password, user.salt);
-
-    if (passwordHash !== user.passwordHash) {
-      this.recordFailedAttempt(normalizedUsername);
-      this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
-      return { success: false, error: 'Invalid username or password' };
-    }
-
-    // Clear failed attempts on successful login
-    this.clearLoginAttempts(normalizedUsername);
-
-    await this.createSession(user.username);
-    this.securityLogger.log('LOGIN_SUCCESS', 'User logged in successfully', user.username);
-    return { success: true };
   }
 
   logout(): void {

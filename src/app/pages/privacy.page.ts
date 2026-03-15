@@ -45,7 +45,7 @@ import { RouterLink } from '@angular/router';
                 <div class="bg-secondary-50 rounded-lg p-4 border border-secondary-200">
                   <h4 class="font-semibold text-secondary-900 mb-1">Account Information</h4>
                   <p class="text-secondary-700 text-sm">
-                    <strong>Username and password</strong> — collected when you register for an account. Your password is stored in a securely hashed format and is never stored in plain text.
+                    <strong>Username and password</strong> — collected when you register for an account. Your password is stored on our server in a securely hashed format using industry-standard cryptographic algorithms and is never stored in plain text. No sensitive account data (such as password hashes or salts) is stored in your browser's local storage.
                   </p>
                 </div>
                 <div class="bg-secondary-50 rounded-lg p-4 border border-secondary-200">
@@ -133,6 +133,7 @@ import { RouterLink } from '@angular/router';
               </p>
               <ul class="list-disc list-inside text-secondary-700 mt-3 space-y-2">
                 <li>Passwords are hashed using industry-standard cryptographic algorithms and are never stored in plain text.</li>
+                <li>All sensitive user data (credentials, password hashes, salts) is stored securely on the server, not in client-side browser storage.</li>
                 <li>Rate limiting and account lockout mechanisms to prevent brute-force attacks.</li>
                 <li>Session management with automatic inactivity timeouts.</li>
                 <li>Security event logging and monitoring.</li>
