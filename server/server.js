@@ -251,7 +251,7 @@ const CERT_DIR = path.join(__dirname, '..', 'data');
 const CERT_KEY_FILE = path.join(CERT_DIR, 'dev-key.pem');
 const CERT_FILE = path.join(CERT_DIR, 'dev-cert.pem');
 
-function getOrCreateCert() {
+async function getOrCreateCert() {
   if (fs.existsSync(CERT_KEY_FILE) && fs.existsSync(CERT_FILE)) {
     return {
       key: fs.readFileSync(CERT_KEY_FILE, 'utf-8'),
@@ -260,7 +260,7 @@ function getOrCreateCert() {
   }
 
   const attrs = [{ name: 'commonName', value: 'localhost' }];
-  const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
+  const pems = await selfsigned.generate(attrs, { days: 365, keySize: 2048 });
 
   if (!fs.existsSync(CERT_DIR)) {
     fs.mkdirSync(CERT_DIR, { recursive: true });
@@ -271,15 +271,16 @@ function getOrCreateCert() {
   return { key: pems.private, cert: pems.cert };
 }
 
-function createHttpsServer() {
-  const httpsOptions = getOrCreateCert();
+async function createHttpsServer() {
+  const httpsOptions = await getOrCreateCert();
   return https.createServer(httpsOptions, app);
 }
 
 if (require.main === module) {
-  const server = createHttpsServer();
-  server.listen(PORT, () => {
-    console.log(`Server running on HTTPS port ${PORT}`);
+  createHttpsServer().then((server) => {
+    server.listen(PORT, () => {
+      console.log(`Server running on HTTPS port ${PORT}`);
+    });
   });
 }
 
