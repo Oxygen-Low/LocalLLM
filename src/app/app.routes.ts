@@ -5,6 +5,7 @@ import { HomePageComponent } from './pages/home.page';
 import { DashboardPageComponent } from './pages/dashboard.page';
 import { LicensePageComponent } from './pages/license.page';
 import { PrivacyPageComponent } from './pages/privacy.page';
+import { TermsPageComponent } from './pages/terms.page';
 import { PlaceholderPageComponent } from './pages/placeholder.page';
 import { LoginPageComponent } from './pages/login.page';
 import { SignupPageComponent } from './pages/signup.page';
@@ -33,6 +34,7 @@ export const routes: Routes = [
       { path: 'settings', component: SettingsPageComponent, canActivate: [authGuard] },
       { path: 'license', component: LicensePageComponent },
       { path: 'privacy', component: PrivacyPageComponent },
+      { path: 'terms', component: TermsPageComponent },
       { path: 'app/:id', component: PlaceholderPageComponent, canActivate: [authGuard] },
     ],
   },
