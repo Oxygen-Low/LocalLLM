@@ -20,6 +20,7 @@ import { DocsApiAuthPageComponent } from './pages/docs/api-auth.page';
 import { DocsApiApplicationsPageComponent } from './pages/docs/api-applications.page';
 import { DocsApiModelsPageComponent } from './pages/docs/api-models.page';
 import { SettingsPageComponent } from './pages/settings.page';
+import { AboutPageComponent } from './pages/about.page';
 import { authGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
@@ -35,6 +36,7 @@ export const routes: Routes = [
       { path: 'license', component: LicensePageComponent },
       { path: 'privacy', component: PrivacyPageComponent },
       { path: 'terms', component: TermsPageComponent },
+      { path: 'about', component: AboutPageComponent },
       { path: 'app/:id', component: PlaceholderPageComponent, canActivate: [authGuard] },
     ],
   },
