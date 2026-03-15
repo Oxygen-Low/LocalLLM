@@ -7,6 +7,7 @@ import { LicensePageComponent } from './pages/license.page';
 import { PrivacyPageComponent } from './pages/privacy.page';
 import { TermsPageComponent } from './pages/terms.page';
 import { PlaceholderPageComponent } from './pages/placeholder.page';
+import { NotFoundPageComponent } from './pages/not-found.page';
 import { LoginPageComponent } from './pages/login.page';
 import { SignupPageComponent } from './pages/signup.page';
 import { DocsGettingStartedPageComponent } from './pages/docs/getting-started.page';
@@ -58,6 +59,6 @@ export const routes: Routes = [
   },
   {
     path: '**',
-    component: PlaceholderPageComponent,
+    component: NotFoundPageComponent,
   },
 ];

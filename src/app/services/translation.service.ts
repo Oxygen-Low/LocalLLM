@@ -311,6 +311,37 @@ const translations: TranslationDictionary = {
     ja: 'トラブルシューティング',
     ru: 'Устранение неполадок',
   },
+  // 404 Not Found page
+  'notFound.code': {
+    en: '404',
+    ko: '404',
+    ja: '404',
+    ru: '404',
+  },
+  'notFound.title': {
+    en: 'Page Not Found',
+    ko: '페이지를 찾을 수 없습니다',
+    ja: 'ページが見つかりません',
+    ru: 'Страница не найдена',
+  },
+  'notFound.subtitle': {
+    en: "The page you're looking for doesn't exist or has been moved.",
+    ko: '찾으시는 페이지가 존재하지 않거나 이동되었습니다.',
+    ja: 'お探しのページは存在しないか、移動されました。',
+    ru: 'Страница, которую вы ищете, не существует или была перемещена.',
+  },
+  'notFound.backHome': {
+    en: 'Back to Home',
+    ko: '홈으로 돌아가기',
+    ja: 'ホームに戻る',
+    ru: 'На главную',
+  },
+  'notFound.goDocs': {
+    en: 'View Documentation',
+    ko: '문서 보기',
+    ja: 'ドキュメントを見る',
+    ru: 'Документация',
+  },
 };
 
 @Injectable({
