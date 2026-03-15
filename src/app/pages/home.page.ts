@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { HeroComponent } from '../components/hero.component';
 
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [HeroComponent],
+  imports: [HeroComponent, RouterLink],
   template: `
     <div>
       <app-hero></app-hero>
@@ -112,7 +113,7 @@ import { HeroComponent } from '../components/hero.component';
           <p class="text-lg text-muted mb-8 max-w-2xl mx-auto">
             Access your dashboard and start running powerful AI applications on the cloud or self-hosted.
           </p>
-          <a href="/dashboard" class="btn-primary inline-block">
+          <a routerLink="/dashboard" class="btn-primary inline-block">
             Launch Dashboard
           </a>
         </div>
