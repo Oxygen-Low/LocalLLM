@@ -187,7 +187,7 @@ export class DocsLayoutComponent implements OnInit {
     },
     {
       labelKey: 'docs.nav.api-reference',
-      path: '/docs/api',
+      path: '/docs/api-reference',
       children: [
         { labelKey: 'docs.nav.authentication', path: '/docs/api-auth' },
         { labelKey: 'docs.nav.applications', path: '/docs/api-applications' },
