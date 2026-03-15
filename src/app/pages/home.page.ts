@@ -1,13 +1,20 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { HeroComponent } from '../components/hero.component';
+import { LanguageSelectorComponent } from '../components/language-selector.component';
 
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [HeroComponent, RouterLink],
+  imports: [HeroComponent, RouterLink, LanguageSelectorComponent],
   template: `
     <div>
+      <!-- Language selector bar -->
+      <div class="bg-white border-b border-secondary-100">
+        <div class="container-custom py-2 flex justify-end">
+          <app-language-selector></app-language-selector>
+        </div>
+      </div>
       <app-hero></app-hero>
 
       <!-- Features Section -->

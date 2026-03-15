@@ -2,11 +2,12 @@ import { Component } from '@angular/core';
 import { AppCardComponent, type AIApp } from '../components/app-card.component';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { LanguageSelectorComponent } from '../components/language-selector.component';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, AppCardComponent, RouterLink],
+  imports: [CommonModule, AppCardComponent, RouterLink, LanguageSelectorComponent],
   template: `
     <div class="min-h-screen bg-gradient-to-b from-white to-secondary-50">
       <div class="container-custom py-12 sm:py-16 lg:py-20">
@@ -35,6 +36,7 @@ import { RouterLink } from '@angular/router';
               </svg>
               Settings
             </a>
+            <app-language-selector class="flex-shrink-0"></app-language-selector>
           </div>
         </div>
 
