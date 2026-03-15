@@ -30,4 +30,4 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test -- --no-watch --browsers=ChromeHeadless
+        run: npm test -- --no-watch
