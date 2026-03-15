@@ -66,7 +66,10 @@ export class DocsContentTranslationDirective {
 
         if (!this.shouldSkipNode(textNode)) {
           const originalText = this.originalTextByNode.get(textNode) ?? textNode.data;
-          this.originalTextByNode.set(textNode, originalText);
+
+          if (!this.originalTextByNode.has(textNode)) {
+            this.originalTextByNode.set(textNode, originalText);
+          }
 
           const translatedText = this.translateTextPreservingWhitespace(originalText, languageCode);
 
