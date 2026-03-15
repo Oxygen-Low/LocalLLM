@@ -12,21 +12,18 @@ const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 
-app.use(cors());
+app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
 app.use(express.json());
 
-// Ensure data directory and users file exist
-function ensureDataFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
-  }
+// Initialize data directory and users file at startup
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(USERS_FILE)) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
 }
 
 function readUsers() {
-  ensureDataFile();
   try {
     const data = fs.readFileSync(USERS_FILE, 'utf-8');
     return JSON.parse(data);
@@ -36,7 +33,6 @@ function readUsers() {
 }
 
 function writeUsers(users) {
-  ensureDataFile();
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
 }
 
@@ -56,10 +52,14 @@ function hashPassword(password, salt) {
 // POST /api/auth/signup
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { username } = req.body;
+    const { username, password } = req.body;
 
     if (!username || typeof username !== 'string') {
       return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
     const normalizedUsername = username.toLowerCase();
@@ -70,7 +70,7 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     const salt = generateSalt();
-    const passwordHash = await hashPassword(req.body.password, salt);
+    const passwordHash = await hashPassword(password, salt);
 
     const newUser = {
       username: normalizedUsername,
