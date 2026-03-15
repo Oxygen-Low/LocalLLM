@@ -3,16 +3,19 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const { execSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CERTS_DIR = path.join(__dirname, 'certs');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
+app.use(cors({ origin: process.env.CORS_ORIGIN || 'https://localhost:4200' }));
 app.use(express.json());
 
 // Initialize data directory and users file at startup
@@ -205,6 +208,31 @@ app.delete('/api/auth/account', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+function ensureCerts() {
+  const keyPath = path.join(CERTS_DIR, 'key.pem');
+  const certPath = path.join(CERTS_DIR, 'cert.pem');
+
+  if (!fs.existsSync(CERTS_DIR)) {
+    fs.mkdirSync(CERTS_DIR, { recursive: true });
+  }
+
+  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
+    console.log('Generating self-signed TLS certificates...');
+    execSync(
+      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 365 -nodes -subj "/CN=localhost"`,
+      { stdio: 'pipe' }
+    );
+    console.log('TLS certificates generated.');
+  }
+
+  return {
+    key: fs.readFileSync(keyPath),
+    cert: fs.readFileSync(certPath),
+  };
+}
+
+const tlsOptions = ensureCerts();
+
+https.createServer(tlsOptions, app).listen(PORT, () => {
+  console.log(`Server running on https://localhost:${PORT}`);
 });

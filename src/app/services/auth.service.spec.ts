@@ -4,6 +4,9 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { AuthService } from './auth.service';
 import { SecurityLoggerService } from './security-logger.service';
 
+// Helper to flush microtasks so async crypto.subtle.digest completes before expectOne
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 50));
+
 describe('AuthService', () => {
   let service: AuthService;
   let httpMock: HttpTestingController;
@@ -94,10 +97,12 @@ describe('AuthService', () => {
     it('should create a new user', async () => {
       const signupPromise = service.signup('testuser', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       expect(req.request.method).toBe('POST');
       expect(req.request.body.username).toBe('testuser');
-      expect(req.request.body.password).toBe('Password1!');
+      expect(req.request.body.password).not.toBe('Password1!');
+      expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
       req.flush({ success: true, username: 'testuser' });
 
       const result = await signupPromise;
@@ -109,6 +114,7 @@ describe('AuthService', () => {
     it('should reject duplicate usernames', async () => {
       const signupPromise = service.signup('testuser', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: false, error: 'Username already exists' }, { status: 409, statusText: 'Conflict' });
 
@@ -120,8 +126,10 @@ describe('AuthService', () => {
     it('should normalize username to lowercase', async () => {
       const signupPromise = service.signup('TestUser', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       expect(req.request.body.username).toBe('TestUser');
+      expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
       req.flush({ success: true, username: 'testuser' });
 
       const result = await signupPromise;
@@ -134,6 +142,7 @@ describe('AuthService', () => {
     it('should login with correct credentials', async () => {
       const loginPromise = service.login('testuser', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       expect(req.request.method).toBe('POST');
       req.flush({ success: true, username: 'testuser' });
@@ -146,6 +155,7 @@ describe('AuthService', () => {
     it('should reject incorrect password', async () => {
       const loginPromise = service.login('testuser', 'WrongPassword1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
 
@@ -157,6 +167,7 @@ describe('AuthService', () => {
     it('should reject nonexistent user', async () => {
       const loginPromise = service.login('nonexistent', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
 
@@ -168,6 +179,7 @@ describe('AuthService', () => {
     it('should use generic error for invalid credentials', async () => {
       const loginPromise = service.login('testuser', 'WrongPass1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
 
@@ -184,6 +196,7 @@ describe('AuthService', () => {
     it('should decrement remaining attempts after failed login', async () => {
       const loginPromise = service.login('ratetest', 'Wrong1!aa');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
 
@@ -194,6 +207,7 @@ describe('AuthService', () => {
     it('should lock account after 5 failed attempts', async () => {
       for (let i = 0; i < 5; i++) {
         const loginPromise = service.login('ratetest', 'Wrong1!aa');
+        await tick();
         const req = httpMock.expectOne('/api/auth/login');
         req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
         await loginPromise;
@@ -209,6 +223,7 @@ describe('AuthService', () => {
       // Two failed attempts
       for (let i = 0; i < 2; i++) {
         const loginPromise = service.login('ratetest', 'Wrong1!aa');
+        await tick();
         const req = httpMock.expectOne('/api/auth/login');
         req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
         await loginPromise;
@@ -217,6 +232,7 @@ describe('AuthService', () => {
 
       // Successful login
       const loginPromise = service.login('ratetest', 'Password1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: true, username: 'ratetest' });
       await loginPromise;
@@ -228,6 +244,7 @@ describe('AuthService', () => {
   describe('logout', () => {
     it('should clear authentication state', async () => {
       const signupPromise = service.signup('testuser', 'Password1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'testuser' });
       await signupPromise;
@@ -249,6 +266,7 @@ describe('AuthService', () => {
 
     it('should log successful signup', async () => {
       const signupPromise = service.signup('logtest', 'Password1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'logtest' });
       await signupPromise;
@@ -262,6 +280,7 @@ describe('AuthService', () => {
     it('should log failed login attempts', async () => {
       logger.clearLogs();
       const loginPromise = service.login('logtest2', 'WrongPass1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
       await loginPromise;
@@ -274,6 +293,7 @@ describe('AuthService', () => {
     it('should log successful login', async () => {
       logger.clearLogs();
       const loginPromise = service.login('logtest3', 'Password1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: true, username: 'logtest3' });
       await loginPromise;
@@ -288,6 +308,7 @@ describe('AuthService', () => {
 
       for (let i = 0; i < 5; i++) {
         const loginPromise = service.login('locktest', 'WrongPass1!');
+        await tick();
         const req = httpMock.expectOne('/api/auth/login');
         req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
         await loginPromise;
@@ -299,6 +320,7 @@ describe('AuthService', () => {
 
     it('should log logout', async () => {
       const signupPromise = service.signup('logouttest', 'Password1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'logouttest' });
       await signupPromise;
@@ -316,6 +338,7 @@ describe('AuthService', () => {
       localStorage.clear();
 
       const signupPromise = service.signup('testuser', 'Password1!');
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'testuser' });
       await signupPromise;
@@ -323,23 +346,29 @@ describe('AuthService', () => {
       expect(localStorage.length).toBe(0);
     });
 
-    it('should send credentials to server API on signup', async () => {
+    it('should send hashed credentials to server API on signup', async () => {
       const signupPromise = service.signup('newuser', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/signup');
       expect(req.request.method).toBe('POST');
-      expect(req.request.body).toEqual({ username: 'newuser', password: 'Password1!' });
+      expect(req.request.body.username).toBe('newuser');
+      expect(req.request.body.password).not.toBe('Password1!');
+      expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
       req.flush({ success: true, username: 'newuser' });
 
       await signupPromise;
     });
 
-    it('should send credentials to server API on login', async () => {
+    it('should send hashed credentials to server API on login', async () => {
       const loginPromise = service.login('existinguser', 'Password1!');
 
+      await tick();
       const req = httpMock.expectOne('/api/auth/login');
       expect(req.request.method).toBe('POST');
-      expect(req.request.body).toEqual({ username: 'existinguser', password: 'Password1!' });
+      expect(req.request.body.username).toBe('existinguser');
+      expect(req.request.body.password).not.toBe('Password1!');
+      expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
       req.flush({ success: true, username: 'existinguser' });
 
       await loginPromise;

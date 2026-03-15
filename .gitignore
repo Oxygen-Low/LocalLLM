@@ -46,3 +46,6 @@ Thumbs.db
 
 # Server data (user credentials)
 data/users.json
+
+# TLS certificates (auto-generated)
+server/certs/

@@ -26,6 +26,14 @@ const LOGIN_ATTEMPTS_KEY = 'localllm_login_attempts';
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MIN_PASSWORD_LENGTH = 8;
 
+async function hashForTransmission(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 // A04/A07: Rate limiting and account lockout constants
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -281,8 +289,9 @@ export class AuthService {
     }
 
     try {
+      const hashedPassword = await hashForTransmission(password);
       const response = await firstValueFrom(
-        this.http.post<AuthResponse>('/api/auth/signup', { username, password })
+        this.http.post<AuthResponse>('/api/auth/signup', { username, password: hashedPassword })
       );
 
       if (response.success && response.username) {
@@ -319,8 +328,9 @@ export class AuthService {
     }
 
     try {
+      const hashedPassword = await hashForTransmission(password);
       const response = await firstValueFrom(
-        this.http.post<AuthResponse>('/api/auth/login', { username, password })
+        this.http.post<AuthResponse>('/api/auth/login', { username, password: hashedPassword })
       );
 
       if (response.success && response.username) {
@@ -363,11 +373,13 @@ export class AuthService {
     }
 
     try {
+      const hashedCurrentPassword = await hashForTransmission(currentPassword);
+      const hashedNewPassword = await hashForTransmission(newPassword);
       const response = await firstValueFrom(
         this.http.put<AuthResponse>('/api/auth/change-password', {
           username: user,
-          currentPassword,
-          newPassword,
+          currentPassword: hashedCurrentPassword,
+          newPassword: hashedNewPassword,
         })
       );
 
@@ -394,9 +406,10 @@ export class AuthService {
     }
 
     try {
+      const hashedPassword = await hashForTransmission(password);
       const response = await firstValueFrom(
         this.http.delete<AuthResponse>('/api/auth/account', {
-          body: { username: user, password },
+          body: { username: user, password: hashedPassword },
         })
       );
 
