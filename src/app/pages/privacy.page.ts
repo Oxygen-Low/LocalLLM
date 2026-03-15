@@ -60,6 +60,12 @@ import { RouterLink } from '@angular/router';
                     <strong>Session and log data</strong> — such as session identifiers, access timestamps, and security event logs necessary for the operation and security of the service.
                   </p>
                 </div>
+                <div class="bg-secondary-50 rounded-lg p-4 border border-secondary-200">
+                  <h4 class="font-semibold text-secondary-900 mb-1">Moderation Data</h4>
+                  <p class="text-secondary-700 text-sm">
+                    <strong>IP address and hardware identifiers</strong> — collected and stored when your account is flagged for violations of our <a routerLink="/terms" class="text-primary-600 hover:text-primary-700">Terms of Service</a>, such as generating prohibited content or attempting to exploit the service. This data is used solely for content moderation, abuse prevention, and enforcement of our Terms of Service, and may be shared with law enforcement where required.
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -94,6 +100,11 @@ import { RouterLink } from '@angular/router';
                       <td class="p-3">Security, service operation, and abuse prevention</td>
                       <td class="p-3">Legitimate interests (Art. 6(1)(f))</td>
                     </tr>
+                    <tr>
+                      <td class="p-3">Moderation Data</td>
+                      <td class="p-3">Content moderation, abuse prevention, and Terms of Service enforcement</td>
+                      <td class="p-3">Legitimate interests (Art. 6(1)(f)) and Legal obligation (Art. 6(1)(c))</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -109,6 +120,7 @@ import { RouterLink } from '@angular/router';
                 <li><strong>Account data</strong> is retained for the lifetime of your account and deleted upon account deletion.</li>
                 <li><strong>Chat data</strong> is retained for the lifetime of your account unless you delete individual conversations.</li>
                 <li><strong>Technical data</strong> such as security logs is retained for a reasonable period necessary for security and operational purposes, after which it is automatically purged.</li>
+                <li><strong>Moderation data</strong> such as IP addresses and hardware identifiers collected during Terms of Service enforcement is retained for as long as necessary to enforce account restrictions and prevent abuse, and may be retained where required for legal or law enforcement purposes.</li>
               </ul>
             </section>
 
@@ -122,6 +134,7 @@ import { RouterLink } from '@angular/router';
                 <li><strong>Service providers:</strong> Trusted third-party providers who assist us in operating the service, subject to contractual data protection obligations.</li>
                 <li><strong>Legal obligations:</strong> Where required by law, regulation, or legal process.</li>
                 <li><strong>Safety and security:</strong> Where necessary to protect the rights, safety, or property of our users or the public.</li>
+                <li><strong>Terms of Service enforcement:</strong> IP addresses and hardware identifiers associated with accounts that violate our <a routerLink="/terms" class="text-primary-600 hover:text-primary-700">Terms of Service</a> (such as generating prohibited content) may be shared with law enforcement authorities.</li>
               </ul>
             </section>
 
