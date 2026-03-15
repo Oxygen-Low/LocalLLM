@@ -160,7 +160,8 @@ import { Component } from '@angular/core';
     "es",
     "fr",
     "de",
-    "zh"
+    "zh",
+    "ru"
   ],
   "isAvailable": true,
   "version": "gpt-4-0613",

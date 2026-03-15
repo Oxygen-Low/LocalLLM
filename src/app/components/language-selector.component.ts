@@ -67,7 +67,7 @@ interface Language {
 export class LanguageSelectorComponent {
   readonly languages: Language[] = [
     { code: 'en', label: 'English' },
-    // Additional languages can be added here in the future
+    { code: 'ru', label: 'Русский' },
   ];
 
   currentLanguage = signal<Language>(this.languages[0]);

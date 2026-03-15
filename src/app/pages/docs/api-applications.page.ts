@@ -126,7 +126,8 @@ import { Component } from '@angular/core';
     "en",
     "es",
     "fr",
-    "de"
+    "de",
+    "ru"
   ],
   "rateLimit": {{ '{' }}
     "requests": 1000,
