@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve\"",
     "server": "node server/server.js",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
@@ -41,6 +41,7 @@
     "@angular/compiler-cli": "^20.3.18",
     "@tailwindcss/typography": "^0.5.16",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.1",
     "jsdom": "^29.0.0",
     "typescript": "~5.8.2",
     "vitest": "^3.2.4"
