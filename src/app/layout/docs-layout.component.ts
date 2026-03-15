@@ -2,6 +2,7 @@ import { Component, OnInit, signal } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { LanguageSelectorComponent } from '../components/language-selector.component';
 
 export interface DocNavItem {
   label: string;
@@ -12,7 +13,7 @@ export interface DocNavItem {
 @Component({
   selector: 'app-docs-layout',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, LanguageSelectorComponent],
   template: `
     <div class="flex flex-col min-h-screen bg-white">
       <div class="flex flex-1">
@@ -57,6 +58,9 @@ export interface DocNavItem {
               </div>
             }
           </nav>
+          <div class="px-6 pb-4">
+            <app-language-selector></app-language-selector>
+          </div>
         </aside>
 
         <!-- Mobile Sidebar Toggle Button -->
@@ -134,6 +138,9 @@ export interface DocNavItem {
                 </div>
               }
             </nav>
+            <div class="px-6 pb-4">
+              <app-language-selector></app-language-selector>
+            </div>
           </aside>
         }
 
