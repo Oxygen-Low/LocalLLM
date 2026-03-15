@@ -3,7 +3,9 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { rateLimit } = require('express-rate-limit');
+const selfsigned = require('selfsigned');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -244,8 +246,24 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Generate self-signed TLS certificate for HTTPS
+function createHttpsServer() {
+  const attrs = [{ name: 'commonName', value: 'localhost' }];
+  const pems = selfsigned.generate(attrs, { days: 365, keySize: 2048 });
 
-module.exports = { app };
+  const httpsOptions = {
+    key: pems.private,
+    cert: pems.cert,
+  };
+
+  return https.createServer(httpsOptions, app);
+}
+
+if (require.main === module) {
+  const server = createHttpsServer();
+  server.listen(PORT, () => {
+    console.log(`Server running on HTTPS port ${PORT}`);
+  });
+}
+
+module.exports = { app, createHttpsServer };
