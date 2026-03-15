@@ -218,11 +218,27 @@ function ensureCerts() {
 
   if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
     console.log('Generating self-signed TLS certificates...');
-    execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 365 -nodes -subj "/CN=localhost"`,
-      { stdio: 'pipe' }
-    );
-    console.log('TLS certificates generated.');
+    try {
+      execSync('openssl version', { stdio: 'pipe' });
+    } catch {
+      console.error('Error: openssl is required to generate TLS certificates but was not found.');
+      console.error('Please install openssl or provide your own key.pem and cert.pem in server/certs/.');
+      process.exit(1);
+    }
+    try {
+      execSync(
+        'openssl req -x509 -newkey rsa:2048 -keyout ' +
+          JSON.stringify(keyPath) +
+          ' -out ' +
+          JSON.stringify(certPath) +
+          ' -days 365 -nodes -subj "/CN=localhost"',
+        { stdio: 'pipe' }
+      );
+      console.log('TLS certificates generated.');
+    } catch (err) {
+      console.error('Failed to generate TLS certificates:', err.message);
+      process.exit(1);
+    }
   }
 
   return {
