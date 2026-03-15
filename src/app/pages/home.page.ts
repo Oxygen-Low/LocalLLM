@@ -19,7 +19,7 @@ import { TranslationService } from '../services/translation.service';
       <app-hero></app-hero>
 
       <!-- Features Section -->
-      <section class="section-padding bg-white">
+      <section id="features" class="section-padding bg-white">
         <div class="container-custom">
           <div class="max-w-2xl mx-auto text-center mb-12 sm:mb-16">
             <h2 class="text-3xl sm:text-4xl font-bold text-secondary-900 mb-4">
