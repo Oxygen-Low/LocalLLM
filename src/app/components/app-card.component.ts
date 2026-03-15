@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
@@ -18,28 +18,28 @@ export interface AIApp {
   template: `
     <div class="card p-6 sm:p-8 flex flex-col h-full group">
       <!-- Icon -->
-      <div [ngClass]="getColorClasses(app.color)" class="w-14 h-14 rounded-xl flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">
-        {{ app.icon }}
+      <div [ngClass]="getColorClasses(app().color)" class="w-14 h-14 rounded-xl flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">
+        {{ app().icon }}
       </div>
 
       <!-- Category -->
       <span class="text-xs font-semibold text-primary-600 uppercase tracking-wider mb-2">
-        {{ app.category }}
+        {{ app().category }}
       </span>
 
       <!-- Name -->
       <h3 class="text-xl font-bold text-secondary-900 mb-3 group-hover:text-primary-600 transition-colors">
-        {{ app.name }}
+        {{ app().name }}
       </h3>
 
       <!-- Description -->
       <p class="text-muted text-sm mb-6 flex-1 leading-relaxed">
-        {{ app.description }}
+        {{ app().description }}
       </p>
 
       <!-- Button -->
       <button
-        [routerLink]="['/app', app.id]"
+        [routerLink]="['/app', app().id]"
         class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
       >
         Launch
@@ -48,7 +48,7 @@ export interface AIApp {
   `,
 })
 export class AppCardComponent {
-  @Input() app!: AIApp;
+  readonly app = input.required<AIApp>();
 
   getColorClasses(color: string): string {
     const colors: Record<string, string> = {
