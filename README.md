@@ -16,7 +16,7 @@ A unified platform for accessing and managing multiple AI applications. Deploy t
 - [TypeScript](https://www.typescriptlang.org/)
 - [TailwindCSS 3](https://tailwindcss.com/) with Typography plugin
 - [PostCSS](https://postcss.org/) + Autoprefixer
-- Jasmine / Karma for unit testing
+- [Vitest](https://vitest.dev/) for unit testing
 
 ## Getting Started
 
@@ -46,7 +46,7 @@ Open your browser and navigate to `http://localhost:4200/`. The application relo
 | `npm start`       | Start the development server             |
 | `npm run build`   | Production build (output to `dist/`)     |
 | `npm run watch`   | Build in watch mode (development config) |
-| `npm test`        | Run unit tests with Karma                |
+| `npm test`        | Run unit tests with Vitest               |
 
 ## Project Structure
 
