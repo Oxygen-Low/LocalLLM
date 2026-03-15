@@ -32,7 +32,7 @@ describe('AuthService', () => {
   });
 
   it('should not be authenticated initially', () => {
-    expect(service.isAuthenticated()).toBeFalse();
+    expect(service.isAuthenticated()).toBe(false);
   });
 
   describe('validatePassword', () => {
@@ -101,8 +101,8 @@ describe('AuthService', () => {
       req.flush({ success: true, username: 'testuser' });
 
       const result = await signupPromise;
-      expect(result.success).toBeTrue();
-      expect(service.isAuthenticated()).toBeTrue();
+      expect(result.success).toBe(true);
+      expect(service.isAuthenticated()).toBe(true);
       expect(service.username()).toBe('testuser');
     });
 
@@ -113,7 +113,7 @@ describe('AuthService', () => {
       req.flush({ success: false, error: 'Username already exists' }, { status: 409, statusText: 'Conflict' });
 
       const result = await signupPromise;
-      expect(result.success).toBeFalse();
+      expect(result.success).toBe(false);
       expect(result.error).toContain('already exists');
     });
 
@@ -125,7 +125,7 @@ describe('AuthService', () => {
       req.flush({ success: true, username: 'testuser' });
 
       const result = await signupPromise;
-      expect(result.success).toBeTrue();
+      expect(result.success).toBe(true);
       expect(service.username()).toBe('testuser');
     });
   });
@@ -139,8 +139,8 @@ describe('AuthService', () => {
       req.flush({ success: true, username: 'testuser' });
 
       const result = await loginPromise;
-      expect(result.success).toBeTrue();
-      expect(service.isAuthenticated()).toBeTrue();
+      expect(result.success).toBe(true);
+      expect(service.isAuthenticated()).toBe(true);
     });
 
     it('should reject incorrect password', async () => {
@@ -150,7 +150,7 @@ describe('AuthService', () => {
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
 
       const result = await loginPromise;
-      expect(result.success).toBeFalse();
+      expect(result.success).toBe(false);
       expect(result.error).toBe('Invalid username or password');
     });
 
@@ -161,7 +161,7 @@ describe('AuthService', () => {
       req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
 
       const result = await loginPromise;
-      expect(result.success).toBeFalse();
+      expect(result.success).toBe(false);
       expect(result.error).toBe('Invalid username or password');
     });
 
@@ -201,7 +201,7 @@ describe('AuthService', () => {
       expect(service.getRemainingAttempts('ratetest')).toBe(0);
 
       const result = await service.login('ratetest', 'Password1!');
-      expect(result.success).toBeFalse();
+      expect(result.success).toBe(false);
       expect(result.error).toContain('temporarily locked');
     });
 
@@ -232,9 +232,9 @@ describe('AuthService', () => {
       req.flush({ success: true, username: 'testuser' });
       await signupPromise;
 
-      expect(service.isAuthenticated()).toBeTrue();
+      expect(service.isAuthenticated()).toBe(true);
       service.logout();
-      expect(service.isAuthenticated()).toBeFalse();
+      expect(service.isAuthenticated()).toBe(false);
       expect(service.username()).toBeNull();
     });
   });
