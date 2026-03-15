@@ -33,3 +33,52 @@ jobs:
 
       - name: Test
         run: npm test -- --no-watch
+
+      - name: Start application
+        run: |
+          node server/server.js &
+          echo $! > /tmp/server.pid
+          python3 -m http.server 4200 --directory dist/local-llm/browser &
+          echo $! > /tmp/frontend.pid
+
+      - name: Wait for application to start
+        run: |
+          echo "Waiting for backend on port 3000..."
+          for i in $(seq 1 30); do
+            nc -z localhost 3000 2>/dev/null && echo "Backend ready" && break
+            [ $i -eq 30 ] && echo "Backend failed to start" && exit 1
+            sleep 1
+          done
+          echo "Waiting for frontend on port 4200..."
+          for i in $(seq 1 30); do
+            nc -z localhost 4200 2>/dev/null && echo "Frontend ready" && break
+            [ $i -eq 30 ] && echo "Frontend failed to start" && exit 1
+            sleep 1
+          done
+
+      - name: Test application startup
+        run: |
+          curl -sf http://localhost:4200 | grep -qi "<!doctype html"
+          echo "Application is running"
+
+      - name: Test sign up
+        run: |
+          RESPONSE=$(curl -s -X POST http://localhost:3000/api/auth/signup \
+            -H "Content-Type: application/json" \
+            -d '{"username":"ci_test_user","password":"CITestPass123!"}')
+          echo "Sign up response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"success":true'
+
+      - name: Test sign in
+        run: |
+          RESPONSE=$(curl -s -X POST http://localhost:3000/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"ci_test_user","password":"CITestPass123!"}')
+          echo "Sign in response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"success":true'
+
+      - name: Stop application
+        if: always()
+        run: |
+          [ -f /tmp/server.pid ] && kill $(cat /tmp/server.pid) 2>/dev/null || true
+          [ -f /tmp/frontend.pid ] && kill $(cat /tmp/frontend.pid) 2>/dev/null || true
