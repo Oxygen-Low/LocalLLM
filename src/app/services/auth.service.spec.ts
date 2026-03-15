@@ -4,8 +4,10 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { AuthService } from './auth.service';
 import { SecurityLoggerService } from './security-logger.service';
 
-function flushAsync(): Promise<void> {
-  return new Promise(resolve => setTimeout(() => setTimeout(resolve, 0), 0));
+async function flushAsync(): Promise<void> {
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
 }
 
 describe('AuthService', () => {
