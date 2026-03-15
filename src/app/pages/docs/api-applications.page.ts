@@ -1,10 +1,12 @@
 import { Component } from '@angular/core';
+import { DocsContentTranslationDirective } from './docs-content-translation.directive';
 
 @Component({
   selector: 'app-docs-api-applications',
   standalone: true,
+  imports: [DocsContentTranslationDirective],
   template: `
-    <div class="p-6 sm:p-8 lg:p-12 max-w-4xl">
+    <div appDocsContentTranslation class="p-6 sm:p-8 lg:p-12 max-w-4xl">
       <!-- Breadcrumb -->
       <div class="mb-6">
         <a href="/docs" class="text-primary-600 hover:text-primary-700 text-sm font-medium">Documentation</a>
