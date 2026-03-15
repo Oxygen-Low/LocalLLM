@@ -54,7 +54,7 @@ import { RouterLink } from '@angular/router';
 
         <div class="border-t border-secondary-200 pt-8">
           <p class="text-sm text-center text-muted">
-            © 2024 Local.LLM. All rights reserved.
+            © 2026 Oxygen Low's Software. All rights reserved.
           </p>
         </div>
       </div>

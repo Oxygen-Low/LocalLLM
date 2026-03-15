@@ -26,7 +26,7 @@ import { RouterLink } from '@angular/router';
         <div class="card p-8 sm:p-12 max-w-4xl">
           <div class="prose prose-lg max-w-none text-secondary-900">
             <pre class="bg-black text-white p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono border border-secondary-200">
-Copyright (c) 2024 Local.LLM Contributors
+Copyright (c) 2026 Oxygen Low's Software
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
