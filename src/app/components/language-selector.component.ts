@@ -1,10 +1,6 @@
-import { Component, signal, HostListener } from '@angular/core';
+import { Component, signal, HostListener, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-interface Language {
-  code: string;
-  label: string;
-}
+import { TranslationService, type Language } from '../services/translation.service';
 
 @Component({
   selector: 'app-language-selector',
@@ -65,12 +61,10 @@ interface Language {
   `,
 })
 export class LanguageSelectorComponent {
-  readonly languages: Language[] = [
-    { code: 'en', label: 'English' },
-    { code: 'ko', label: '한국어' },
-  ];
+  private translationService = inject(TranslationService);
 
-  currentLanguage = signal<Language>(this.languages[0]);
+  readonly languages = this.translationService.languages;
+  currentLanguage = this.translationService.currentLanguage;
   isOpen = signal(false);
 
   toggleDropdown(): void {
@@ -78,7 +72,7 @@ export class LanguageSelectorComponent {
   }
 
   selectLanguage(lang: Language): void {
-    this.currentLanguage.set(lang);
+    this.translationService.setLanguage(lang);
     this.isOpen.set(false);
   }
 

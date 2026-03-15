@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { TranslationService } from '../services/translation.service';
 
 @Component({
   selector: 'app-hero',
@@ -23,17 +24,17 @@ import { RouterLink } from '@angular/router';
           <!-- Badge -->
           <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-100 text-primary-700 text-sm font-medium mb-6 sm:mb-8">
             <span class="w-2 h-2 bg-primary-600 rounded-full"></span>
-            Unified AI Hub - Cloud or Self-Hosted
+            {{ t.translate('hero.badge') }}
           </div>
 
           <!-- Headline -->
           <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-secondary-900 mb-6 leading-tight">
-            Tools For Everyone
+            {{ t.translate('hero.headline') }}
           </h1>
 
           <!-- Subheading -->
           <p class="text-lg sm:text-xl text-muted mb-8 sm:mb-10 leading-relaxed">
-            Local.LLM is your platform for accessing developer, roleplaying, and gaming AI applications. Use our cloud or host it yourself.
+            {{ t.translate('hero.subheading') }}
           </p>
 
           <!-- Features Grid -->
@@ -44,7 +45,7 @@ import { RouterLink } from '@angular/router';
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                 </svg>
               </div>
-              <span class="text-secondary-700 font-medium">Cloud & Self-Hosted</span>
+              <span class="text-secondary-700 font-medium">{{ t.translate('hero.feature.cloud') }}</span>
             </div>
             <div class="flex items-center justify-center sm:justify-start gap-3">
               <div class="w-5 h-5 rounded-full bg-accent-600 flex-shrink-0 flex items-center justify-center">
@@ -52,7 +53,7 @@ import { RouterLink } from '@angular/router';
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                 </svg>
               </div>
-              <span class="text-secondary-700 font-medium">Enterprise Ready</span>
+              <span class="text-secondary-700 font-medium">{{ t.translate('hero.feature.enterprise') }}</span>
             </div>
             <div class="flex items-center justify-center sm:justify-start gap-3">
               <div class="w-5 h-5 rounded-full bg-accent-600 flex-shrink-0 flex items-center justify-center">
@@ -60,7 +61,7 @@ import { RouterLink } from '@angular/router';
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                 </svg>
               </div>
-              <span class="text-secondary-700 font-medium">Open Source</span>
+              <span class="text-secondary-700 font-medium">{{ t.translate('hero.feature.opensource') }}</span>
             </div>
           </div>
 
@@ -70,13 +71,13 @@ import { RouterLink } from '@angular/router';
               routerLink="/dashboard"
               class="btn-primary w-full sm:w-auto text-center"
             >
-              Launch Dashboard
+              {{ t.translate('hero.cta.dashboard') }}
             </a>
             <a
               routerLink="/docs"
               class="btn-ghost w-full sm:w-auto text-center"
             >
-              View Documentation
+              {{ t.translate('hero.cta.docs') }}
             </a>
             <a
               href="https://github.com/Oxygen-Low/LocalLLM"
@@ -84,7 +85,7 @@ import { RouterLink } from '@angular/router';
               rel="noopener noreferrer"
               class="btn-ghost w-full sm:w-auto text-center"
             >
-              View GitHub
+              {{ t.translate('hero.cta.github') }}
             </a>
           </div>
         </div>
@@ -96,4 +97,6 @@ import { RouterLink } from '@angular/router';
     </section>
   `,
 })
-export class HeroComponent {}
+export class HeroComponent {
+  protected t = inject(TranslationService);
+}
