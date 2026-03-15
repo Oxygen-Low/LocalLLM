@@ -57,7 +57,8 @@
           "options": {
             "allowedHosts": [
               ".ngrok-free.dev"
-            ]
+            ],
+            "proxyConfig": "proxy.conf.json"
           },
           "configurations": {
             "production": {
