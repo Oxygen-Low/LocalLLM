@@ -1,4 +1,8 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, inject, effect, DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpClient } from '@angular/common/http';
+import { AuthService } from './auth.service';
+import { environment } from '../../environments/environment';
 
 export interface Language {
   code: string;
@@ -347,10 +351,20 @@ const translations: TranslationDictionary = {
 
 const LANGUAGE_STORAGE_KEY = 'localllm_language';
 
+interface LanguageResponse {
+  success: boolean;
+  language?: string;
+  error?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
 export class TranslationService {
+  private http = inject(HttpClient);
+  private authService = inject(AuthService);
+  private destroyRef = inject(DestroyRef);
+
   readonly languages: Language[] = [
     { code: 'en', label: 'English' },
     { code: 'ko', label: '한국어' },
@@ -358,12 +372,32 @@ export class TranslationService {
     { code: 'ru', label: 'Русский' },
   ];
 
-  currentLanguage = signal<Language>(this.loadLanguage());
+  currentLanguage = signal<Language>(this.loadLanguageFromStorage());
 
   currentLanguageCode = computed(() => this.currentLanguage().code);
 
+  private authenticatedUsername: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const username = this.authService.username();
+
+      if (username && username !== this.authenticatedUsername) {
+        this.authenticatedUsername = username;
+        this.loadLanguageFromServer(username);
+      } else if (!username && this.authenticatedUsername) {
+        this.authenticatedUsername = null;
+      }
+    });
+  }
+
   setLanguage(lang: Language): void {
     this.currentLanguage.set(lang);
+
+    if (this.authenticatedUsername) {
+      this.saveLanguageToServer(this.authenticatedUsername, lang.code);
+    }
+
     try {
       localStorage.setItem(LANGUAGE_STORAGE_KEY, lang.code);
     } catch {
@@ -371,17 +405,57 @@ export class TranslationService {
     }
   }
 
-  private loadLanguage(): Language {
+  private loadLanguageFromStorage(): Language {
     try {
       const code = localStorage.getItem(LANGUAGE_STORAGE_KEY);
       if (code) {
-        const savedLanguage = this.languages.find(l => l.code === code);
+        const savedLanguage = this.languages.find(lang => lang.code === code);
         if (savedLanguage) return savedLanguage;
       }
     } catch {
       // Storage unavailable - silently fail
     }
     return this.languages[0];
+  }
+
+  private loadLanguageFromServer(username: string): void {
+    this.http
+      .get<LanguageResponse>(`${environment.apiUrl}/api/user/language`, {
+        params: { username },
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          if (response.success && response.language) {
+            const lang = this.languages.find(entry => entry.code === response.language);
+            if (lang) {
+              this.currentLanguage.set(lang);
+              try {
+                localStorage.setItem(LANGUAGE_STORAGE_KEY, lang.code);
+              } catch {
+                // Storage unavailable - silently fail
+              }
+            }
+          }
+        },
+        error: () => {
+          // Server unavailable - keep current language
+        },
+      });
+  }
+
+  private saveLanguageToServer(username: string, language: string): void {
+    this.http
+      .put<LanguageResponse>(`${environment.apiUrl}/api/user/language`, {
+        username,
+        language,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        error: () => {
+          // Server unavailable - silently fail, localStorage already updated
+        },
+      });
   }
 
   translate(key: string): string {
