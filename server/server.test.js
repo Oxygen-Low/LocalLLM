@@ -1,9 +1,15 @@
 const http = require('http');
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount } = require('./server');
+
+// Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
+function sha256Hex(text) {
+  return crypto.createHash('sha256').update(text).digest('hex');
+}
 
 // Utility: send an HTTP request to the test server
 function request(server, method, path, body) {
@@ -43,12 +49,15 @@ function request(server, method, path, body) {
 
 let server;
 
-before((done) => {
-  server = http.createServer(app).listen(0, '127.0.0.1', done);
+before(async () => {
+  await ensureAdminAccount();
+  await new Promise((resolve) => {
+    server = http.createServer(app).listen(0, '127.0.0.1', resolve);
+  });
 });
 
-after((done) => {
-  server.close(done);
+after(async () => {
+  await new Promise((resolve) => server.close(resolve));
 });
 
 describe('Rate limiting', () => {
@@ -281,5 +290,48 @@ describe('Graceful shutdown', () => {
     const sigintListeners = process.listeners('SIGINT');
     process.removeListener('SIGTERM', sigtermListeners[sigtermListeners.length - 1]);
     process.removeListener('SIGINT', sigintListeners[sigintListeners.length - 1]);
+  });
+});
+
+describe('Admin account auto-creation', () => {
+  it('admin account exists after server starts', async () => {
+    const res = await request(server, 'POST', '/api/auth/login', {
+      username: 'admin',
+      password: sha256Hex('CHANGEME'),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.username, 'admin');
+  });
+
+  it('ensureAdminAccount is idempotent when admin already exists', async () => {
+    await ensureAdminAccount();
+    const res = await request(server, 'POST', '/api/auth/login', {
+      username: 'admin',
+      password: sha256Hex('CHANGEME'),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+  });
+
+  it('admin account is recreated after deletion', async () => {
+    const adminSha256 = sha256Hex('CHANGEME');
+
+    // Delete the admin account
+    const deleteRes = await request(server, 'DELETE', '/api/auth/account', {
+      username: 'admin',
+      password: adminSha256,
+    });
+    assert.equal(deleteRes.status, 200);
+    assert.equal(deleteRes.body.success, true);
+
+    // Admin should be automatically recreated and login should work again
+    const loginRes = await request(server, 'POST', '/api/auth/login', {
+      username: 'admin',
+      password: adminSha256,
+    });
+    assert.equal(loginRes.status, 200);
+    assert.equal(loginRes.body.success, true);
+    assert.equal(loginRes.body.username, 'admin');
   });
 });

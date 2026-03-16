@@ -79,6 +79,32 @@ function loadUsersFromDisk() {
 // Eagerly load the cache at module init (data dir / file are guaranteed to exist above)
 loadUsersFromDisk();
 
+const ADMIN_USERNAME = 'admin';
+const ADMIN_DEFAULT_PASSWORD = 'CHANGEME';
+
+async function ensureAdminAccount() {
+  const users = readUsers();
+  if (users.some((u) => u.username === ADMIN_USERNAME)) {
+    return;
+  }
+
+  // The client sends passwords pre-hashed with SHA-256; replicate that here
+  const sha256 = crypto.createHash('sha256').update(ADMIN_DEFAULT_PASSWORD).digest('hex');
+  const salt = generateSalt();
+  const passwordHash = await hashPassword(sha256, salt);
+
+  const adminUser = {
+    username: ADMIN_USERNAME,
+    passwordHash,
+    salt,
+    createdAt: new Date().toISOString(),
+  };
+
+  users.push(adminUser);
+  writeUsers(users);
+  console.log('Admin account created with default credentials.');
+}
+
 function readUsers() {
   return usersCache;
 }
@@ -287,6 +313,11 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
     users.splice(userIndex, 1);
     writeUsers(users);
 
+    // Recreate the admin account if it was just deleted
+    if (normalizedUsername === ADMIN_USERNAME) {
+      await ensureAdminAccount();
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('Delete account error:', err);
@@ -381,6 +412,7 @@ async function getOrCreateCert() {
 }
 
 async function createHttpsServer() {
+  await ensureAdminAccount();
   const httpsOptions = await getOrCreateCert();
   return https.createServer(httpsOptions, app);
 }
@@ -394,4 +426,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount };

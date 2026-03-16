@@ -25,6 +25,16 @@ A unified platform for accessing and managing multiple AI applications. Deploy t
 - [Node.js](https://nodejs.org/) (LTS recommended)
 - npm
 
+### Default Admin Credentials
+
+An admin account is created automatically on first startup with the following default credentials:
+
+| Username | Password   |
+| -------- | ---------- |
+| `admin`  | `CHANGEME` |
+
+> **Important:** Change the admin password after your first login.
+
 ### Install dependencies
 
 ```bash
