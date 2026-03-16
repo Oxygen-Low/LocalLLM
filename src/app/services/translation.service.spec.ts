@@ -122,7 +122,6 @@ describe('TranslationService', () => {
     // Simulate an authenticated user by directly setting session
     sessionStorage.setItem('localllm_session', JSON.stringify({
       username: 'testuser',
-      token: 'fake-token',
       expiresAt: Date.now() + 86400000,
     }));
     TestBed.resetTestingModule();

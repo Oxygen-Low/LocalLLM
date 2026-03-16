@@ -6,7 +6,6 @@ import { environment } from '../../environments/environment';
 
 export interface AuthSession {
   username: string;
-  token: string;
   expiresAt: number;
   passwordResetRequired?: boolean;
 }
@@ -90,17 +89,9 @@ export class AuthService {
     }
   }
 
-  private async generateSessionToken(): Promise<string> {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
   private async createSession(username: string, passwordResetRequired = false): Promise<void> {
-    const token = await this.generateSessionToken();
     const session: AuthSession = {
       username,
-      token,
       expiresAt: Date.now() + SESSION_DURATION_MS,
       passwordResetRequired,
     };
