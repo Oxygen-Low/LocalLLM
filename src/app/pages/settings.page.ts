@@ -26,6 +26,18 @@ import { AuthService } from '../services/auth.service';
         </div>
 
         <div class="max-w-2xl space-y-8">
+          @if (authService.passwordResetRequired()) {
+            <div class="p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-start gap-3">
+              <svg class="w-5 h-5 mt-0.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856C18.403 19.403 19 18.552 19 17.6V6.4c0-.952-.597-1.803-1.623-2.4L12 2 6.623 4C5.597 4.597 5 5.448 5 6.4v11.2c0 .952.597 1.803 1.623 2.4z" />
+              </svg>
+              <div>
+                <p class="font-semibold">Password update required</p>
+                <p>Please set a new password to continue. Administrative policy requires an immediate update.</p>
+              </div>
+            </div>
+          }
+
           <!-- Account Info -->
           <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
             <h2 class="text-xl font-semibold text-secondary-900 mb-6">Account Information</h2>

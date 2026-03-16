@@ -8,6 +8,7 @@ export interface AuthSession {
   username: string;
   token: string;
   expiresAt: number;
+  passwordResetRequired?: boolean;
 }
 
 interface LoginAttemptRecord {
@@ -20,6 +21,7 @@ interface AuthResponse {
   success: boolean;
   error?: string;
   username?: string;
+  passwordResetRequired?: boolean;
 }
 
 const SESSION_STORAGE_KEY = 'localllm_session';
@@ -42,10 +44,13 @@ export class AuthService {
   private currentUser = signal<string | null>(null);
   isAuthenticated = computed(() => this.currentUser() !== null);
   username = computed(() => this.currentUser());
+  isAdmin = computed(() => this.currentUser() === 'admin');
+  passwordResetRequired = signal(false);
 
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly userActivityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart'] as const;
   private boundResetInactivity = this.resetInactivityTimer.bind(this);
+  private passwordResetCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   private securityLogger = inject(SecurityLoggerService);
   private ngZone = inject(NgZone);
@@ -72,8 +77,10 @@ export class AuthService {
       const session: AuthSession = JSON.parse(sessionData);
       if (session.expiresAt > Date.now()) {
         this.currentUser.set(session.username);
+        this.passwordResetRequired.set(!!session.passwordResetRequired);
         this.securityLogger.log('SESSION_RESTORED', 'Session restored from storage', session.username);
         this.startInactivityTimer();
+        this.startPasswordResetMonitor();
       } else {
         sessionStorage.removeItem(SESSION_STORAGE_KEY);
         this.securityLogger.log('SESSION_EXPIRED', 'Expired session removed during restore');
@@ -89,16 +96,19 @@ export class AuthService {
     return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  private async createSession(username: string): Promise<void> {
+  private async createSession(username: string, passwordResetRequired = false): Promise<void> {
     const token = await this.generateSessionToken();
     const session: AuthSession = {
       username,
       token,
       expiresAt: Date.now() + SESSION_DURATION_MS,
+      passwordResetRequired,
     };
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     this.currentUser.set(username);
+    this.passwordResetRequired.set(passwordResetRequired);
     this.startInactivityTimer();
+    this.startPasswordResetMonitor();
   }
 
   // A04/A07: Login attempt tracking for rate limiting
@@ -239,6 +249,51 @@ export class AuthService {
     });
   }
 
+  private startPasswordResetMonitor(): void {
+    this.stopPasswordResetMonitor();
+    if (!this.isAuthenticated()) {
+      return;
+    }
+
+    // Check immediately, then every minute
+    void this.checkPasswordResetStatus();
+    this.passwordResetCheckInterval = setInterval(() => {
+      void this.checkPasswordResetStatus();
+    }, 60_000);
+  }
+
+  private stopPasswordResetMonitor(): void {
+    if (this.passwordResetCheckInterval) {
+      clearInterval(this.passwordResetCheckInterval);
+      this.passwordResetCheckInterval = null;
+    }
+  }
+
+  private async checkPasswordResetStatus(): Promise<void> {
+    const user = this.username();
+    if (!user) {
+      return;
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{ success: boolean; passwordResetRequired: boolean }>(
+          `${environment.apiUrl}/api/auth/password-reset-status`,
+          {
+            params: { username: user },
+          }
+        )
+      );
+
+      if (response.success) {
+        const required = !!response.passwordResetRequired;
+        this.passwordResetRequired.set(required);
+      }
+    } catch {
+      // Silent failure to avoid impacting UX on network issues
+    }
+  }
+
   validatePassword(password: string): string[] {
     const errors: string[] = [];
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -314,7 +369,7 @@ export class AuthService {
   async login(
     username: string,
     password: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; passwordResetRequired?: boolean }> {
     const normalizedUsername = username.toLowerCase();
 
     // A04/A07: Check rate limit before processing login
@@ -336,9 +391,9 @@ export class AuthService {
 
       if (response.success && response.username) {
         this.clearLoginAttempts(normalizedUsername);
-        await this.createSession(response.username);
+        await this.createSession(response.username, !!response.passwordResetRequired);
         this.securityLogger.log('LOGIN_SUCCESS', 'User logged in successfully', response.username);
-        return { success: true };
+        return { success: true, passwordResetRequired: !!response.passwordResetRequired };
       }
 
       this.recordFailedAttempt(normalizedUsername);
@@ -360,8 +415,10 @@ export class AuthService {
   logout(): void {
     const user = this.username();
     this.stopInactivityTimer();
+    this.stopPasswordResetMonitor();
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     this.currentUser.set(null);
+    this.passwordResetRequired.set(false);
     this.securityLogger.log('LOGOUT', 'User logged out', user ?? undefined);
   }
 
@@ -392,6 +449,7 @@ export class AuthService {
 
       if (response.success) {
         this.securityLogger.log('PASSWORD_CHANGED', 'Password changed successfully', user);
+        this.passwordResetRequired.set(false);
         return { success: true };
       }
 
@@ -422,8 +480,8 @@ export class AuthService {
 
       if (response.success) {
         this.securityLogger.log('ACCOUNT_DELETED', 'Account deleted', user);
-        this.logout();
-        return { success: true };
+         this.logout();
+         return { success: true };
       }
 
       return { success: false, error: response.error };
