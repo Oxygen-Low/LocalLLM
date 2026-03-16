@@ -22,7 +22,7 @@
   "private": true,
   "dependencies": {
     "@angular/common": "^20.3.18",
-    "@angular/compiler": "^20.3.18",
+    "@angular/compiler": "^21.2.4",
     "@angular/core": "^20.3.18",
     "@angular/forms": "^20.3.18",
     "@angular/platform-browser": "^20.3.18",
