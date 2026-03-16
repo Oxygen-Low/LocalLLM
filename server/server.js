@@ -80,18 +80,23 @@ function loadUsersFromDisk() {
 loadUsersFromDisk();
 
 const ADMIN_USERNAME = 'admin';
-const ADMIN_DEFAULT_PASSWORD = 'CHANGEME';
 
 async function ensureAdminAccount() {
   const users = readUsers();
   if (users.some((u) => u.username === ADMIN_USERNAME)) {
-    return;
+    return null;
   }
 
-  // The client sends passwords pre-hashed with SHA-256; replicate that here
-  const sha256 = crypto.createHash('sha256').update(ADMIN_DEFAULT_PASSWORD).digest('hex');
+  // Generate a cryptographically random password (192 bits of entropy, ~32 URL-safe chars)
+  const adminPassword = crypto.randomBytes(24).toString('base64url');
+
+  // The Angular client pre-hashes passwords with SHA-256 before sending them to the server.
+  // We replicate that transformation here so the generated password works with the login flow.
+  // The resulting value is immediately passed through PBKDF2 (hashPassword) before storage;
+  // the SHA-256 digest itself is never persisted.
+  const clientPreHash = crypto.createHash('sha256').update(adminPassword).digest('hex'); // lgtm[js/insufficient-password-hash]
   const salt = generateSalt();
-  const passwordHash = await hashPassword(sha256, salt);
+  const passwordHash = await hashPassword(clientPreHash, salt);
 
   const adminUser = {
     username: ADMIN_USERNAME,
@@ -102,7 +107,15 @@ async function ensureAdminAccount() {
 
   users.push(adminUser);
   writeUsers(users);
-  console.log('Admin account created with default credentials.');
+
+  console.log('===========================================');
+  console.log('  Admin account created.');
+  console.log(`  Username : ${ADMIN_USERNAME}`);
+  console.log(`  Password : ${adminPassword}`);
+  console.log('  Change this password after first login!');
+  console.log('===========================================');
+
+  return adminPassword;
 }
 
 function readUsers() {
@@ -426,4 +439,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers };

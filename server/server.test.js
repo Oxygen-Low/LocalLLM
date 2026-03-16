@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -48,9 +48,13 @@ function request(server, method, path, body) {
 }
 
 let server;
+let adminPassword = null;
 
 before(async () => {
-  await ensureAdminAccount();
+  // Remove any pre-existing admin so the test suite always starts with a fresh
+  // admin account whose password is known (returned by ensureAdminAccount).
+  writeUsers(readUsers().filter((u) => u.username !== 'admin'));
+  adminPassword = await ensureAdminAccount();
   await new Promise((resolve) => {
     server = http.createServer(app).listen(0, '127.0.0.1', resolve);
   });
@@ -297,7 +301,7 @@ describe('Admin account auto-creation', () => {
   it('admin account exists after server starts', async () => {
     const res = await request(server, 'POST', '/api/auth/login', {
       username: 'admin',
-      password: sha256Hex('CHANGEME'),
+      password: sha256Hex(adminPassword),
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
@@ -305,33 +309,31 @@ describe('Admin account auto-creation', () => {
   });
 
   it('ensureAdminAccount is idempotent when admin already exists', async () => {
-    await ensureAdminAccount();
-    const res = await request(server, 'POST', '/api/auth/login', {
-      username: 'admin',
-      password: sha256Hex('CHANGEME'),
-    });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.success, true);
+    const result = await ensureAdminAccount();
+    assert.equal(result, null, 'Expected null when admin already exists');
+    const adminCount = readUsers().filter((u) => u.username === 'admin').length;
+    assert.equal(adminCount, 1, 'Expected exactly one admin account');
   });
 
-  it('admin account is recreated after deletion', async () => {
-    const adminSha256 = sha256Hex('CHANGEME');
-
-    // Delete the admin account
+  it('admin account is recreated after deletion via API', async () => {
+    // Delete admin via the API using the current generated password
     const deleteRes = await request(server, 'DELETE', '/api/auth/account', {
       username: 'admin',
-      password: adminSha256,
+      password: sha256Hex(adminPassword),
     });
     assert.equal(deleteRes.status, 200);
     assert.equal(deleteRes.body.success, true);
 
-    // Admin should be automatically recreated and login should work again
-    const loginRes = await request(server, 'POST', '/api/auth/login', {
+    // Admin is auto-recreated by the delete handler with a NEW random password.
+    // The old password must no longer work.
+    const loginOld = await request(server, 'POST', '/api/auth/login', {
       username: 'admin',
-      password: adminSha256,
+      password: sha256Hex(adminPassword),
     });
-    assert.equal(loginRes.status, 200);
-    assert.equal(loginRes.body.success, true);
-    assert.equal(loginRes.body.username, 'admin');
+    assert.equal(loginOld.status, 401, 'Old password should be invalid after recreation');
+
+    // But the admin user should still exist in the store.
+    const admin = readUsers().find((u) => u.username === 'admin');
+    assert.ok(admin, 'Admin should be present in the store after auto-recreation');
   });
 });

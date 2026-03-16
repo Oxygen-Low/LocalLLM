@@ -27,11 +27,16 @@ A unified platform for accessing and managing multiple AI applications. Deploy t
 
 ### Default Admin Credentials
 
-An admin account is created automatically on first startup with the following default credentials:
+An admin account (`admin`) is created automatically on first startup. The password is randomly generated and printed to the server console output:
 
-| Username | Password   |
-| -------- | ---------- |
-| `admin`  | `CHANGEME` |
+```
+===========================================
+  Admin account created.
+  Username : admin
+  Password : <random-generated-password>
+  Change this password after first login!
+===========================================
+```
 
 > **Important:** Change the admin password after your first login.
 
