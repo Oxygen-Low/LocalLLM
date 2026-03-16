@@ -1,7 +1,9 @@
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app } = require('./server');
+const { app, saveAllData, setupGracefulShutdown } = require('./server');
 
 // Utility: send an HTTP request to the test server
 function request(server, method, path, body) {
@@ -222,5 +224,56 @@ describe('User language preference', () => {
     });
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
+  });
+});
+
+describe('Graceful shutdown', () => {
+  const USERS_FILE = path.join(__dirname, '..', 'data', 'users.json');
+
+  it('saveAllData is exported as a function', () => {
+    assert.equal(typeof saveAllData, 'function');
+  });
+
+  it('setupGracefulShutdown is exported as a function', () => {
+    assert.equal(typeof setupGracefulShutdown, 'function');
+  });
+
+  it('saveAllData persists in-memory user data to disk', async () => {
+    const uniqueName = 'shutdown_test_' + Date.now();
+
+    // Create a user via the API (updates both cache and disk)
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: uniqueName,
+      password: 'TestPassword1!',
+    });
+    assert.equal(res.status, 201);
+
+    // Call saveAllData to explicitly flush cache to disk
+    saveAllData();
+
+    // Verify the user exists in the file on disk
+    const raw = fs.readFileSync(USERS_FILE, 'utf-8');
+    const users = JSON.parse(raw);
+    const found = users.find((u) => u.username === uniqueName);
+    assert.ok(found, 'Expected the user created via API to be present on disk after saveAllData()');
+  });
+
+  it('saveAllData is safe to call multiple times', () => {
+    assert.doesNotThrow(() => {
+      saveAllData();
+      saveAllData();
+    });
+  });
+
+  it('setupGracefulShutdown registers signal listeners on the process', () => {
+    const testServer = http.createServer(app);
+
+    const sigtermBefore = process.listenerCount('SIGTERM');
+    const sigintBefore = process.listenerCount('SIGINT');
+
+    setupGracefulShutdown(testServer);
+
+    assert.equal(process.listenerCount('SIGTERM'), sigtermBefore + 1);
+    assert.equal(process.listenerCount('SIGINT'), sigintBefore + 1);
   });
 });
