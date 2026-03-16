@@ -8,6 +8,8 @@ const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, 
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
+  // CodeQL [js/insufficient-password-hash]: This helper only mirrors the client's pre-login
+  // transport hash; the server still applies PBKDF2 with a per-user salt before storage.
   return crypto.createHash('sha256').update(text).digest('hex');
 }
 
