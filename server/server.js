@@ -79,6 +79,45 @@ function loadUsersFromDisk() {
 // Eagerly load the cache at module init (data dir / file are guaranteed to exist above)
 loadUsersFromDisk();
 
+const ADMIN_USERNAME = 'admin';
+
+async function ensureAdminAccount() {
+  const users = readUsers();
+  if (users.some((u) => u.username === ADMIN_USERNAME)) {
+    return null;
+  }
+
+  // Generate a cryptographically random password (192 bits of entropy, ~32 URL-safe chars)
+  const adminPassword = crypto.randomBytes(24).toString('base64url');
+
+  // The Angular client pre-hashes passwords with SHA-256 before sending them to the server.
+  // We replicate that transformation here so the generated password works with the login flow.
+  // The resulting value is immediately passed through PBKDF2 (hashPassword) before storage;
+  // the SHA-256 digest itself is never persisted.
+  const clientPreHash = crypto.createHash('sha256').update(adminPassword).digest('hex'); // lgtm[js/insufficient-password-hash]
+  const salt = generateSalt();
+  const passwordHash = await hashPassword(clientPreHash, salt);
+
+  const adminUser = {
+    username: ADMIN_USERNAME,
+    passwordHash,
+    salt,
+    createdAt: new Date().toISOString(),
+  };
+
+  users.push(adminUser);
+  writeUsers(users);
+
+  console.log('===========================================');
+  console.log('  Admin account created.');
+  console.log(`  Username : ${ADMIN_USERNAME}`);
+  console.log(`  Password : ${adminPassword}`);
+  console.log('  Change this password after first login!');
+  console.log('===========================================');
+
+  return adminPassword;
+}
+
 function readUsers() {
   return usersCache;
 }
@@ -287,6 +326,11 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
     users.splice(userIndex, 1);
     writeUsers(users);
 
+    // Recreate the admin account if it was just deleted
+    if (normalizedUsername === ADMIN_USERNAME) {
+      await ensureAdminAccount();
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('Delete account error:', err);
@@ -381,6 +425,7 @@ async function getOrCreateCert() {
 }
 
 async function createHttpsServer() {
+  await ensureAdminAccount();
   const httpsOptions = await getOrCreateCert();
   return https.createServer(httpsOptions, app);
 }
@@ -394,4 +439,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers };
