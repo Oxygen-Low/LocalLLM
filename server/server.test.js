@@ -275,5 +275,11 @@ describe('Graceful shutdown', () => {
 
     assert.equal(process.listenerCount('SIGTERM'), sigtermBefore + 1);
     assert.equal(process.listenerCount('SIGINT'), sigintBefore + 1);
+
+    // Clean up: remove the listeners added by this test
+    const sigtermListeners = process.listeners('SIGTERM');
+    const sigintListeners = process.listeners('SIGINT');
+    process.removeListener('SIGTERM', sigtermListeners[sigtermListeners.length - 1]);
+    process.removeListener('SIGINT', sigintListeners[sigintListeners.length - 1]);
   });
 });

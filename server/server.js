@@ -105,11 +105,20 @@ function setupGracefulShutdown(server) {
 
     console.log(`\n${signal} received. Saving data and shutting down...`);
 
+    // Persist data first to guarantee nothing is lost
+    saveAllData();
+
+    // Stop accepting new connections and wait for in-flight requests
     server.close(() => {
-      saveAllData();
       console.log('All data saved. Server shut down gracefully.');
       process.exit(0);
     });
+
+    // Force exit if server.close() hangs (e.g. long-lived connections)
+    setTimeout(() => {
+      console.error('Shutdown timed out – forcing exit.');
+      process.exit(1);
+    }, 10000).unref();
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
