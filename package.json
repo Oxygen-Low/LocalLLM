@@ -22,9 +22,6 @@
   "private": true,
   "dependencies": {
     "@angular/common": "^21.2.4",
-    "@angular/compiler": "^20.3.18",
-    "@angular/core": "^20.3.18",
-    "@angular/common": "^20.3.18",
     "@angular/compiler": "^21.2.4",
     "@angular/core": "^21.2.4",
     "@angular/forms": "^20.3.18",
