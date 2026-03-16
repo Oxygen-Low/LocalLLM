@@ -190,7 +190,7 @@ describe('AuthService', () => {
     const req = httpMock.expectOne('/api/auth/login');
     expect(req.request.method).toBe('POST');
     req.flush({ success: true, username: 'testuser' });
-    flushPasswordStatus('testuser', true);
+    flushPasswordStatus('testuser', false);
 
     const result = await loginPromise;
     expect(result.success).toBe(true);
