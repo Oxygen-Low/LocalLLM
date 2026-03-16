@@ -64,17 +64,65 @@ if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
 }
 
-function readUsers() {
+// In-memory users cache – loaded from disk once at startup, kept in sync on every write
+let usersCache = null;
+
+function loadUsersFromDisk() {
   try {
     const data = fs.readFileSync(USERS_FILE, 'utf-8');
-    return JSON.parse(data);
+    usersCache = JSON.parse(data);
   } catch {
-    return [];
+    usersCache = [];
   }
 }
 
+// Eagerly load the cache at module init (data dir / file are guaranteed to exist above)
+loadUsersFromDisk();
+
+function readUsers() {
+  return usersCache;
+}
+
 function writeUsers(users) {
+  usersCache = users;
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+}
+
+// Flush the in-memory cache to disk (called during graceful shutdown)
+function saveAllData() {
+  if (usersCache !== null) {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(usersCache, null, 2), 'utf-8');
+  }
+}
+
+// Register SIGTERM / SIGINT handlers so all data is persisted before exit
+function setupGracefulShutdown(server) {
+  let shuttingDown = false;
+
+  function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    console.log(`\n${signal} received. Saving data and shutting down...`);
+
+    // Persist data first to guarantee nothing is lost
+    saveAllData();
+
+    // Stop accepting new connections and wait for in-flight requests
+    server.close(() => {
+      console.log('All data saved. Server shut down gracefully.');
+      process.exit(0);
+    });
+
+    // Force exit if server.close() hangs (e.g. long-lived connections)
+    setTimeout(() => {
+      console.error('Shutdown timed out – forcing exit.');
+      process.exit(1);
+    }, 10000).unref();
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 function generateSalt() {
@@ -342,7 +390,8 @@ if (require.main === module) {
     server.listen(PORT, () => {
       console.log(`Server running on HTTPS port ${PORT}`);
     });
+    setupGracefulShutdown(server);
   });
 }
 
-module.exports = { app, createHttpsServer };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown };
