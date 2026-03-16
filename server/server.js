@@ -70,7 +70,10 @@ let usersCache = null;
 function loadUsersFromDisk() {
   try {
     const data = fs.readFileSync(USERS_FILE, 'utf-8');
-    usersCache = JSON.parse(data);
+    usersCache = JSON.parse(data).map((u) => ({
+      ...u,
+      passwordResetRequired: !!u.passwordResetRequired,
+    }));
   } catch {
     usersCache = [];
   }
@@ -80,6 +83,10 @@ function loadUsersFromDisk() {
 loadUsersFromDisk();
 
 const ADMIN_USERNAME = 'admin';
+
+function normalizeUsername(username) {
+  return username.toLowerCase();
+}
 
 async function ensureAdminAccount() {
   const users = readUsers();
@@ -103,6 +110,7 @@ async function ensureAdminAccount() {
     passwordHash,
     salt,
     createdAt: new Date().toISOString(),
+    passwordResetRequired: false,
   };
 
   users.push(adminUser);
@@ -123,8 +131,28 @@ function readUsers() {
 }
 
 function writeUsers(users) {
-  usersCache = users;
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+  usersCache = users.map((u) => ({ ...u, passwordResetRequired: !!u.passwordResetRequired }));
+  fs.writeFileSync(USERS_FILE, JSON.stringify(usersCache, null, 2), 'utf-8');
+}
+
+function findUser(username) {
+  const normalized = normalizeUsername(username);
+  const users = readUsers();
+  return users.find((u) => u.username === normalized);
+}
+
+async function verifyAdminCredentials(adminUsername, adminPassword) {
+  if (!adminUsername || !adminPassword) {
+    return false;
+  }
+
+  const adminUser = findUser(adminUsername);
+  if (!adminUser || adminUser.username !== ADMIN_USERNAME) {
+    return false;
+  }
+
+  const hash = await hashPassword(adminPassword, adminUser.salt);
+  return hash === adminUser.passwordHash;
 }
 
 // Flush the in-memory cache to disk (called during graceful shutdown)
@@ -190,7 +218,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
-    const normalizedUsername = username.toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
 
     if (users.some((u) => u.username === normalizedUsername)) {
@@ -205,6 +233,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       passwordHash,
       salt,
       createdAt: new Date().toISOString(),
+      passwordResetRequired: false,
     };
 
     users.push(newUser);
@@ -226,7 +255,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Username and password are required' });
     }
 
-    const normalizedUsername = username.toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const user = users.find((u) => u.username === normalizedUsername);
 
@@ -240,7 +269,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
 
-    res.json({ success: true, username: user.username });
+    res.json({ success: true, username: user.username, passwordResetRequired: !!user.passwordResetRequired });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -262,7 +291,7 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'New password is required' });
     }
 
-    const normalizedUsername = username.toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 
@@ -286,7 +315,7 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
     const newSalt = generateSalt();
     const newHash = await hashPassword(newPassword, newSalt);
 
-    users[userIndex] = { ...user, passwordHash: newHash, salt: newSalt };
+    users[userIndex] = { ...user, passwordHash: newHash, salt: newSalt, passwordResetRequired: false };
     writeUsers(users);
 
     res.json({ success: true });
@@ -308,7 +337,7 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
-    const normalizedUsername = username.toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 
@@ -338,6 +367,114 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
   }
 });
 
+// Admin: list users (use general API limiter to avoid auth limiter exhaustion)
+app.post('/api/admin/users/list', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const users = readUsers().map((u) => ({
+      username: u.username,
+      createdAt: u.createdAt,
+      passwordResetRequired: !!u.passwordResetRequired,
+    }));
+
+    return res.json({ success: true, users });
+  } catch (err) {
+    console.error('Admin list users error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Admin: reset password requirement
+app.post('/api/admin/users/reset-password', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, username } = req.body;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+    const users = readUsers();
+    const userIndex = users.findIndex((u) => u.username === normalizedUsername);
+
+    if (userIndex === -1) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    users[userIndex] = { ...users[userIndex], passwordResetRequired: true };
+    writeUsers(users);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Admin reset password error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Admin: delete user
+app.post('/api/admin/users/delete', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, username } = req.body;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+    if (normalizedUsername === ADMIN_USERNAME) {
+      return res.status(400).json({ success: false, error: 'Cannot delete the admin account' });
+    }
+
+    const users = readUsers();
+    const userIndex = users.findIndex((u) => u.username === normalizedUsername);
+
+    if (userIndex === -1) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    users.splice(userIndex, 1);
+    writeUsers(users);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Admin delete user error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/auth/password-reset-status
+app.get('/api/auth/password-reset-status', (req, res) => {
+  try {
+    const { username } = req.query;
+
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    const user = findUser(username);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    return res.json({ success: true, passwordResetRequired: !!user.passwordResetRequired });
+  } catch (err) {
+    console.error('Password reset status error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 const SUPPORTED_LANGUAGES = ['en', 'ko', 'ja', 'ru'];
 
 // GET /api/user/language
@@ -349,7 +486,7 @@ app.get('/api/user/language', (req, res) => {
       return res.status(400).json({ success: false, error: 'Username is required' });
     }
 
-    const normalizedUsername = username.toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const user = users.find((u) => u.username === normalizedUsername);
 
@@ -381,7 +518,7 @@ app.put('/api/user/language', (req, res) => {
       return res.status(400).json({ success: false, error: 'Unsupported language' });
     }
 
-    const normalizedUsername = username.toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 

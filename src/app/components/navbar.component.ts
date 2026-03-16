@@ -48,6 +48,15 @@ import { AuthService } from '../services/auth.service';
             @if (authService.isAuthenticated()) {
               <div class="flex items-center gap-4 ml-4 pl-4 border-l border-secondary-200">
                 <span class="text-sm text-muted">{{ authService.username() }}</span>
+                @if (authService.isAdmin()) {
+                  <a
+                    routerLink="/admin"
+                    routerLinkActive="text-primary-600"
+                    class="text-sm text-secondary-700 hover:text-primary-600 font-medium transition-colors"
+                  >
+                    Admin
+                  </a>
+                }
                 <a
                   routerLink="/settings"
                   routerLinkActive="text-primary-600"
@@ -132,6 +141,16 @@ import { AuthService } from '../services/auth.service';
                 <div class="px-4 py-2 text-sm text-muted mb-2">
                   Signed in as <span class="font-medium text-secondary-900">{{ authService.username() }}</span>
                 </div>
+                @if (authService.isAdmin()) {
+                  <a
+                    routerLink="/admin"
+                    routerLinkActive="text-primary-600 bg-primary-50"
+                    (click)="mobileMenuOpen.set(false)"
+                    class="block px-4 py-2 rounded-lg text-secondary-700 hover:bg-secondary-100 transition-colors font-medium"
+                  >
+                    Admin
+                  </a>
+                }
                 <a
                   routerLink="/settings"
                   routerLinkActive="text-primary-600 bg-primary-50"

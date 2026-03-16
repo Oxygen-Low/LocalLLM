@@ -337,3 +337,82 @@ describe('Admin account auto-creation', () => {
     assert.ok(admin, 'Admin should be present in the store after auto-recreation');
   });
 });
+
+describe('Admin management endpoints', () => {
+  before(async () => {
+    // Regenerate admin credentials after previous tests may have rotated the password
+    writeUsers(readUsers().filter((u) => u.username !== 'admin'));
+    adminPassword = await ensureAdminAccount();
+  });
+
+  const adminHash = () => sha256Hex(adminPassword);
+  const managedUser = 'managed_user_' + Date.now();
+  const managedPassword = 'ManagedPass1!';
+
+  it('rejects admin list without valid credentials', async () => {
+    const res = await request(server, 'POST', '/api/admin/users/list', {});
+    assert.equal(res.status, 403);
+  });
+
+  it('returns users when admin credentials are valid', async () => {
+    const res = await request(server, 'POST', '/api/admin/users/list', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    const usernames = res.body.users.map((u) => u.username);
+    assert.ok(usernames.includes('admin'), 'Expected admin to be present in admin list');
+  });
+
+  it('can flag a user for password reset', async () => {
+    // create user
+    const signup = await request(server, 'POST', '/api/auth/signup', {
+      username: managedUser,
+      password: sha256Hex(managedPassword),
+    });
+    assert.equal(signup.status, 201);
+
+    const resetRes = await request(server, 'POST', '/api/admin/users/reset-password', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      username: managedUser,
+    });
+    assert.equal(resetRes.status, 200);
+    assert.equal(resetRes.body.success, true);
+
+    const loginRes = await request(server, 'POST', '/api/auth/login', {
+      username: managedUser,
+      password: sha256Hex(managedPassword),
+    });
+    assert.equal(loginRes.status, 200);
+    assert.equal(loginRes.body.passwordResetRequired, true);
+  });
+
+  it('prevents deleting the admin account', async () => {
+    const res = await request(server, 'POST', '/api/admin/users/delete', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      username: 'admin',
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('allows deleting a non-admin account', async () => {
+    const res = await request(server, 'POST', '/api/admin/users/delete', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      username: managedUser,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+
+    const list = await request(server, 'POST', '/api/admin/users/list', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    const usernames = list.body.users.map((u) => u.username);
+    assert.ok(!usernames.includes(managedUser));
+  });
+});

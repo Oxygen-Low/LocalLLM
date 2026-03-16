@@ -145,7 +145,11 @@ export class LoginPageComponent {
       );
 
       if (result.success) {
-        this.router.navigate(['/dashboard']);
+        if (result.passwordResetRequired || this.authService.passwordResetRequired()) {
+          this.router.navigate(['/settings'], { queryParams: { requireReset: '1' } });
+        } else {
+          this.router.navigate(['/dashboard']);
+        }
       } else {
         const remaining = this.authService.getRemainingAttempts(this.username.trim().toLowerCase());
         if (remaining > 0 && remaining < 4) {

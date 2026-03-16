@@ -137,6 +137,11 @@ describe('TranslationService', () => {
     const newService = TestBed.inject(TranslationService);
     const newHttpMock = TestBed.inject(HttpTestingController);
 
+    const statusReq = newHttpMock.expectOne(
+      (req) => req.url.includes('/api/auth/password-reset-status') && req.params.get('username') === 'testuser'
+    );
+    statusReq.flush({ success: true, passwordResetRequired: false });
+
     // The effect should trigger a server fetch for the authenticated user
     TestBed.flushEffects();
     const getReq = newHttpMock.expectOne(

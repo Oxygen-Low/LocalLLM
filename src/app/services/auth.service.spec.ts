@@ -14,6 +14,20 @@ describe('AuthService', () => {
   let service: AuthService;
   let httpMock: HttpTestingController;
 
+  function flushPasswordStatus(username: string, required = false): void {
+    const statusReq = httpMock.match(
+      req => req.method === 'GET' && req.url.includes('/api/auth/password-reset-status') && req.params.get('username') === username
+    )[0];
+    if (statusReq) {
+      statusReq.flush({ success: true, passwordResetRequired: required });
+    }
+  }
+
+  function drainPasswordStatusRequests(): void {
+    const pending = httpMock.match(req => req.method === 'GET' && req.url.includes('/api/auth/password-reset-status'));
+    pending.forEach(req => req.flush({ success: true, passwordResetRequired: false }));
+  }
+
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
@@ -29,6 +43,8 @@ describe('AuthService', () => {
   });
 
   afterEach(() => {
+    drainPasswordStatusRequests();
+    service.logout();
     httpMock.verify();
     sessionStorage.clear();
   });
@@ -122,20 +138,21 @@ describe('AuthService', () => {
 
   describe('signup', () => {
     it('should create a new user', async () => {
-      const signupPromise = service.signup('testuser', 'Password1!');
-      await flushAsync();
+    const signupPromise = service.signup('testuser', 'Password1!');
+    await flushAsync();
 
-      const req = httpMock.expectOne('/api/auth/signup');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.body.username).toBe('testuser');
-      expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
-      expect(req.request.body.password).not.toBe('Password1!');
-      req.flush({ success: true, username: 'testuser' });
+    const req = httpMock.expectOne('/api/auth/signup');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body.username).toBe('testuser');
+    expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
+    expect(req.request.body.password).not.toBe('Password1!');
+    req.flush({ success: true, username: 'testuser' });
+    flushPasswordStatus('testuser');
 
-      const result = await signupPromise;
-      expect(result.success).toBe(true);
-      expect(service.isAuthenticated()).toBe(true);
-      expect(service.username()).toBe('testuser');
+    const result = await signupPromise;
+    expect(result.success).toBe(true);
+    expect(service.isAuthenticated()).toBe(true);
+    expect(service.username()).toBe('testuser');
     });
 
     it('should reject duplicate usernames', async () => {
@@ -151,32 +168,35 @@ describe('AuthService', () => {
     });
 
     it('should normalize username to lowercase', async () => {
-      const signupPromise = service.signup('TestUser', 'Password1!');
-      await flushAsync();
+    const signupPromise = service.signup('TestUser', 'Password1!');
+    await flushAsync();
 
-      const req = httpMock.expectOne('/api/auth/signup');
-      expect(req.request.body.username).toBe('TestUser');
-      req.flush({ success: true, username: 'testuser' });
+    const req = httpMock.expectOne('/api/auth/signup');
+    expect(req.request.body.username).toBe('TestUser');
+    req.flush({ success: true, username: 'testuser' });
+    flushPasswordStatus('testuser');
 
-      const result = await signupPromise;
-      expect(result.success).toBe(true);
-      expect(service.username()).toBe('testuser');
-    });
+    const result = await signupPromise;
+    expect(result.success).toBe(true);
+    expect(service.username()).toBe('testuser');
+  });
   });
 
   describe('login', () => {
     it('should login with correct credentials', async () => {
-      const loginPromise = service.login('testuser', 'Password1!');
-      await flushAsync();
+    const loginPromise = service.login('testuser', 'Password1!');
+    await flushAsync();
 
-      const req = httpMock.expectOne('/api/auth/login');
-      expect(req.request.method).toBe('POST');
-      req.flush({ success: true, username: 'testuser' });
+    const req = httpMock.expectOne('/api/auth/login');
+    expect(req.request.method).toBe('POST');
+    req.flush({ success: true, username: 'testuser' });
+    flushPasswordStatus('testuser', true);
 
-      const result = await loginPromise;
-      expect(result.success).toBe(true);
-      expect(service.isAuthenticated()).toBe(true);
-    });
+    const result = await loginPromise;
+    expect(result.success).toBe(true);
+    expect(service.isAuthenticated()).toBe(true);
+    expect(service.passwordResetRequired()).toBe(false);
+  });
 
     it('should reject incorrect password', async () => {
       const loginPromise = service.login('testuser', 'WrongPassword1!');
@@ -286,6 +306,7 @@ describe('AuthService', () => {
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: true, username: 'ratetest' });
+      flushPasswordStatus('ratetest');
       await loginPromise;
 
       expect(service.getRemainingAttempts('ratetest')).toBe(5);
@@ -298,6 +319,7 @@ describe('AuthService', () => {
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'testuser' });
+      flushPasswordStatus('testuser');
       await signupPromise;
 
       expect(service.isAuthenticated()).toBe(true);
@@ -320,6 +342,7 @@ describe('AuthService', () => {
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'logtest' });
+      flushPasswordStatus('logtest');
       await signupPromise;
 
       const logs = logger.getLogs();
@@ -347,6 +370,7 @@ describe('AuthService', () => {
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/login');
       req.flush({ success: true, username: 'logtest3' });
+      flushPasswordStatus('logtest3');
       await loginPromise;
 
       const logs = logger.getLogs();
@@ -374,6 +398,7 @@ describe('AuthService', () => {
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'logouttest' });
+      flushPasswordStatus('logouttest');
       await signupPromise;
 
       logger.clearLogs();
@@ -392,6 +417,7 @@ describe('AuthService', () => {
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/signup');
       req.flush({ success: true, username: 'testuser' });
+      flushPasswordStatus('testuser');
       await signupPromise;
 
       expect(localStorage.length).toBe(0);
@@ -407,6 +433,7 @@ describe('AuthService', () => {
       expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
       expect(req.request.body.password).not.toBe('Password1!');
       req.flush({ success: true, username: 'newuser' });
+      flushPasswordStatus('newuser');
 
       await signupPromise;
     });
@@ -421,6 +448,7 @@ describe('AuthService', () => {
       expect(req.request.body.password).toMatch(/^[a-f0-9]{64}$/);
       expect(req.request.body.password).not.toBe('Password1!');
       req.flush({ success: true, username: 'existinguser' });
+      flushPasswordStatus('existinguser');
 
       await loginPromise;
     });
