@@ -269,18 +269,6 @@ export class AuthService {
     }
   }
 
-  private updateSessionPasswordReset(required: boolean): void {
-    try {
-      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionData) return;
-      const session: AuthSession = JSON.parse(sessionData);
-      session.passwordResetRequired = required;
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    } catch {
-      // ignore storage issues
-    }
-  }
-
   private async checkPasswordResetStatus(): Promise<void> {
     const user = this.username();
     if (!user) {
@@ -300,7 +288,6 @@ export class AuthService {
       if (response.success) {
         const required = !!response.passwordResetRequired;
         this.passwordResetRequired.set(required);
-        this.updateSessionPasswordReset(required);
       }
     } catch {
       // Silent failure to avoid impacting UX on network issues
@@ -463,7 +450,6 @@ export class AuthService {
       if (response.success) {
         this.securityLogger.log('PASSWORD_CHANGED', 'Password changed successfully', user);
         this.passwordResetRequired.set(false);
-        this.updateSessionPasswordReset(false);
         return { success: true };
       }
 
