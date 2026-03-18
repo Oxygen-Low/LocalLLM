@@ -1,4 +1,5 @@
 const express = require('express');
+const helmet = require('helmet');
 const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -33,28 +34,26 @@ const authLimiter = rateLimit({
   message: { success: false, error: 'Too many authentication attempts, please try again later.' },
 });
 
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+  })
+);
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
 app.use(express.json());
 app.use('/api', apiLimiter);
-
-// Content-Security-Policy header
-app.use((_req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy',
-    [
-      "default-src 'self'",
-      "script-src 'self'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data:",
-      "connect-src 'self'",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-    ].join('; ')
-  );
-  next();
-});
 
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {

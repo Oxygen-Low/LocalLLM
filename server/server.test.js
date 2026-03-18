@@ -64,6 +64,35 @@ after(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
+describe('Security headers (Helmet)', () => {
+  let helmetRes;
+  before(async () => {
+    helmetRes = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+  });
+
+  it('sets X-Content-Type-Options: nosniff', () => {
+    assert.equal(helmetRes.headers['x-content-type-options'], 'nosniff');
+  });
+
+  it('sets X-Frame-Options: SAMEORIGIN', () => {
+    assert.equal(helmetRes.headers['x-frame-options'], 'SAMEORIGIN');
+  });
+
+  it('sets Content-Security-Policy header with expected directives', () => {
+    const csp = helmetRes.headers['content-security-policy'];
+    assert.ok(csp, 'Expected Content-Security-Policy header to be present');
+    assert.ok(csp.includes("default-src 'self'"), 'Expected default-src directive');
+    assert.ok(csp.includes("object-src 'none'"), 'Expected object-src directive');
+  });
+
+  it('sets Strict-Transport-Security with max-age and includeSubDomains', () => {
+    const sts = helmetRes.headers['strict-transport-security'];
+    assert.ok(sts, 'Expected Strict-Transport-Security header to be present');
+    assert.ok(sts.includes('max-age='), 'Expected max-age in STS header');
+    assert.ok(sts.includes('includeSubDomains'), 'Expected includeSubDomains in STS header');
+  });
+});
+
 describe('Rate limiting', () => {
   it('general API limiter applies RateLimit headers to all /api responses', async () => {
     const res = await request(server, 'POST', '/api/auth/login', {
