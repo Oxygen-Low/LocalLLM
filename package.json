@@ -7,7 +7,8 @@
     "server": "node server/server.js",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "termux": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve --host 0.0.0.0\""
   },
   "prettier": {
     "overrides": [

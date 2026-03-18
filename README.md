@@ -54,14 +54,27 @@ npm start
 
 Open your browser and navigate to `http://localhost:4200/`. The application reloads automatically when source files change.
 
+### Termux (Android)
+
+To run on [Termux](https://termux.dev/), install Node.js and start the server with:
+
+```bash
+pkg install nodejs-lts
+npm install
+npm run termux
+```
+
+This binds the dev server to `0.0.0.0` so it is accessible from your Android browser at `http://localhost:4200/`.
+
 ## Available Scripts
 
-| Command           | Description                              |
-| ----------------- | ---------------------------------------- |
-| `npm start`       | Start the development server             |
-| `npm run build`   | Production build (output to `dist/`)     |
-| `npm run watch`   | Build in watch mode (development config) |
-| `npm test`        | Run unit tests with Vitest               |
+| Command           | Description                                          |
+| ----------------- | ---------------------------------------------------- |
+| `npm start`       | Start the development server                         |
+| `npm run termux`  | Start the development server with Termux support     |
+| `npm run build`   | Production build (output to `dist/`)                 |
+| `npm run watch`   | Build in watch mode (development config)             |
+| `npm test`        | Run unit tests with Vitest                           |
 
 ## Project Structure
 
