@@ -152,7 +152,7 @@ async function verifyAdminCredentials(adminUsername, adminPassword) {
   }
 
   const hash = await hashPassword(adminPassword, adminUser.salt);
-  return hash === adminUser.passwordHash;
+  return timingSafeCompare(hash, adminUser.passwordHash);
 }
 
 // Flush the in-memory cache to disk (called during graceful shutdown)
@@ -190,6 +190,16 @@ function setupGracefulShutdown(server) {
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+function timingSafeCompare(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  try {
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
 }
 
 function generateSalt() {
@@ -265,7 +275,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     const passwordHash = await hashPassword(password, user.salt);
 
-    if (passwordHash !== user.passwordHash) {
+    if (!timingSafeCompare(passwordHash, user.passwordHash)) {
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
 
@@ -302,13 +312,13 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
     const user = users[userIndex];
     const currentHash = await hashPassword(currentPassword, user.salt);
 
-    if (currentHash !== user.passwordHash) {
+    if (!timingSafeCompare(currentHash, user.passwordHash)) {
       return res.status(401).json({ success: false, error: 'Current password is incorrect' });
     }
 
     // Verify new password differs from current password using the same salt
     const newPasswordWithOldSalt = await hashPassword(newPassword, user.salt);
-    if (newPasswordWithOldSalt === user.passwordHash) {
+    if (timingSafeCompare(newPasswordWithOldSalt, user.passwordHash)) {
       return res.status(400).json({ success: false, error: 'New password must be different from current password' });
     }
 
@@ -348,7 +358,7 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
     const user = users[userIndex];
     const passwordHash = await hashPassword(password, user.salt);
 
-    if (passwordHash !== user.passwordHash) {
+    if (!timingSafeCompare(passwordHash, user.passwordHash)) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
