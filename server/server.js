@@ -20,6 +20,135 @@ const HASH_BYTES = 32;
 const MAX_AUDIT_LOG_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // ---------------------------------------------------------------------------
+// SOC2 CC6.1/CC6.2 – Server-side session management
+// ---------------------------------------------------------------------------
+const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const sessions = new Map(); // token -> { username, createdAt, expiresAt }
+
+function createSessionToken(username) {
+  const token = crypto.randomUUID();
+  sessions.set(token, {
+    username,
+    createdAt: new Date().toISOString(),
+    expiresAt: Date.now() + SESSION_MAX_AGE_MS,
+  });
+  return token;
+}
+
+function validateSession(token) {
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function invalidateSession(token) {
+  sessions.delete(token);
+}
+
+function invalidateUserSessions(username) {
+  for (const [token, session] of sessions.entries()) {
+    if (session.username === username) {
+      sessions.delete(token);
+    }
+  }
+}
+
+// Periodic cleanup of expired sessions (every hour)
+const sessionCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (now > session.expiresAt) {
+      sessions.delete(token);
+    }
+  }
+}, 60 * 60 * 1000);
+sessionCleanupInterval.unref();
+
+// SOC2 CC6.1 – Session authentication middleware
+function requireSession(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  const token = authHeader.slice(7);
+  const session = validateSession(token);
+  if (!session) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired session' });
+  }
+  req.sessionUser = session.username;
+  req.sessionToken = token;
+  next();
+}
+
+// ---------------------------------------------------------------------------
+// SOC2 CC6.8 – Server-side account lockout
+// ---------------------------------------------------------------------------
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15-minute lockout
+const loginAttempts = new Map(); // username -> { count, firstAttempt, lockedUntil }
+
+function checkServerLockout(username) {
+  const record = loginAttempts.get(username);
+  if (!record) return { allowed: true };
+
+  const now = Date.now();
+  if (record.lockedUntil && record.lockedUntil > now) {
+    return { allowed: false, retryAfterMs: record.lockedUntil - now };
+  }
+
+  if (record.lockedUntil && record.lockedUntil <= now) {
+    loginAttempts.delete(username);
+    return { allowed: true };
+  }
+
+  if (now - record.firstAttempt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(username);
+    return { allowed: true };
+  }
+
+  return { allowed: true };
+}
+
+function recordServerFailedAttempt(username) {
+  let record = loginAttempts.get(username) || { count: 0, firstAttempt: Date.now(), lockedUntil: null };
+  const now = Date.now();
+
+  if (record.count > 0 && now - record.firstAttempt > LOGIN_WINDOW_MS) {
+    record = { count: 0, firstAttempt: now, lockedUntil: null };
+  }
+
+  if (record.count === 0) {
+    record.firstAttempt = now;
+  }
+
+  record.count++;
+
+  if (record.count >= MAX_LOGIN_ATTEMPTS) {
+    record.lockedUntil = now + LOCKOUT_DURATION_MS;
+  }
+
+  loginAttempts.set(username, record);
+}
+
+function clearServerLoginAttempts(username) {
+  loginAttempts.delete(username);
+}
+
+// ---------------------------------------------------------------------------
+// SOC2 CC6.1 – Server-side password hash format validation
+// ---------------------------------------------------------------------------
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
+
+function validatePasswordHash(password) {
+  return typeof password === 'string' && SHA256_HEX_PATTERN.test(password);
+}
+
+// ---------------------------------------------------------------------------
 // ISO 27001:2022 A.8.15 – Audit logging
 // ---------------------------------------------------------------------------
 
@@ -254,9 +383,17 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
-app.use(express.json());
+// SOC2 PI1.1 – Explicit request body size limit to prevent DoS
+app.use(express.json({ limit: '10kb' }));
 app.use('/api', apiLimiter);
 app.use('/api', noCacheMiddleware);
+
+// ---------------------------------------------------------------------------
+// SOC2 A1.1/CC7.1 – Health check endpoint for availability monitoring
+// ---------------------------------------------------------------------------
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
 
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {
@@ -449,6 +586,11 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
+    // SOC2 CC6.1: Validate password hash format (client sends SHA-256 hex)
+    if (!validatePasswordHash(password)) {
+      return res.status(400).json({ success: false, error: 'Invalid password format' });
+    }
+
     // A.8.25: Server-side username validation
     const usernameErrors = validateUsername(username);
     if (usernameErrors.length > 0) {
@@ -478,8 +620,11 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
     users.push(newUser);
     writeUsers(users);
 
+    // SOC2 CC6.2: Issue session token on signup
+    const token = createSessionToken(normalizedUsername);
+
     auditLog({ event: 'SIGNUP_SUCCESS', message: 'New account created', username: normalizedUsername, req });
-    res.status(201).json({ success: true, username: normalizedUsername });
+    res.status(201).json({ success: true, username: normalizedUsername, token });
   } catch (err) {
     console.error('Signup error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -496,10 +641,20 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     const normalizedUsername = normalizeUsername(username);
+
+    // SOC2 CC6.8: Server-side account lockout check
+    const lockoutCheck = checkServerLockout(normalizedUsername);
+    if (!lockoutCheck.allowed) {
+      const retrySeconds = Math.ceil(lockoutCheck.retryAfterMs / 1000);
+      auditLog({ event: 'LOGIN_FAILURE', message: `Account locked (retry in ${retrySeconds}s)`, username: normalizedUsername, req });
+      return res.status(429).json({ success: false, error: 'Account temporarily locked due to too many failed attempts. Please try again later.' });
+    }
+
     const users = readUsers();
     const user = users.find((u) => u.username === normalizedUsername);
 
     if (!user) {
+      recordServerFailedAttempt(normalizedUsername);
       auditLog({ event: 'LOGIN_FAILURE', message: 'Invalid username or password', username: normalizedUsername, req });
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
@@ -507,26 +662,31 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const passwordHash = await hashPassword(password, user.salt);
 
     if (!timingSafeCompare(passwordHash, user.passwordHash)) {
+      recordServerFailedAttempt(normalizedUsername);
       auditLog({ event: 'LOGIN_FAILURE', message: 'Invalid username or password', username: normalizedUsername, req });
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
 
+    // SOC2 CC6.8: Clear lockout on successful login
+    clearServerLoginAttempts(normalizedUsername);
+
+    // SOC2 CC6.2: Issue session token on login
+    const token = createSessionToken(user.username);
+
     auditLog({ event: 'LOGIN_SUCCESS', message: 'User logged in', username: user.username, req });
-    res.json({ success: true, username: user.username, passwordResetRequired: !!user.passwordResetRequired });
+    res.json({ success: true, username: user.username, token, passwordResetRequired: !!user.passwordResetRequired });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
-// PUT /api/auth/change-password
-app.put('/api/auth/change-password', authLimiter, async (req, res) => {
+// PUT /api/auth/change-password – SOC2 CC6.1: requires valid session
+app.put('/api/auth/change-password', authLimiter, requireSession, async (req, res) => {
   try {
-    const { username, currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
+    const normalizedUsername = req.sessionUser;
 
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ success: false, error: 'Username is required' });
-    }
     if (!currentPassword || typeof currentPassword !== 'string') {
       return res.status(400).json({ success: false, error: 'Current password is required' });
     }
@@ -534,7 +694,6 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'New password is required' });
     }
 
-    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 
@@ -570,19 +729,16 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
   }
 });
 
-// DELETE /api/auth/account
-app.delete('/api/auth/account', authLimiter, async (req, res) => {
+// DELETE /api/auth/account – SOC2 CC6.1: requires valid session
+app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { password } = req.body;
+    const normalizedUsername = req.sessionUser;
 
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ success: false, error: 'Username is required' });
-    }
     if (!password || typeof password !== 'string') {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
-    const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 
@@ -599,6 +755,9 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
 
     users.splice(userIndex, 1);
     writeUsers(users);
+
+    // SOC2 CC6.3: Invalidate all sessions for deleted user
+    invalidateUserSessions(normalizedUsername);
 
     auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: normalizedUsername, req });
 
@@ -707,16 +866,19 @@ app.post('/api/admin/users/delete', async (req, res) => {
   }
 });
 
-// GET /api/auth/password-reset-status
-app.get('/api/auth/password-reset-status', (req, res) => {
+// ---------------------------------------------------------------------------
+// SOC2 CC6.3 – Logout / session invalidation
+// ---------------------------------------------------------------------------
+app.post('/api/auth/logout', requireSession, (req, res) => {
+  invalidateSession(req.sessionToken);
+  auditLog({ event: 'LOGOUT', message: 'User logged out', username: req.sessionUser, req });
+  res.json({ success: true });
+});
+
+// GET /api/auth/password-reset-status – SOC2 CC6.1: requires valid session
+app.get('/api/auth/password-reset-status', requireSession, (req, res) => {
   try {
-    const { username } = req.query;
-
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ success: false, error: 'Username is required' });
-    }
-
-    const user = findUser(username);
+    const user = findUser(req.sessionUser);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
@@ -730,16 +892,10 @@ app.get('/api/auth/password-reset-status', (req, res) => {
 
 const SUPPORTED_LANGUAGES = ['en', 'ko', 'ja', 'ru'];
 
-// GET /api/user/language
-app.get('/api/user/language', (req, res) => {
+// GET /api/user/language – SOC2 CC6.1: requires valid session
+app.get('/api/user/language', requireSession, (req, res) => {
   try {
-    const { username } = req.query;
-
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ success: false, error: 'Username is required' });
-    }
-
-    const normalizedUsername = normalizeUsername(username);
+    const normalizedUsername = req.sessionUser;
     const users = readUsers();
     const user = users.find((u) => u.username === normalizedUsername);
 
@@ -754,14 +910,10 @@ app.get('/api/user/language', (req, res) => {
   }
 });
 
-// PUT /api/user/language
-app.put('/api/user/language', (req, res) => {
+// PUT /api/user/language – SOC2 CC6.1: requires valid session
+app.put('/api/user/language', requireSession, (req, res) => {
   try {
-    const { username, language } = req.body;
-
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ success: false, error: 'Username is required' });
-    }
+    const { language } = req.body;
 
     if (!language || typeof language !== 'string') {
       return res.status(400).json({ success: false, error: 'Language is required' });
@@ -771,7 +923,7 @@ app.put('/api/user/language', (req, res) => {
       return res.status(400).json({ success: false, error: 'Unsupported language' });
     }
 
-    const normalizedUsername = normalizeUsername(username);
+    const normalizedUsername = req.sessionUser;
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 
@@ -829,4 +981,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter };
