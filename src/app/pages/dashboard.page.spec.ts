@@ -86,33 +86,21 @@ describe('DashboardPageComponent', () => {
     expect(badge?.textContent?.trim()).toContain('대시보드');
   });
 
-  it('should display translated filter buttons', () => {
+  it('should display the General Assistant app card', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const buttons = compiled.querySelectorAll('.flex.gap-2 button');
-    expect(buttons[0]?.textContent?.trim()).toBe('All');
-    expect(buttons[1]?.textContent?.trim()).toBe('Tools');
-    expect(buttons[2]?.textContent?.trim()).toBe('Models');
-
-    translationService.setLanguage({ code: 'ja', label: '日本語' });
-    fixture.detectChanges();
-    expect(buttons[0]?.textContent?.trim()).toBe('すべて');
-    expect(buttons[1]?.textContent?.trim()).toBe('ツール');
-    expect(buttons[2]?.textContent?.trim()).toBe('モデル');
+    const appCards = compiled.querySelectorAll('app-app-card');
+    expect(appCards.length).toBe(1);
   });
 
-  it('should display translated search placeholder', () => {
+  it('should not display search input or filter buttons', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const input = compiled.querySelector('input[type="text"]') as HTMLInputElement;
-    expect(input?.placeholder).toBe('Search applications...');
-
-    translationService.setLanguage({ code: 'ko', label: '한국어' });
-    fixture.detectChanges();
-    expect(input?.placeholder).toBe('애플리케이션 검색...');
+    const input = compiled.querySelector('input[type="text"]');
+    expect(input).toBeNull();
   });
 });

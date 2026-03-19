@@ -1,8 +1,16 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
+import { LlmService, type ProviderKeyStatus } from '../services/llm.service';
+
+interface ProviderConfig {
+  id: string;
+  name: string;
+  placeholder: string;
+  models: string[];
+}
 
 @Component({
   selector: 'app-settings',
@@ -21,7 +29,7 @@ import { AuthService } from '../services/auth.service';
             Account Settings
           </h1>
           <p class="text-lg text-muted">
-            Manage your account preferences and security settings.
+            Manage your account preferences, API keys, and security settings.
           </p>
         </div>
 
@@ -49,6 +57,103 @@ import { AuthService } from '../services/auth.service';
                 <p class="font-semibold text-secondary-900 text-lg">{{ authService.username() }}</p>
                 <p class="text-sm text-muted">Local.LLM account</p>
               </div>
+            </div>
+          </div>
+
+          <!-- AI Provider API Keys -->
+          <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
+            <h2 class="text-xl font-semibold text-secondary-900 mb-2">AI Provider API Keys</h2>
+            <p class="text-sm text-muted mb-6">Configure your API keys for different AI providers. Keys are encrypted and stored securely on the server.</p>
+
+            @if (apiKeySuccessMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {{ apiKeySuccessMessage() }}
+              </div>
+            }
+            @if (apiKeyErrorMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {{ apiKeyErrorMessage() }}
+              </div>
+            }
+
+            <div class="space-y-6">
+              @for (provider of providerConfigs; track provider.id) {
+                <div class="border border-secondary-100 rounded-lg p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full" [ngClass]="apiKeyStatus()[provider.id]?.configured ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                      <h3 class="font-medium text-secondary-900">{{ provider.name }}</h3>
+                    </div>
+                    @if (apiKeyStatus()[provider.id]?.configured) {
+                      <button
+                        (click)="removeProviderKey(provider.id)"
+                        class="text-xs text-red-500 hover:text-red-700 transition-colors"
+                      >
+                        Remove Key
+                      </button>
+                    }
+                  </div>
+
+                  @if (editingProvider() === provider.id) {
+                    <div class="space-y-3">
+                      <input
+                        type="password"
+                        [(ngModel)]="editApiKey"
+                        [name]="'apikey-' + provider.id"
+                        [placeholder]="provider.placeholder"
+                        class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                        autocomplete="off"
+                      />
+                      <div>
+                        <label class="block text-xs font-medium text-secondary-600 mb-1">Model</label>
+                        <select
+                          [(ngModel)]="editModel"
+                          [name]="'model-' + provider.id"
+                          class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
+                        >
+                          @for (model of provider.models; track model) {
+                            <option [value]="model">{{ model }}</option>
+                          }
+                        </select>
+                      </div>
+                      <div class="flex gap-2">
+                        <button
+                          (click)="saveProviderKey(provider.id)"
+                          [disabled]="isSavingKey()"
+                          class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                        >
+                          {{ isSavingKey() ? 'Saving...' : 'Save' }}
+                        </button>
+                        <button
+                          (click)="cancelEditProvider()"
+                          class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="flex items-center justify-between">
+                      <div class="text-sm text-muted">
+                        @if (apiKeyStatus()[provider.id]?.configured) {
+                          <span class="text-green-600">✓ Configured</span>
+                          @if (apiKeyStatus()[provider.id]?.selectedModel) {
+                            <span class="text-secondary-400 ml-2">· {{ apiKeyStatus()[provider.id]?.selectedModel }}</span>
+                          }
+                        } @else {
+                          Not configured
+                        }
+                      </div>
+                      <button
+                        (click)="startEditProvider(provider.id)"
+                        class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                      >
+                        {{ apiKeyStatus()[provider.id]?.configured ? 'Update' : 'Configure' }}
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
             </div>
           </div>
 
@@ -216,7 +321,7 @@ import { AuthService } from '../services/auth.service';
     </div>
   `,
 })
-export class SettingsPageComponent {
+export class SettingsPageComponent implements OnInit {
   // Change password fields
   currentPassword = '';
   newPassword = '';
@@ -231,10 +336,73 @@ export class SettingsPageComponent {
   isDeletingAccount = signal(false);
   deleteErrorMessage = signal<string | null>(null);
 
+  // API Key fields
+  apiKeyStatus = signal<Record<string, ProviderKeyStatus>>({});
+  editingProvider = signal<string | null>(null);
+  editApiKey = '';
+  editModel = '';
+  isSavingKey = signal(false);
+  apiKeySuccessMessage = signal<string | null>(null);
+  apiKeyErrorMessage = signal<string | null>(null);
+
+  providerConfigs: ProviderConfig[] = [
+    {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      placeholder: 'sk-or-...',
+      models: ['google/gemini-2.5-pro-preview', 'anthropic/claude-sonnet-4', 'openai/gpt-4o', 'meta-llama/llama-4-maverick', 'deepseek/deepseek-r1', 'mistralai/mistral-large-latest'],
+    },
+    {
+      id: 'anthropic',
+      name: 'Anthropic / Claude',
+      placeholder: 'sk-ant-...',
+      models: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI / ChatGPT',
+      placeholder: 'sk-...',
+      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini', 'gpt-3.5-turbo'],
+    },
+    {
+      id: 'deepseek',
+      name: 'Deepseek',
+      placeholder: 'sk-...',
+      models: ['deepseek-chat', 'deepseek-reasoner'],
+    },
+    {
+      id: 'xai',
+      name: 'xAI / Grok',
+      placeholder: 'xai-...',
+      models: ['grok-3', 'grok-3-mini', 'grok-2'],
+    },
+    {
+      id: 'google',
+      name: 'Google',
+      placeholder: 'AIza...',
+      models: ['gemini-2.5-pro-preview-06-05', 'gemini-2.5-flash-preview-05-20', 'gemini-2.0-flash', 'gemini-1.5-pro'],
+    },
+  ];
+
+  private llmService = inject(LlmService);
+
   constructor(
     public authService: AuthService,
     private router: Router
   ) {}
+
+  async ngOnInit(): Promise<void> {
+    await this.loadApiKeyStatus();
+  }
+
+  async loadApiKeyStatus(): Promise<void> {
+    try {
+      const status = await this.llmService.getApiKeyStatus();
+      this.apiKeyStatus.set(status);
+    } catch {
+      // Silent failure
+    }
+  }
 
   usernameInitial(): string {
     const name = this.authService.username();
@@ -256,6 +424,59 @@ export class SettingsPageComponent {
   hasSpecial(): boolean {
     return /[^A-Za-z0-9]/.test(this.newPassword);
   }
+
+  // --- API Key methods ---
+
+  startEditProvider(providerId: string): void {
+    this.editingProvider.set(providerId);
+    this.editApiKey = '';
+    const status = this.apiKeyStatus()[providerId];
+    const config = this.providerConfigs.find(p => p.id === providerId);
+    this.editModel = status?.selectedModel || config?.models[0] || '';
+    this.apiKeySuccessMessage.set(null);
+    this.apiKeyErrorMessage.set(null);
+  }
+
+  cancelEditProvider(): void {
+    this.editingProvider.set(null);
+    this.editApiKey = '';
+    this.editModel = '';
+  }
+
+  async saveProviderKey(providerId: string): Promise<void> {
+    if (!this.editApiKey.trim()) {
+      this.apiKeyErrorMessage.set('Please enter an API key');
+      return;
+    }
+
+    this.isSavingKey.set(true);
+    this.apiKeyErrorMessage.set(null);
+
+    try {
+      await this.llmService.setApiKey(providerId, this.editApiKey.trim(), this.editModel || undefined);
+      this.apiKeySuccessMessage.set(`API key for ${this.providerConfigs.find(p => p.id === providerId)?.name} saved successfully`);
+      this.editingProvider.set(null);
+      this.editApiKey = '';
+      this.editModel = '';
+      await this.loadApiKeyStatus();
+    } catch {
+      this.apiKeyErrorMessage.set('Failed to save API key');
+    } finally {
+      this.isSavingKey.set(false);
+    }
+  }
+
+  async removeProviderKey(providerId: string): Promise<void> {
+    try {
+      await this.llmService.removeApiKey(providerId);
+      this.apiKeySuccessMessage.set('API key removed');
+      await this.loadApiKeyStatus();
+    } catch {
+      this.apiKeyErrorMessage.set('Failed to remove API key');
+    }
+  }
+
+  // --- Password methods ---
 
   async onChangePassword(): Promise<void> {
     this.passwordErrorMessage.set(null);
