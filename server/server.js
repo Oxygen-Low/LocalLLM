@@ -65,9 +65,9 @@ function auditLog({ event, message, username, req }) {
 // ISO 27001:2022 A.8.15 – Request ID middleware for log correlation
 // ---------------------------------------------------------------------------
 
-function requestIdMiddleware(req, _res, next) {
+function requestIdMiddleware(req, res, next) {
   req.requestId = crypto.randomUUID();
-  _res.setHeader('X-Request-Id', req.requestId);
+  res.setHeader('X-Request-Id', req.requestId);
   next();
 }
 
@@ -75,7 +75,7 @@ function requestIdMiddleware(req, _res, next) {
 // ISO 27001:2022 A.8.9 – Cache-Control for sensitive API responses
 // ---------------------------------------------------------------------------
 
-function noCacheMiddleware(_req, res, next) {
+function noCacheMiddleware(req, res, next) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   next();
@@ -248,7 +248,7 @@ app.use(
 );
 
 // ISO 27001:2022 A.8.9 – Permissions-Policy header to restrict browser features
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   next();
 });

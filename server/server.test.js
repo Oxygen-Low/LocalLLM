@@ -783,43 +783,13 @@ describe('ISO 27001 A.8.25 – Server-side username validation', () => {
     assert.ok(errors[0].includes('at least 3'));
   });
 
-  it('signup endpoint rejects invalid usernames with 400', async () => {
-    // Use a dedicated Express app with a fresh auth limiter to avoid rate-limit interference
-    const express = require('express');
-    const { rateLimit } = require('express-rate-limit');
+  it('validateUsername rejects special characters like spaces and exclamation marks', () => {
+    const errors = validateUsername('bad user!');
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].includes('letters, numbers'));
+  });
 
-    const testApp = express();
-    testApp.use(express.json());
-
-    const freshLimiter = rateLimit({ windowMs: 60000, max: 20, standardHeaders: true, legacyHeaders: false });
-    // Mount a copy of the signup route with a fresh limiter
-    testApp.post('/api/auth/signup', freshLimiter, async (req, res) => {
-      const { username, password } = req.body;
-      if (!username || typeof username !== 'string') {
-        return res.status(400).json({ success: false, error: 'Username is required' });
-      }
-      if (!password || typeof password !== 'string') {
-        return res.status(400).json({ success: false, error: 'Password is required' });
-      }
-      const usernameErrors = validateUsername(username);
-      if (usernameErrors.length > 0) {
-        return res.status(400).json({ success: false, error: usernameErrors[0] });
-      }
-      return res.status(201).json({ success: true });
-    });
-
-    const testServer = http.createServer(testApp);
-    await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve));
-
-    try {
-      const res = await request(testServer, 'POST', '/api/auth/signup', {
-        username: 'ab',
-        password: sha256Hex('TestPass1!'),
-      });
-      assert.equal(res.status, 400);
-      assert.ok(res.body.error.includes('at least 3'));
-    } finally {
-      await new Promise((resolve) => testServer.close(resolve));
-    }
+  it('validateUsername accepts hyphens and underscores', () => {
+    assert.deepEqual(validateUsername('my-user_name'), []);
   });
 });
