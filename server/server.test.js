@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1069,5 +1069,350 @@ describe('SOC2 PI1.1 – Request body size limits', () => {
     const res = await request(server, 'POST', '/api/auth/login', largeBody);
     // Express returns 413 for payload too large (limit: 1mb)
     assert.equal(res.status, 413);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API Key management tests
+// ---------------------------------------------------------------------------
+describe('API Key management', () => {
+  const testUsername = 'apikeys_test_' + Date.now();
+  const testPassword = sha256Hex('testpassword123');
+  let apiKeyToken = null;
+
+  it('should create a test user for API key tests', async () => {
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: testUsername,
+      password: testPassword,
+    });
+    assert.equal(res.status, 201);
+    apiKeyToken = res.body.token;
+    assert.ok(apiKeyToken);
+  });
+
+  it('GET /api/user/api-keys returns all providers as unconfigured', async () => {
+    const res = await request(server, 'GET', '/api/user/api-keys', null, apiKeyToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    for (const provider of VALID_PROVIDERS) {
+      assert.equal(res.body.providers[provider].configured, false);
+      assert.equal(res.body.providers[provider].selectedModel, null);
+    }
+  });
+
+  it('PUT /api/user/api-keys/:provider sets an API key', async () => {
+    const res = await request(server, 'PUT', '/api/user/api-keys/openai', {
+      apiKey: 'sk-test-key-123',
+      selectedModel: 'gpt-4',
+    }, apiKeyToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+  });
+
+  it('GET /api/user/api-keys shows provider as configured after setting key', async () => {
+    const res = await request(server, 'GET', '/api/user/api-keys', null, apiKeyToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.providers.openai.configured, true);
+    assert.equal(res.body.providers.openai.selectedModel, 'gpt-4');
+  });
+
+  it('PUT /api/user/api-keys/:provider rejects invalid provider', async () => {
+    const res = await request(server, 'PUT', '/api/user/api-keys/invalid_provider', {
+      apiKey: 'sk-test',
+    }, apiKeyToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('PUT /api/user/api-keys/:provider rejects missing API key', async () => {
+    const res = await request(server, 'PUT', '/api/user/api-keys/openai', {}, apiKeyToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('DELETE /api/user/api-keys/:provider removes an API key', async () => {
+    const res = await request(server, 'DELETE', '/api/user/api-keys/openai', null, apiKeyToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+  });
+
+  it('GET /api/user/api-keys shows provider as unconfigured after removal', async () => {
+    const res = await request(server, 'GET', '/api/user/api-keys', null, apiKeyToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.providers.openai.configured, false);
+  });
+
+  it('DELETE /api/user/api-keys/:provider rejects invalid provider', async () => {
+    const res = await request(server, 'DELETE', '/api/user/api-keys/invalid_provider', null, apiKeyToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('requires authentication for API key endpoints', async () => {
+    const getRes = await request(server, 'GET', '/api/user/api-keys', null);
+    assert.equal(getRes.status, 401);
+    const putRes = await request(server, 'PUT', '/api/user/api-keys/openai', { apiKey: 'test' });
+    assert.equal(putRes.status, 401);
+    const delRes = await request(server, 'DELETE', '/api/user/api-keys/openai', null);
+    assert.equal(delRes.status, 401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chat CRUD tests
+// ---------------------------------------------------------------------------
+describe('Chat CRUD', () => {
+  const testUsername = 'chat_test_' + Date.now();
+  const testPassword = sha256Hex('testpassword123');
+  let chatToken = null;
+  let createdChatId = null;
+
+  it('should create a test user for chat tests', async () => {
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: testUsername,
+      password: testPassword,
+    });
+    assert.equal(res.status, 201);
+    chatToken = res.body.token;
+    assert.ok(chatToken);
+  });
+
+  it('GET /api/chats returns empty list initially', async () => {
+    const res = await request(server, 'GET', '/api/chats', null, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.ok(Array.isArray(res.body.chats));
+    assert.equal(res.body.chats.length, 0);
+  });
+
+  it('POST /api/chats creates a new chat', async () => {
+    const res = await request(server, 'POST', '/api/chats', {
+      provider: 'openai',
+      model: 'gpt-4',
+    }, chatToken);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.success, true);
+    assert.ok(res.body.chat.id);
+    assert.ok(res.body.chat.title);
+    assert.ok(Array.isArray(res.body.chat.messages));
+    createdChatId = res.body.chat.id;
+  });
+
+  it('GET /api/chats returns the created chat', async () => {
+    const res = await request(server, 'GET', '/api/chats', null, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.chats.length, 1);
+    assert.equal(res.body.chats[0].id, createdChatId);
+  });
+
+  it('GET /api/chats/:id returns specific chat', async () => {
+    const res = await request(server, 'GET', `/api/chats/${createdChatId}`, null, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.chat.id, createdChatId);
+  });
+
+  it('GET /api/chats/:id returns 404 for non-existent chat', async () => {
+    const fakeId = '00000000-0000-0000-0000-000000000000';
+    const res = await request(server, 'GET', `/api/chats/${fakeId}`, null, chatToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('GET /api/chats/:id returns 400 for invalid chat ID format', async () => {
+    const res = await request(server, 'GET', '/api/chats/invalid-id', null, chatToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('PUT /api/chats/:id updates chat title', async () => {
+    const res = await request(server, 'PUT', `/api/chats/${createdChatId}`, {
+      title: 'Updated Title',
+    }, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.chat.title, 'Updated Title');
+  });
+
+  it('PUT /api/chats/:id updates messages with valid data', async () => {
+    const validMessages = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi there!' },
+    ];
+    const res = await request(server, 'PUT', `/api/chats/${createdChatId}`, {
+      messages: validMessages,
+    }, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.chat.messages.length, 2);
+  });
+
+  it('PUT /api/chats/:id rejects non-array messages', async () => {
+    const res = await request(server, 'PUT', `/api/chats/${createdChatId}`, {
+      messages: 'not-an-array',
+    }, chatToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('PUT /api/chats/:id rejects messages with invalid role', async () => {
+    const res = await request(server, 'PUT', `/api/chats/${createdChatId}`, {
+      messages: [{ role: 'invalid', content: 'test' }],
+    }, chatToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('PUT /api/chats/:id rejects messages with missing content', async () => {
+    const res = await request(server, 'PUT', `/api/chats/${createdChatId}`, {
+      messages: [{ role: 'user', content: 123 }],
+    }, chatToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('DELETE /api/chats/:id deletes a chat', async () => {
+    const res = await request(server, 'DELETE', `/api/chats/${createdChatId}`, null, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+  });
+
+  it('GET /api/chats returns empty list after deletion', async () => {
+    const res = await request(server, 'GET', '/api/chats', null, chatToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.chats.length, 0);
+  });
+
+  it('requires authentication for chat endpoints', async () => {
+    const listRes = await request(server, 'GET', '/api/chats', null);
+    assert.equal(listRes.status, 401);
+    const createRes = await request(server, 'POST', '/api/chats', {});
+    assert.equal(createRes.status, 401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/chat/send validation tests
+// ---------------------------------------------------------------------------
+describe('POST /api/chat/send validation', () => {
+  const testUsername = 'chatsend_test_' + Date.now();
+  const testPassword = sha256Hex('testpassword123');
+  let sendToken = null;
+
+  it('should create a test user for chat send tests', async () => {
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: testUsername,
+      password: testPassword,
+    });
+    assert.equal(res.status, 201);
+    sendToken = res.body.token;
+    assert.ok(sendToken);
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'openai',
+      model: 'gpt-4',
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it('rejects missing messages', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      provider: 'openai',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects empty messages array', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [],
+      provider: 'openai',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects missing provider', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects invalid provider', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'nonexistent',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects invalid message role', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'admin', content: 'hi' }],
+      provider: 'openai',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /role/i);
+  });
+
+  it('rejects message with non-string content', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 123 }],
+      provider: 'openai',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects message with missing content', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user' }],
+      provider: 'openai',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects when provider API key not configured', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'openai',
+      model: 'gpt-4',
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not configured/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/providers tests
+// ---------------------------------------------------------------------------
+describe('GET /api/providers', () => {
+  const testUsername = 'providers_test_' + Date.now();
+  const testPassword = sha256Hex('testpassword123');
+  let provToken = null;
+
+  it('should create a test user for provider tests', async () => {
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: testUsername,
+      password: testPassword,
+    });
+    assert.equal(res.status, 201);
+    provToken = res.body.token;
+    assert.ok(provToken);
+  });
+
+  it('returns provider list', async () => {
+    const res = await request(server, 'GET', '/api/providers', null, provToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.ok(Array.isArray(res.body.providers));
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(server, 'GET', '/api/providers', null);
+    assert.equal(res.status, 401);
   });
 });
