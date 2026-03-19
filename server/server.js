@@ -52,7 +52,7 @@ function isPrivateIP(ip) {
   if (addr === '::1') return true;                              // loopback
   if (addr === '::') return true;                               // unspecified
   if (/^fe80:/i.test(addr)) return true;                        // link-local
-  if (/^fc00:/i.test(addr) || /^fd/i.test(addr)) return true;  // unique-local (fc00::/7)
+  if (/^f[cd]/i.test(addr)) return true;                      // unique-local (fc00::/7)
   if (/^::ffff:/i.test(addr)) {                                 // IPv4-mapped IPv6
     const v4 = addr.replace(/^::ffff:/i, '');
     return isPrivateIP(v4);

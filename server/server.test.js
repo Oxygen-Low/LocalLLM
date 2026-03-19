@@ -497,7 +497,7 @@ describe('SSRF protection (A10)', () => {
       assert.equal(isPrivateIP('fe80::1'), true);
     });
 
-    it('blocks IPv6 unique-local fc00::/fd', () => {
+    it('blocks IPv6 unique-local fc00::/7', () => {
       assert.equal(isPrivateIP('fc00::1'), true);
       assert.equal(isPrivateIP('fd12::1'), true);
     });
