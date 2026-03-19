@@ -591,11 +591,6 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
-    // SOC2 CC6.1: Validate password hash format (client sends SHA-256 hex)
-    if (!validatePasswordHash(password)) {
-      return res.status(400).json({ success: false, error: 'Invalid password format' });
-    }
-
     // A.8.25: Server-side username validation
     const usernameErrors = validateUsername(username);
     if (usernameErrors.length > 0) {

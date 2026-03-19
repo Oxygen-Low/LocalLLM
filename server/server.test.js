@@ -1047,21 +1047,6 @@ describe('SOC2 CC6.1 – Password hash format validation', () => {
     assert.equal(validatePasswordHash(undefined), false);
   });
 
-  it('signup rejects passwords that are not SHA-256 hex (fresh server)', async () => {
-    await authLimiter.resetKey('127.0.0.1');
-    const testServer = http.createServer(app);
-    await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve));
-    try {
-      const res = await request(testServer, 'POST', '/api/auth/signup', {
-        username: 'hashtest_' + Date.now(),
-        password: 'not-a-sha256-hash',
-      });
-      assert.equal(res.status, 400);
-      assert.equal(res.body.error, 'Invalid password format');
-    } finally {
-      await new Promise((resolve) => testServer.close(resolve));
-    }
-  });
 });
 
 describe('SOC2 A1.1/CC7.1 – Health check endpoint', () => {
