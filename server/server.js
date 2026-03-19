@@ -13,9 +13,73 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
+const MAX_AUDIT_LOG_BYTES = 10 * 1024 * 1024; // 10 MB
+
+// ---------------------------------------------------------------------------
+// ISO 27001:2022 A.8.15 – Audit logging
+// ---------------------------------------------------------------------------
+
+/**
+ * Append a structured JSON audit log entry to the persistent audit log file.
+ * Each entry is a single JSON line with timestamp, requestId, event type,
+ * optional username, source IP, and a human-readable message.
+ */
+function auditLog({ event, message, username, req }) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    requestId: req?.requestId ?? undefined,
+    event,
+    username: username ?? undefined,
+    ip: req ? (req.ip || req.socket?.remoteAddress) : undefined,
+    message,
+  };
+
+  const line = JSON.stringify(entry) + '\n';
+
+  try {
+    // Simple size-based rotation: if the log exceeds MAX_AUDIT_LOG_BYTES,
+    // truncate it to the most recent half before appending.
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      const stat = fs.statSync(AUDIT_LOG_FILE);
+      if (stat.size > MAX_AUDIT_LOG_BYTES) {
+        const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+        const lines = content.split('\n').filter(Boolean);
+        const keep = lines.slice(Math.floor(lines.length / 2));
+        fs.writeFileSync(AUDIT_LOG_FILE, keep.join('\n') + '\n', 'utf-8');
+      }
+    }
+
+    fs.appendFileSync(AUDIT_LOG_FILE, line, 'utf-8');
+  } catch {
+    // Audit log write failure must not crash the server.
+    // eslint-disable-next-line no-console
+    console.error('Audit log write failed:', entry);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ISO 27001:2022 A.8.15 – Request ID middleware for log correlation
+// ---------------------------------------------------------------------------
+
+function requestIdMiddleware(req, res, next) {
+  req.requestId = crypto.randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+}
+
+// ---------------------------------------------------------------------------
+// ISO 27001:2022 A.8.9 – Cache-Control for sensitive API responses
+// ---------------------------------------------------------------------------
+
+function noCacheMiddleware(req, res, next) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+}
 
 // ---------------------------------------------------------------------------
 // A10: Server-Side Request Forgery (SSRF) – URL validation & IP-range blocking
@@ -164,6 +228,7 @@ const authLimiter = rateLimit({
   message: { success: false, error: 'Too many authentication attempts, please try again later.' },
 });
 
+app.use(requestIdMiddleware);
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -181,9 +246,17 @@ app.use(
     },
   })
 );
+
+// ISO 27001:2022 A.8.9 – Permissions-Policy header to restrict browser features
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+});
+
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
 app.use(express.json());
 app.use('/api', apiLimiter);
+app.use('/api', noCacheMiddleware);
 
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {
@@ -212,6 +285,25 @@ function loadUsersFromDisk() {
 loadUsersFromDisk();
 
 const ADMIN_USERNAME = 'admin';
+
+// ISO 27001:2022 A.8.25 – Server-side username validation (mirrors client-side rules)
+const MIN_USERNAME_LENGTH = 3;
+const MAX_USERNAME_LENGTH = 30;
+const USERNAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function validateUsername(username) {
+  const errors = [];
+  if (username.length < MIN_USERNAME_LENGTH) {
+    errors.push(`Username must be at least ${MIN_USERNAME_LENGTH} characters`);
+  }
+  if (username.length > MAX_USERNAME_LENGTH) {
+    errors.push(`Username must be at most ${MAX_USERNAME_LENGTH} characters`);
+  }
+  if (!USERNAME_PATTERN.test(username)) {
+    errors.push('Username can only contain letters, numbers, hyphens, and underscores');
+  }
+  return errors;
+}
 
 function normalizeUsername(username) {
   return username.toLowerCase();
@@ -357,10 +449,18 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
+    // A.8.25: Server-side username validation
+    const usernameErrors = validateUsername(username);
+    if (usernameErrors.length > 0) {
+      auditLog({ event: 'SIGNUP_FAILURE', message: `Validation failed: ${usernameErrors[0]}`, username, req });
+      return res.status(400).json({ success: false, error: usernameErrors[0] });
+    }
+
     const normalizedUsername = normalizeUsername(username);
     const users = readUsers();
 
     if (users.some((u) => u.username === normalizedUsername)) {
+      auditLog({ event: 'SIGNUP_FAILURE', message: 'Username already exists', username: normalizedUsername, req });
       return res.status(409).json({ success: false, error: 'Username already exists' });
     }
 
@@ -378,6 +478,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
     users.push(newUser);
     writeUsers(users);
 
+    auditLog({ event: 'SIGNUP_SUCCESS', message: 'New account created', username: normalizedUsername, req });
     res.status(201).json({ success: true, username: normalizedUsername });
   } catch (err) {
     console.error('Signup error:', err);
@@ -399,15 +500,18 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const user = users.find((u) => u.username === normalizedUsername);
 
     if (!user) {
+      auditLog({ event: 'LOGIN_FAILURE', message: 'Invalid username or password', username: normalizedUsername, req });
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
 
     const passwordHash = await hashPassword(password, user.salt);
 
     if (!timingSafeCompare(passwordHash, user.passwordHash)) {
+      auditLog({ event: 'LOGIN_FAILURE', message: 'Invalid username or password', username: normalizedUsername, req });
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
 
+    auditLog({ event: 'LOGIN_SUCCESS', message: 'User logged in', username: user.username, req });
     res.json({ success: true, username: user.username, passwordResetRequired: !!user.passwordResetRequired });
   } catch (err) {
     console.error('Login error:', err);
@@ -442,6 +546,7 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
     const currentHash = await hashPassword(currentPassword, user.salt);
 
     if (!timingSafeCompare(currentHash, user.passwordHash)) {
+      auditLog({ event: 'PASSWORD_CHANGE_FAILURE', message: 'Current password is incorrect', username: normalizedUsername, req });
       return res.status(401).json({ success: false, error: 'Current password is incorrect' });
     }
 
@@ -457,6 +562,7 @@ app.put('/api/auth/change-password', authLimiter, async (req, res) => {
     users[userIndex] = { ...user, passwordHash: newHash, salt: newSalt, passwordResetRequired: false };
     writeUsers(users);
 
+    auditLog({ event: 'PASSWORD_CHANGED', message: 'Password changed successfully', username: normalizedUsername, req });
     res.json({ success: true });
   } catch (err) {
     console.error('Change password error:', err);
@@ -494,6 +600,8 @@ app.delete('/api/auth/account', authLimiter, async (req, res) => {
     users.splice(userIndex, 1);
     writeUsers(users);
 
+    auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: normalizedUsername, req });
+
     // Recreate the admin account if it was just deleted
     if (normalizedUsername === ADMIN_USERNAME) {
       await ensureAdminAccount();
@@ -511,6 +619,7 @@ app.post('/api/admin/users/list', async (req, res) => {
   try {
     const { adminUsername, adminPassword } = req.body;
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin list attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
     }
 
@@ -520,6 +629,7 @@ app.post('/api/admin/users/list', async (req, res) => {
       passwordResetRequired: !!u.passwordResetRequired,
     }));
 
+    auditLog({ event: 'ADMIN_LIST_USERS', message: 'Admin listed users', username: adminUsername, req });
     return res.json({ success: true, users });
   } catch (err) {
     console.error('Admin list users error:', err);
@@ -537,6 +647,7 @@ app.post('/api/admin/users/reset-password', async (req, res) => {
     }
 
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin reset-password attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
     }
 
@@ -551,6 +662,7 @@ app.post('/api/admin/users/reset-password', async (req, res) => {
     users[userIndex] = { ...users[userIndex], passwordResetRequired: true };
     writeUsers(users);
 
+    auditLog({ event: 'ADMIN_RESET_PASSWORD', message: `Admin flagged password reset for ${normalizedUsername}`, username: adminUsername, req });
     return res.json({ success: true });
   } catch (err) {
     console.error('Admin reset password error:', err);
@@ -568,6 +680,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
     }
 
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin delete attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
     }
 
@@ -586,6 +699,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
     users.splice(userIndex, 1);
     writeUsers(users);
 
+    auditLog({ event: 'ADMIN_DELETE_USER', message: `Admin deleted user ${normalizedUsername}`, username: adminUsername, req });
     return res.json({ success: true });
   } catch (err) {
     console.error('Admin delete user error:', err);
@@ -715,4 +829,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE };

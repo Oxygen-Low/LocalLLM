@@ -47,6 +47,9 @@ Thumbs.db
 # Server data (user credentials)
 data/users.json
 
+# Audit log (ISO 27001 A.8.15)
+data/audit.log
+
 # Self-signed TLS certificates (development only)
 data/dev-key.pem
 data/dev-cert.pem

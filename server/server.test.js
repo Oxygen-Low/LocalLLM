@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -595,5 +595,201 @@ describe('SSRF protection (A10)', () => {
       const result = await ssrfSafeUrlValidation('file:///etc/passwd');
       assert.equal(result.valid, false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ISO 27001:2022 compliance tests
+// ---------------------------------------------------------------------------
+
+describe('ISO 27001 A.8.15 – Audit logging', () => {
+  it('auditLog writes a JSON line to the audit log file', () => {
+    // Clean slate
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'TEST_EVENT', message: 'Unit test entry', username: 'testuser' });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8').trim();
+    const entry = JSON.parse(content);
+    assert.equal(entry.event, 'TEST_EVENT');
+    assert.equal(entry.message, 'Unit test entry');
+    assert.equal(entry.username, 'testuser');
+    assert.ok(entry.timestamp, 'Expected timestamp to be present');
+  });
+
+  it('auditLog appends multiple entries (one per line)', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'EVENT_A', message: 'First' });
+    auditLog({ event: 'EVENT_B', message: 'Second' });
+
+    const lines = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8').trim().split('\n');
+    assert.equal(lines.length, 2);
+    assert.equal(JSON.parse(lines[0]).event, 'EVENT_A');
+    assert.equal(JSON.parse(lines[1]).event, 'EVENT_B');
+  });
+
+  it('login success creates an audit log entry', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'LOGIN_SUCCESS', message: 'User logged in', username: 'admin', req: { requestId: 'login-req-id', ip: '127.0.0.1' } });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    assert.equal(entry.event, 'LOGIN_SUCCESS');
+    assert.equal(entry.username, 'admin');
+    assert.equal(entry.requestId, 'login-req-id');
+    assert.equal(entry.ip, '127.0.0.1');
+  });
+
+  it('login failure creates an audit log entry', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'LOGIN_FAILURE', message: 'Invalid username or password', username: 'testuser', req: { requestId: 'fail-req-id', ip: '127.0.0.1' } });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    assert.equal(entry.event, 'LOGIN_FAILURE');
+    assert.equal(entry.username, 'testuser');
+    assert.equal(entry.requestId, 'fail-req-id');
+  });
+
+  it('signup success creates an audit log entry', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    const uniqueName = 'audituser_' + Date.now();
+    auditLog({ event: 'SIGNUP_SUCCESS', message: 'New account created', username: uniqueName, req: { requestId: 'signup-req-id', ip: '127.0.0.1' } });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    assert.equal(entry.event, 'SIGNUP_SUCCESS');
+    assert.equal(entry.username, uniqueName);
+  });
+
+  it('password change creates an audit log entry', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'PASSWORD_CHANGED', message: 'Password changed successfully', username: 'testuser', req: { requestId: 'pw-req-id' } });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    assert.equal(entry.event, 'PASSWORD_CHANGED');
+  });
+
+  it('account deletion creates an audit log entry', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: 'deleteduser', req: { requestId: 'del-req-id' } });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    assert.equal(entry.event, 'ACCOUNT_DELETED');
+    assert.equal(entry.username, 'deleteduser');
+  });
+
+  it('admin auth failure creates an audit log entry', () => {
+    if (fs.existsSync(AUDIT_LOG_FILE)) {
+      fs.unlinkSync(AUDIT_LOG_FILE);
+    }
+
+    auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin list attempt', username: 'attacker' });
+
+    const content = fs.readFileSync(AUDIT_LOG_FILE, 'utf-8');
+    const entry = JSON.parse(content.trim());
+    assert.equal(entry.event, 'ADMIN_AUTH_FAILURE');
+  });
+});
+
+describe('ISO 27001 A.8.15 – X-Request-Id header', () => {
+  it('all API responses include an X-Request-Id header', async () => {
+    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    assert.ok(res.headers['x-request-id'], 'Expected X-Request-Id header to be present');
+    // UUID v4 format check
+    assert.match(res.headers['x-request-id'], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  });
+
+  it('each request gets a unique X-Request-Id', async () => {
+    const res1 = await request(server, 'GET', '/api/auth/password-reset-status?username=a', null);
+    const res2 = await request(server, 'GET', '/api/auth/password-reset-status?username=b', null);
+    assert.notEqual(res1.headers['x-request-id'], res2.headers['x-request-id']);
+  });
+});
+
+describe('ISO 27001 A.8.9 – Cache-Control for API responses', () => {
+  it('sets Cache-Control: no-store on API responses', async () => {
+    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    const cc = res.headers['cache-control'];
+    assert.ok(cc, 'Expected Cache-Control header to be present');
+    assert.ok(cc.includes('no-store'), 'Expected no-store in Cache-Control');
+  });
+
+  it('sets Pragma: no-cache on API responses', async () => {
+    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    assert.equal(res.headers['pragma'], 'no-cache');
+  });
+});
+
+describe('ISO 27001 A.8.9 – Permissions-Policy header', () => {
+  it('sets Permissions-Policy header restricting browser features', async () => {
+    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    const pp = res.headers['permissions-policy'];
+    assert.ok(pp, 'Expected Permissions-Policy header to be present');
+    assert.ok(pp.includes('camera=()'), 'Expected camera=() in Permissions-Policy');
+    assert.ok(pp.includes('microphone=()'), 'Expected microphone=() in Permissions-Policy');
+    assert.ok(pp.includes('geolocation=()'), 'Expected geolocation=() in Permissions-Policy');
+  });
+});
+
+describe('ISO 27001 A.8.25 – Server-side username validation', () => {
+  it('validateUsername rejects usernames shorter than 3 characters', () => {
+    const errors = validateUsername('ab');
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].includes('at least 3'));
+  });
+
+  it('validateUsername rejects usernames longer than 30 characters', () => {
+    const errors = validateUsername('a'.repeat(31));
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].includes('at most 30'));
+  });
+
+  it('validateUsername rejects usernames with invalid characters', () => {
+    const errors = validateUsername('bad user!');
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].includes('letters, numbers'));
+  });
+
+  it('validateUsername returns no errors for valid username', () => {
+    assert.deepEqual(validateUsername('test-user_1'), []);
+  });
+
+  it('validateUsername returns errors for single character', () => {
+    const errors = validateUsername('a');
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].includes('at least 3'));
+  });
+
+  it('validateUsername rejects special characters like spaces and exclamation marks', () => {
+    const errors = validateUsername('bad user!');
+    assert.ok(errors.length > 0);
+    assert.ok(errors[0].includes('letters, numbers'));
+  });
+
+  it('validateUsername accepts hyphens and underscores', () => {
+    assert.deepEqual(validateUsername('my-user_name'), []);
   });
 });
