@@ -96,14 +96,18 @@ interface ProviderConfig {
 
                   @if (editingProvider() === provider.id) {
                     <div class="space-y-3">
-                      <input
-                        type="password"
-                        [(ngModel)]="editApiKey"
-                        [name]="'apikey-' + provider.id"
-                        [placeholder]="provider.placeholder"
-                        class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
-                        autocomplete="off"
-                      />
+                      <div>
+                        <label [for]="'apikey-' + provider.id" class="block text-xs font-medium text-secondary-600 mb-1">API Key</label>
+                        <input
+                          [id]="'apikey-' + provider.id"
+                          type="password"
+                          [(ngModel)]="editApiKey"
+                          [name]="'apikey-' + provider.id"
+                          [placeholder]="provider.placeholder"
+                          class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                          autocomplete="off"
+                        />
+                      </div>
                       <div>
                         <label class="block text-xs font-medium text-secondary-600 mb-1">Model</label>
                         <select

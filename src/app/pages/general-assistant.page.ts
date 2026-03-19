@@ -31,12 +31,14 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
         <!-- Chat List -->
         <div class="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
           @for (chat of chatList(); track chat.id) {
-            <button
-              (click)="loadChat(chat.id)"
-              class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors group flex items-center justify-between"
+            <div
+              class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors group flex items-center justify-between cursor-pointer"
               [ngClass]="currentChatId() === chat.id ? 'bg-secondary-700' : 'hover:bg-secondary-800'"
             >
-              <span class="truncate flex-1">{{ chat.title }}</span>
+              <button
+                (click)="loadChat(chat.id)"
+                class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0"
+              >{{ chat.title }}</button>
               <button
                 (click)="deleteExistingChat(chat.id, $event)"
                 class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
@@ -45,7 +47,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
-            </button>
+            </div>
           }
           @if (chatList().length === 0) {
             <p class="text-secondary-500 text-xs text-center py-4">No conversations yet</p>
@@ -177,7 +179,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
             <div class="flex items-center gap-2 mb-3">
               <div class="relative" #providerDropdown>
                 <button
-                  (click)="showProviderDropdown.set(!showProviderDropdown())"
+                  (click)="toggleProviderDropdown($event)"
                   class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-sm transition-colors"
                 >
                   <span class="w-2 h-2 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
@@ -252,6 +254,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
 })
 export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   @ViewChild('messagesContainer') messagesContainer!: ElementRef;
+  @ViewChild('providerDropdown') providerDropdown!: ElementRef;
 
   private llmService = inject(LlmService);
 
@@ -269,9 +272,10 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   private clickOutsideListener: ((e: Event) => void) | null = null;
 
   async ngOnInit(): Promise<void> {
-    // Close dropdown when clicking outside
+    // Close dropdown when clicking outside the dropdown area
     this.clickOutsideListener = (e: Event) => {
-      if (this.showProviderDropdown()) {
+      if (this.showProviderDropdown() && this.providerDropdown &&
+          !this.providerDropdown.nativeElement.contains(e.target as Node)) {
         this.showProviderDropdown.set(false);
       }
     };
@@ -305,6 +309,11 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     } catch {
       // Silent failure
     }
+  }
+
+  toggleProviderDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showProviderDropdown.set(!this.showProviderDropdown());
   }
 
   async loadChatList(): Promise<void> {

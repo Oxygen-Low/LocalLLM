@@ -50,7 +50,7 @@ function getOrCreateMasterKey() {
 const MASTER_KEY = getOrCreateMasterKey();
 
 function deriveUserKey(username) {
-  return crypto.pbkdf2Sync(MASTER_KEY, `user:${username}`, 10000, 32, 'sha256');
+  return crypto.pbkdf2Sync(MASTER_KEY, `user:${username}`, PBKDF2_ITERATIONS, 32, 'sha256');
 }
 
 function encryptData(plaintext, username) {
@@ -79,6 +79,7 @@ function decryptData(encryptedStr, username) {
 // Kobold.cpp configuration
 // ---------------------------------------------------------------------------
 const KOBOLD_API_URL = process.env.KOBOLD_API_URL || 'http://localhost:5001';
+const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
 
 // ---------------------------------------------------------------------------
 // Supported AI providers and their API configurations
@@ -1070,7 +1071,7 @@ function readUserApiKeys(username) {
 function writeUserApiKeys(username, keys) {
   const file = getUserApiKeysFile(username);
   const encrypted = encryptData(JSON.stringify(keys), username);
-  fs.writeFileSync(file, encrypted, 'utf-8');
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
 }
 
 // GET /api/user/api-keys – List configured providers (no actual keys returned)
@@ -1223,7 +1224,7 @@ function readChat(username, chatId) {
 function writeChat(username, chatId, chatData) {
   const file = getChatFilePath(username, chatId);
   const encrypted = encryptData(JSON.stringify(chatData), username);
-  fs.writeFileSync(file, encrypted, 'utf-8');
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
 }
 
 function deleteChat(username, chatId) {
@@ -1319,10 +1320,32 @@ app.put('/api/chats/:id', requireSession, (req, res) => {
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Chat not found' });
     }
+
+    // Validate messages if provided
+    let validatedMessages = existing.messages;
+    if (req.body.messages !== undefined) {
+      if (!Array.isArray(req.body.messages)) {
+        return res.status(400).json({ success: false, error: 'Messages must be an array' });
+      }
+      const VALID_ROLES = ['system', 'user', 'assistant'];
+      for (const msg of req.body.messages) {
+        if (!msg || typeof msg !== 'object') {
+          return res.status(400).json({ success: false, error: 'Invalid message format' });
+        }
+        if (typeof msg.role !== 'string' || !VALID_ROLES.includes(msg.role)) {
+          return res.status(400).json({ success: false, error: 'Invalid message role' });
+        }
+        if (typeof msg.content !== 'string') {
+          return res.status(400).json({ success: false, error: 'Invalid message content' });
+        }
+      }
+      validatedMessages = req.body.messages;
+    }
+
     const updated = {
       ...existing,
       title: req.body.title || existing.title,
-      messages: req.body.messages || existing.messages,
+      messages: validatedMessages,
       provider: req.body.provider ?? existing.provider,
       model: req.body.model ?? existing.model,
       updatedAt: new Date().toISOString(),
@@ -1361,6 +1384,8 @@ async function proxyToKobold(messages) {
     return `### Assistant:\n${m.content}`;
   }).join('\n\n') + '\n\n### Assistant:\n';
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   const response = await fetch(`${KOBOLD_API_URL}/api/v1/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1370,7 +1395,9 @@ async function proxyToKobold(messages) {
       temperature: 0.7,
       top_p: 0.9,
     }),
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     throw new Error(`Kobold.cpp error: ${response.status}`);
@@ -1381,6 +1408,8 @@ async function proxyToKobold(messages) {
 }
 
 async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, model) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   const response = await fetch(`${baseUrl}${chatEndpoint}`, {
     method: 'POST',
     headers: {
@@ -1393,7 +1422,9 @@ async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, 
       max_tokens: 4096,
       temperature: 0.7,
     }),
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const errorBody = await response.text();
@@ -1417,6 +1448,8 @@ async function proxyToAnthropic(messages, apiKey, model) {
     body.system = systemMsg.content;
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1425,7 +1458,9 @@ async function proxyToAnthropic(messages, apiKey, model) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const errorBody = await response.text();
@@ -1452,11 +1487,15 @@ async function proxyToGoogle(messages, apiKey, model) {
   }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const errorBody = await response.text();
@@ -1482,8 +1521,15 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     }
 
     // Validate messages structure
+    const VALID_ROLES = ['system', 'user', 'assistant'];
     for (const msg of messages) {
-      if (!msg.role || !msg.content || typeof msg.content !== 'string') {
+      if (!msg || typeof msg !== 'object') {
+        return res.status(400).json({ success: false, error: 'Invalid message format' });
+      }
+      if (typeof msg.role !== 'string' || !VALID_ROLES.includes(msg.role)) {
+        return res.status(400).json({ success: false, error: 'Invalid message role' });
+      }
+      if (!msg.content || typeof msg.content !== 'string') {
         return res.status(400).json({ success: false, error: 'Invalid message format' });
       }
     }
@@ -1522,8 +1568,13 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
 
     res.json({ success: true, message: { role: 'assistant', content: result.content } });
   } catch (err) {
-    console.error('Chat send error:', err);
-    res.status(502).json({ success: false, error: err.message || 'Failed to get response from LLM' });
+    const errorId = crypto.randomUUID();
+    console.error(`Chat send error [${errorId}]:`, err);
+    res.status(502).json({
+      success: false,
+      error: 'Failed to get response from LLM',
+      requestId: errorId,
+    });
   }
 });
 
