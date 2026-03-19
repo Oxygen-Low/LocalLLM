@@ -137,14 +137,14 @@ describe('TranslationService', () => {
     const newHttpMock = TestBed.inject(HttpTestingController);
 
     const statusReq = newHttpMock.expectOne(
-      (req) => req.url.includes('/api/auth/password-reset-status') && req.params.get('username') === 'testuser'
+      (req) => req.url.includes('/api/auth/password-reset-status')
     );
     statusReq.flush({ success: true, passwordResetRequired: false });
 
     // The effect should trigger a server fetch for the authenticated user
     TestBed.flushEffects();
     const getReq = newHttpMock.expectOne(
-      (req) => req.url === '/api/user/language' && req.params.get('username') === 'testuser'
+      (req) => req.url === '/api/user/language'
     );
     getReq.flush({ success: true, language: 'ko' });
 
@@ -154,7 +154,7 @@ describe('TranslationService', () => {
     newService.setLanguage({ code: 'ja', label: '日本語' });
     const putReq = newHttpMock.expectOne('/api/user/language');
     expect(putReq.request.method).toBe('PUT');
-    expect(putReq.request.body).toEqual({ username: 'testuser', language: 'ja' });
+    expect(putReq.request.body).toEqual({ language: 'ja' });
     putReq.flush({ success: true, language: 'ja' });
 
     newHttpMock.verify();

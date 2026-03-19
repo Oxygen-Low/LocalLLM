@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -12,21 +12,24 @@ function sha256Hex(text) {
 }
 
 // Utility: send an HTTP request to the test server
-function request(server, method, path, body) {
+function request(server, method, path, body, token) {
   return new Promise((resolve, reject) => {
     const addr = server.address();
     const port = addr.port;
     const payload = body ? JSON.stringify(body) : null;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    };
 
     const options = {
       hostname: '127.0.0.1',
       port,
       path,
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
-      },
+      headers,
     };
 
     const req = http.request(options, (res) => {
@@ -67,7 +70,7 @@ after(async () => {
 describe('Security headers (Helmet)', () => {
   let helmetRes;
   before(async () => {
-    helmetRes = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    helmetRes = await request(server, 'GET', '/api/health', null);
   });
 
   it('sets X-Content-Type-Options: nosniff', () => {
@@ -194,7 +197,8 @@ describe('Rate limiting', () => {
 
 describe('User language preference', () => {
   const testUsername = 'languser_' + Date.now();
-  const testPassword = 'testpassword123';
+  const testPassword = sha256Hex('testpassword123');
+  let langToken = null;
 
   it('should create a test user for language tests', async () => {
     const res = await request(server, 'POST', '/api/auth/signup', {
@@ -203,10 +207,12 @@ describe('User language preference', () => {
     });
     assert.equal(res.status, 201);
     assert.equal(res.body.success, true);
+    langToken = res.body.token;
+    assert.ok(langToken, 'Expected a session token from signup');
   });
 
   it('should default to English when no language is set', async () => {
-    const res = await request(server, 'GET', `/api/user/language?username=${testUsername}`, null);
+    const res = await request(server, 'GET', '/api/user/language', null, langToken);
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     assert.equal(res.body.language, 'en');
@@ -214,16 +220,15 @@ describe('User language preference', () => {
 
   it('should update user language preference', async () => {
     const res = await request(server, 'PUT', '/api/user/language', {
-      username: testUsername,
       language: 'ko',
-    });
+    }, langToken);
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     assert.equal(res.body.language, 'ko');
   });
 
   it('should return the updated language preference', async () => {
-    const res = await request(server, 'GET', `/api/user/language?username=${testUsername}`, null);
+    const res = await request(server, 'GET', '/api/user/language', null, langToken);
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     assert.equal(res.body.language, 'ko');
@@ -231,39 +236,29 @@ describe('User language preference', () => {
 
   it('should reject unsupported language codes', async () => {
     const res = await request(server, 'PUT', '/api/user/language', {
-      username: testUsername,
       language: 'fr',
-    });
+    }, langToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
     assert.equal(res.body.error, 'Unsupported language');
   });
 
-  it('should return 404 for non-existent user on GET', async () => {
-    const res = await request(server, 'GET', '/api/user/language?username=nonexistent_user', null);
-    assert.equal(res.status, 404);
+  it('should return 401 for unauthenticated GET request', async () => {
+    const res = await request(server, 'GET', '/api/user/language', null);
+    assert.equal(res.status, 401);
     assert.equal(res.body.success, false);
   });
 
-  it('should return 404 for non-existent user on PUT', async () => {
+  it('should return 401 for unauthenticated PUT request', async () => {
     const res = await request(server, 'PUT', '/api/user/language', {
-      username: 'nonexistent_user',
       language: 'ja',
     });
-    assert.equal(res.status, 404);
-    assert.equal(res.body.success, false);
-  });
-
-  it('should return 400 when username is missing on GET', async () => {
-    const res = await request(server, 'GET', '/api/user/language', null);
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 401);
     assert.equal(res.body.success, false);
   });
 
   it('should return 400 when language is missing on PUT', async () => {
-    const res = await request(server, 'PUT', '/api/user/language', {
-      username: testUsername,
-    });
+    const res = await request(server, 'PUT', '/api/user/language', {}, langToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
   });
@@ -286,7 +281,7 @@ describe('Graceful shutdown', () => {
     // Create a user via the API (updates both cache and disk)
     const res = await request(server, 'POST', '/api/auth/signup', {
       username: uniqueName,
-      password: 'TestPassword1!',
+      password: sha256Hex('TestPassword1!'),
     });
     assert.equal(res.status, 201);
 
@@ -335,6 +330,7 @@ describe('Admin account auto-creation', () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
     assert.equal(res.body.username, 'admin');
+    assert.ok(res.body.token, 'Expected a session token from login');
   });
 
   it('ensureAdminAccount is idempotent when admin already exists', async () => {
@@ -345,11 +341,18 @@ describe('Admin account auto-creation', () => {
   });
 
   it('admin account is recreated after deletion via API', async () => {
-    // Delete admin via the API using the current generated password
-    const deleteRes = await request(server, 'DELETE', '/api/auth/account', {
+    // Login to get a session token
+    const loginRes = await request(server, 'POST', '/api/auth/login', {
       username: 'admin',
       password: sha256Hex(adminPassword),
     });
+    assert.equal(loginRes.status, 200);
+    const adminToken = loginRes.body.token;
+
+    // Delete admin via the API using the session token
+    const deleteRes = await request(server, 'DELETE', '/api/auth/account', {
+      password: sha256Hex(adminPassword),
+    }, adminToken);
     assert.equal(deleteRes.status, 200);
     assert.equal(deleteRes.body.success, true);
 
@@ -716,36 +719,36 @@ describe('ISO 27001 A.8.15 – Audit logging', () => {
 
 describe('ISO 27001 A.8.15 – X-Request-Id header', () => {
   it('all API responses include an X-Request-Id header', async () => {
-    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    const res = await request(server, 'GET', '/api/health', null);
     assert.ok(res.headers['x-request-id'], 'Expected X-Request-Id header to be present');
     // UUID v4 format check
     assert.match(res.headers['x-request-id'], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
 
   it('each request gets a unique X-Request-Id', async () => {
-    const res1 = await request(server, 'GET', '/api/auth/password-reset-status?username=a', null);
-    const res2 = await request(server, 'GET', '/api/auth/password-reset-status?username=b', null);
+    const res1 = await request(server, 'GET', '/api/health', null);
+    const res2 = await request(server, 'GET', '/api/health', null);
     assert.notEqual(res1.headers['x-request-id'], res2.headers['x-request-id']);
   });
 });
 
 describe('ISO 27001 A.8.9 – Cache-Control for API responses', () => {
   it('sets Cache-Control: no-store on API responses', async () => {
-    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    const res = await request(server, 'GET', '/api/health', null);
     const cc = res.headers['cache-control'];
     assert.ok(cc, 'Expected Cache-Control header to be present');
     assert.ok(cc.includes('no-store'), 'Expected no-store in Cache-Control');
   });
 
   it('sets Pragma: no-cache on API responses', async () => {
-    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    const res = await request(server, 'GET', '/api/health', null);
     assert.equal(res.headers['pragma'], 'no-cache');
   });
 });
 
 describe('ISO 27001 A.8.9 – Permissions-Policy header', () => {
   it('sets Permissions-Policy header restricting browser features', async () => {
-    const res = await request(server, 'GET', '/api/auth/password-reset-status?username=nonexistent', null);
+    const res = await request(server, 'GET', '/api/health', null);
     const pp = res.headers['permissions-policy'];
     assert.ok(pp, 'Expected Permissions-Policy header to be present');
     assert.ok(pp.includes('camera=()'), 'Expected camera=() in Permissions-Policy');
@@ -791,5 +794,280 @@ describe('ISO 27001 A.8.25 – Server-side username validation', () => {
 
   it('validateUsername accepts hyphens and underscores', () => {
     assert.deepEqual(validateUsername('my-user_name'), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SOC2 Trust Service Criteria compliance tests
+// ---------------------------------------------------------------------------
+
+describe('SOC2 CC6.1/CC6.2 – Server-side session management', () => {
+  it('createSessionToken returns a valid UUID token', () => {
+    const token = createSessionToken('testuser');
+    assert.match(token, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    // Cleanup
+    invalidateSession(token);
+  });
+
+  it('validateSession returns session for valid token', () => {
+    const token = createSessionToken('testuser');
+    const session = validateSession(token);
+    assert.ok(session, 'Expected session to be returned');
+    assert.equal(session.username, 'testuser');
+    assert.ok(session.createdAt, 'Expected createdAt');
+    assert.ok(session.expiresAt > Date.now(), 'Expected expiresAt in the future');
+    invalidateSession(token);
+  });
+
+  it('validateSession returns null for invalid token', () => {
+    const session = validateSession('nonexistent-token');
+    assert.equal(session, null);
+  });
+
+  it('invalidateSession removes the session', () => {
+    const token = createSessionToken('testuser');
+    assert.ok(validateSession(token));
+    invalidateSession(token);
+    assert.equal(validateSession(token), null);
+  });
+
+  it('invalidateUserSessions removes all sessions for a user', () => {
+    const token1 = createSessionToken('multiuser');
+    const token2 = createSessionToken('multiuser');
+    const token3 = createSessionToken('otheruser');
+    assert.ok(validateSession(token1));
+    assert.ok(validateSession(token2));
+    assert.ok(validateSession(token3));
+    invalidateUserSessions('multiuser');
+    assert.equal(validateSession(token1), null);
+    assert.equal(validateSession(token2), null);
+    assert.ok(validateSession(token3), 'Other user session should remain');
+    invalidateSession(token3);
+  });
+
+  it('login returns a session token (fresh server to avoid rate limit)', async () => {
+    // Reset the auth limiter to avoid rate limit from previous tests
+    await authLimiter.resetKey('127.0.0.1');
+    const testServer = http.createServer(app);
+    await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await request(testServer, 'POST', '/api/auth/login', {
+        username: 'admin',
+        password: sha256Hex(adminPassword),
+      });
+      assert.equal(res.status, 200);
+      assert.ok(res.body.token, 'Expected token in login response');
+      assert.match(res.body.token, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    } finally {
+      await new Promise((resolve) => testServer.close(resolve));
+    }
+  });
+
+  it('signup returns a session token (fresh server to avoid rate limit)', async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    const testServer = http.createServer(app);
+    await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const name = 'session_signup_' + Date.now();
+      const res = await request(testServer, 'POST', '/api/auth/signup', {
+        username: name,
+        password: sha256Hex('SecurePass1!'),
+      });
+      assert.equal(res.status, 201);
+      assert.ok(res.body.token, 'Expected token in signup response');
+    } finally {
+      await new Promise((resolve) => testServer.close(resolve));
+    }
+  });
+
+  it('protected endpoint rejects requests without a token', async () => {
+    const res = await request(server, 'GET', '/api/user/language', null);
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, 'Authentication required');
+  });
+
+  it('protected endpoint rejects requests with an invalid token', async () => {
+    const res = await request(server, 'GET', '/api/user/language', null, 'invalid-token');
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, 'Invalid or expired session');
+  });
+
+  it('protected endpoint accepts requests with a valid token', async () => {
+    // Use createSessionToken directly to avoid rate limiting
+    const token = createSessionToken('admin');
+    const res = await request(server, 'GET', '/api/user/language', null, token);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    invalidateSession(token);
+  });
+});
+
+describe('SOC2 CC6.3 – Session invalidation (logout)', () => {
+  it('POST /api/auth/logout invalidates the session', async () => {
+    // Use createSessionToken directly to avoid rate limiting
+    const token = createSessionToken('admin');
+
+    // Logout
+    const logoutRes = await request(server, 'POST', '/api/auth/logout', {}, token);
+    assert.equal(logoutRes.status, 200);
+    assert.equal(logoutRes.body.success, true);
+
+    // Token should no longer work
+    const afterRes = await request(server, 'GET', '/api/user/language', null, token);
+    assert.equal(afterRes.status, 401);
+  });
+
+  it('logout without token returns 401', async () => {
+    const res = await request(server, 'POST', '/api/auth/logout', {});
+    assert.equal(res.status, 401);
+  });
+});
+
+describe('SOC2 CC6.8 – Server-side account lockout', () => {
+  before(() => {
+    loginAttempts.clear();
+  });
+
+  it('checkServerLockout allows login with no prior attempts', () => {
+    const result = checkServerLockout('locktest');
+    assert.equal(result.allowed, true);
+  });
+
+  it('recordServerFailedAttempt tracks failed attempts', () => {
+    recordServerFailedAttempt('locktest2');
+    recordServerFailedAttempt('locktest2');
+    const result = checkServerLockout('locktest2');
+    assert.equal(result.allowed, true);
+    clearServerLoginAttempts('locktest2');
+  });
+
+  it('locks account after 5 failed attempts', () => {
+    for (let i = 0; i < 5; i++) {
+      recordServerFailedAttempt('locktest3');
+    }
+    const result = checkServerLockout('locktest3');
+    assert.equal(result.allowed, false);
+    assert.ok(result.retryAfterMs > 0, 'Expected retryAfterMs to be positive');
+    clearServerLoginAttempts('locktest3');
+  });
+
+  it('clearServerLoginAttempts resets the lockout', () => {
+    for (let i = 0; i < 5; i++) {
+      recordServerFailedAttempt('locktest4');
+    }
+    assert.equal(checkServerLockout('locktest4').allowed, false);
+    clearServerLoginAttempts('locktest4');
+    assert.equal(checkServerLockout('locktest4').allowed, true);
+  });
+
+  it('login endpoint returns 429 when account is locked (fresh server)', async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    const testServer = http.createServer(app);
+    await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const lockUsername = 'lockapi_' + Date.now();
+
+      // Create the user first
+      await request(testServer, 'POST', '/api/auth/signup', {
+        username: lockUsername,
+        password: sha256Hex('ValidPass1!'),
+      });
+
+      // Record 5 failed attempts server-side
+      for (let i = 0; i < 5; i++) {
+        recordServerFailedAttempt(lockUsername);
+      }
+
+      // Attempt to login – should be blocked by account lockout
+      const res = await request(testServer, 'POST', '/api/auth/login', {
+        username: lockUsername,
+        password: sha256Hex('ValidPass1!'),
+      });
+      assert.equal(res.status, 429);
+      assert.ok(res.body.error.includes('locked'), `Expected 'locked' in error: ${res.body.error}`);
+
+      // Cleanup
+      clearServerLoginAttempts(lockUsername);
+    } finally {
+      await new Promise((resolve) => testServer.close(resolve));
+    }
+  });
+
+  it('successful login clears server-side lockout attempts (fresh server)', async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    const testServer = http.createServer(app);
+    await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const lockUsername2 = 'lockapi2_' + Date.now();
+
+      await request(testServer, 'POST', '/api/auth/signup', {
+        username: lockUsername2,
+        password: sha256Hex('ValidPass1!'),
+      });
+
+      // Record some failed attempts (less than 5)
+      recordServerFailedAttempt(lockUsername2);
+      recordServerFailedAttempt(lockUsername2);
+
+      // Successful login should clear attempts
+      const loginRes = await request(testServer, 'POST', '/api/auth/login', {
+        username: lockUsername2,
+        password: sha256Hex('ValidPass1!'),
+      });
+      assert.equal(loginRes.status, 200);
+
+      // Check that attempts are cleared
+      assert.equal(checkServerLockout(lockUsername2).allowed, true);
+      assert.ok(!loginAttempts.has(lockUsername2), 'Expected login attempts to be cleared after success');
+    } finally {
+      await new Promise((resolve) => testServer.close(resolve));
+    }
+  });
+});
+
+describe('SOC2 CC6.1 – Password hash format validation', () => {
+  it('validates correct SHA-256 hex format', () => {
+    assert.equal(validatePasswordHash('a'.repeat(64)), true);
+    assert.equal(validatePasswordHash(sha256Hex('test')), true);
+  });
+
+  it('rejects non-hex strings', () => {
+    assert.equal(validatePasswordHash('g'.repeat(64)), false);
+  });
+
+  it('rejects wrong-length strings', () => {
+    assert.equal(validatePasswordHash('abc'), false);
+    assert.equal(validatePasswordHash('a'.repeat(63)), false);
+    assert.equal(validatePasswordHash('a'.repeat(65)), false);
+  });
+
+  it('rejects non-string values', () => {
+    assert.equal(validatePasswordHash(12345), false);
+    assert.equal(validatePasswordHash(null), false);
+    assert.equal(validatePasswordHash(undefined), false);
+  });
+
+});
+
+describe('SOC2 A1.1/CC7.1 – Health check endpoint', () => {
+  it('GET /api/health returns healthy status', async () => {
+    const res = await request(server, 'GET', '/api/health', null);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, 'healthy');
+    assert.ok(res.body.timestamp, 'Expected timestamp in health response');
+  });
+
+  it('health endpoint does not require authentication', async () => {
+    const res = await request(server, 'GET', '/api/health', null);
+    assert.equal(res.status, 200);
+  });
+});
+
+describe('SOC2 PI1.1 – Request body size limits', () => {
+  it('rejects oversized JSON payloads', async () => {
+    const largeBody = { data: 'x'.repeat(20000) };
+    const res = await request(server, 'POST', '/api/auth/login', largeBody);
+    // Express returns 413 for payload too large
+    assert.equal(res.status, 413);
   });
 });
