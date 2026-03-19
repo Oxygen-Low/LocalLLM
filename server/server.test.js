@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -443,5 +443,157 @@ describe('Admin management endpoints', () => {
     });
     const usernames = list.body.users.map((u) => u.username);
     assert.ok(!usernames.includes(managedUser));
+  });
+});
+
+describe('SSRF protection (A10)', () => {
+  describe('isPrivateIP', () => {
+    it('blocks IPv4 loopback addresses', () => {
+      assert.equal(isPrivateIP('127.0.0.1'), true);
+      assert.equal(isPrivateIP('127.255.255.255'), true);
+    });
+
+    it('blocks 10.x.x.x private range', () => {
+      assert.equal(isPrivateIP('10.0.0.1'), true);
+      assert.equal(isPrivateIP('10.255.255.255'), true);
+    });
+
+    it('blocks 172.16-31.x.x private range', () => {
+      assert.equal(isPrivateIP('172.16.0.1'), true);
+      assert.equal(isPrivateIP('172.31.255.255'), true);
+    });
+
+    it('does not block 172.32.x.x (outside private range)', () => {
+      assert.equal(isPrivateIP('172.32.0.1'), false);
+    });
+
+    it('blocks 192.168.x.x private range', () => {
+      assert.equal(isPrivateIP('192.168.0.1'), true);
+      assert.equal(isPrivateIP('192.168.255.255'), true);
+    });
+
+    it('blocks link-local 169.254.x.x (cloud metadata)', () => {
+      assert.equal(isPrivateIP('169.254.169.254'), true);
+    });
+
+    it('blocks 0.0.0.0', () => {
+      assert.equal(isPrivateIP('0.0.0.0'), true);
+    });
+
+    it('blocks CGN range 100.64.0.0/10', () => {
+      assert.equal(isPrivateIP('100.64.0.1'), true);
+      assert.equal(isPrivateIP('100.127.255.255'), true);
+    });
+
+    it('blocks IPv6 loopback ::1', () => {
+      assert.equal(isPrivateIP('::1'), true);
+    });
+
+    it('blocks IPv6 unspecified ::', () => {
+      assert.equal(isPrivateIP('::'), true);
+    });
+
+    it('blocks IPv6 link-local fe80::', () => {
+      assert.equal(isPrivateIP('fe80::1'), true);
+    });
+
+    it('blocks IPv6 unique-local fc00::/fd', () => {
+      assert.equal(isPrivateIP('fc00::1'), true);
+      assert.equal(isPrivateIP('fd12::1'), true);
+    });
+
+    it('blocks IPv4-mapped IPv6 addresses to private ranges', () => {
+      assert.equal(isPrivateIP('::ffff:127.0.0.1'), true);
+      assert.equal(isPrivateIP('::ffff:10.0.0.1'), true);
+    });
+
+    it('allows public IP addresses', () => {
+      assert.equal(isPrivateIP('8.8.8.8'), false);
+      assert.equal(isPrivateIP('1.1.1.1'), false);
+      assert.equal(isPrivateIP('203.0.113.1'), false);
+    });
+  });
+
+  describe('validateOutboundUrl', () => {
+    it('accepts valid HTTPS URLs', () => {
+      const result = validateOutboundUrl('https://api.example.com/v1/chat');
+      assert.equal(result.valid, true);
+      assert.ok(result.parsed instanceof URL);
+    });
+
+    it('accepts valid HTTP URLs', () => {
+      const result = validateOutboundUrl('http://api.example.com/v1/chat');
+      assert.equal(result.valid, true);
+    });
+
+    it('rejects invalid URL format', () => {
+      const result = validateOutboundUrl('not-a-url');
+      assert.equal(result.valid, false);
+      assert.ok(result.reason.includes('Invalid URL'));
+    });
+
+    it('rejects non-HTTP schemes (ftp)', () => {
+      const result = validateOutboundUrl('ftp://files.example.com/data');
+      assert.equal(result.valid, false);
+      assert.ok(result.reason.includes('not allowed'));
+    });
+
+    it('rejects file:// scheme', () => {
+      const result = validateOutboundUrl('file:///etc/passwd');
+      assert.equal(result.valid, false);
+      assert.ok(result.reason.includes('not allowed'));
+    });
+
+    it('rejects URLs with embedded credentials', () => {
+      const result = validateOutboundUrl('https://user:pass@example.com');
+      assert.equal(result.valid, false);
+      assert.ok(result.reason.includes('credentials'));
+    });
+
+    it('rejects URLs targeting private IP addresses', () => {
+      assert.equal(validateOutboundUrl('http://127.0.0.1:8080/api').valid, false);
+      assert.equal(validateOutboundUrl('http://10.0.0.1/api').valid, false);
+      assert.equal(validateOutboundUrl('http://192.168.1.1/api').valid, false);
+      assert.equal(validateOutboundUrl('http://169.254.169.254/latest/meta-data').valid, false);
+    });
+
+    it('rejects URLs targeting IPv6 loopback', () => {
+      const result = validateOutboundUrl('http://[::1]:8080/api');
+      assert.equal(result.valid, false);
+    });
+  });
+
+  describe('validateResolvedIP', () => {
+    it('rejects direct private IP hostnames', async () => {
+      const result = await validateResolvedIP('127.0.0.1');
+      assert.equal(result.safe, false);
+    });
+
+    it('rejects link-local / cloud metadata IP', async () => {
+      const result = await validateResolvedIP('169.254.169.254');
+      assert.equal(result.safe, false);
+    });
+  });
+
+  describe('ssrfSafeUrlValidation', () => {
+    it('rejects invalid URLs', async () => {
+      const result = await ssrfSafeUrlValidation('not-a-url');
+      assert.equal(result.valid, false);
+    });
+
+    it('rejects private IPs', async () => {
+      const result = await ssrfSafeUrlValidation('http://127.0.0.1:11434/api/chat');
+      assert.equal(result.valid, false);
+    });
+
+    it('rejects cloud metadata endpoint', async () => {
+      const result = await ssrfSafeUrlValidation('http://169.254.169.254/latest/meta-data');
+      assert.equal(result.valid, false);
+    });
+
+    it('rejects file:// scheme', async () => {
+      const result = await ssrfSafeUrlValidation('file:///etc/passwd');
+      assert.equal(result.valid, false);
+    });
   });
 });

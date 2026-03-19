@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const dns = require('dns');
 const { rateLimit } = require('express-rate-limit');
 const selfsigned = require('selfsigned');
 
@@ -15,6 +16,135 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
+
+// ---------------------------------------------------------------------------
+// A10: Server-Side Request Forgery (SSRF) – URL validation & IP-range blocking
+// ---------------------------------------------------------------------------
+
+// Allowed URL schemes for outbound requests
+const ALLOWED_SCHEMES = ['http:', 'https:'];
+
+// Configurable allowlist of permitted outbound hostnames.
+// When set (non-empty), only these hosts are reachable from the server.
+const SSRF_ALLOWED_HOSTS = (process.env.SSRF_ALLOWED_HOSTS || '')
+  .split(',')
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+/**
+ * Return true when the given IPv4 or IPv6 address belongs to a private,
+ * loopback, link-local, or otherwise non-routable range.
+ */
+function isPrivateIP(ip) {
+  // Strip surrounding brackets (present in URL-parsed IPv6 hostnames)
+  const addr = ip.replace(/^\[|\]$/g, '');
+
+  // IPv4 ranges
+  if (/^127\./.test(addr)) return true;                         // 127.0.0.0/8   loopback
+  if (/^10\./.test(addr)) return true;                          // 10.0.0.0/8    private
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(addr)) return true;    // 172.16.0.0/12 private
+  if (/^192\.168\./.test(addr)) return true;                    // 192.168.0.0/16 private
+  if (/^169\.254\./.test(addr)) return true;                    // 169.254.0.0/16 link-local / cloud metadata
+  if (addr === '0.0.0.0') return true;                          // unspecified
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) return true; // 100.64.0.0/10 CGN
+
+  // IPv6 ranges
+  if (addr === '::1') return true;                              // loopback
+  if (addr === '::') return true;                               // unspecified
+  if (/^fe80:/i.test(addr)) return true;                        // link-local
+  if (/^fc00:/i.test(addr) || /^fd/i.test(addr)) return true;  // unique-local (fc00::/7)
+  if (/^::ffff:/i.test(addr)) {                                 // IPv4-mapped IPv6
+    const v4 = addr.replace(/^::ffff:/i, '');
+    return isPrivateIP(v4);
+  }
+
+  return false;
+}
+
+/**
+ * Validate a user-supplied URL for safe outbound use.
+ * Returns { valid: true, parsed: URL } on success, or { valid: false, reason: string }.
+ */
+function validateOutboundUrl(urlString) {
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    return { valid: false, reason: 'Invalid URL format' };
+  }
+
+  // Scheme check
+  if (!ALLOWED_SCHEMES.includes(parsed.protocol)) {
+    return { valid: false, reason: `Scheme "${parsed.protocol}" is not allowed` };
+  }
+
+  // Block credentials in URLs
+  if (parsed.username || parsed.password) {
+    return { valid: false, reason: 'URLs must not contain embedded credentials' };
+  }
+
+  // Hostname allowlist (when configured)
+  if (SSRF_ALLOWED_HOSTS.length > 0) {
+    if (!SSRF_ALLOWED_HOSTS.includes(parsed.hostname.toLowerCase())) {
+      return { valid: false, reason: 'Hostname is not in the allowed list' };
+    }
+  }
+
+  // Block hostnames that are bare IP addresses in private ranges
+  if (isPrivateIP(parsed.hostname)) {
+    return { valid: false, reason: 'Requests to private/internal IP addresses are blocked' };
+  }
+
+  return { valid: true, parsed };
+}
+
+/**
+ * Resolve a hostname to IP addresses and verify none fall in private ranges.
+ * Returns { safe: true } or { safe: false, reason: string }.
+ */
+function validateResolvedIP(hostname) {
+  return new Promise((resolve) => {
+    // If the hostname is already a literal IP, check directly
+    if (isPrivateIP(hostname)) {
+      return resolve({ safe: false, reason: 'Requests to private/internal IP addresses are blocked' });
+    }
+
+    dns.lookup(hostname, { all: true }, (err, addresses) => {
+      if (err) {
+        return resolve({ safe: false, reason: `DNS resolution failed: ${err.code || err.message}` });
+      }
+
+      for (const entry of addresses) {
+        if (isPrivateIP(entry.address)) {
+          return resolve({
+            safe: false,
+            reason: `Hostname resolves to private/internal IP address (${entry.address})`,
+          });
+        }
+      }
+
+      return resolve({ safe: true });
+    });
+  });
+}
+
+/**
+ * Full SSRF-safe URL validation: parse + scheme check + DNS resolution check.
+ * Combines validateOutboundUrl() and validateResolvedIP().
+ */
+async function ssrfSafeUrlValidation(urlString) {
+  const urlCheck = validateOutboundUrl(urlString);
+  if (!urlCheck.valid) {
+    return urlCheck;
+  }
+
+  const dnsCheck = await validateResolvedIP(urlCheck.parsed.hostname);
+  if (!dnsCheck.safe) {
+    return { valid: false, reason: dnsCheck.reason };
+  }
+
+  return { valid: true, parsed: urlCheck.parsed };
+}
 
 // General API rate limiter: 100 requests per 15 minutes per IP
 const apiLimiter = rateLimit({
@@ -585,4 +715,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation };
