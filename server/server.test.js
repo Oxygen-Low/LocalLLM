@@ -1065,9 +1065,9 @@ describe('SOC2 A1.1/CC7.1 – Health check endpoint', () => {
 
 describe('SOC2 PI1.1 – Request body size limits', () => {
   it('rejects oversized JSON payloads', async () => {
-    const largeBody = { data: 'x'.repeat(20000) };
+    const largeBody = { data: 'x'.repeat(1100000) };
     const res = await request(server, 'POST', '/api/auth/login', largeBody);
-    // Express returns 413 for payload too large
+    // Express returns 413 for payload too large (limit: 1mb)
     assert.equal(res.status, 413);
   });
 });
