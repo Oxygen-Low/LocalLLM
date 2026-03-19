@@ -27,10 +27,11 @@ const sessions = new Map(); // token -> { username, createdAt, expiresAt }
 
 function createSessionToken(username) {
   const token = crypto.randomUUID();
+  const now = Date.now();
   sessions.set(token, {
     username,
-    createdAt: new Date().toISOString(),
-    expiresAt: Date.now() + SESSION_MAX_AGE_MS,
+    createdAt: now,
+    expiresAt: now + SESSION_MAX_AGE_MS,
   });
   return token;
 }
@@ -50,20 +51,28 @@ function invalidateSession(token) {
 }
 
 function invalidateUserSessions(username) {
+  const tokensToDelete = [];
   for (const [token, session] of sessions.entries()) {
     if (session.username === username) {
-      sessions.delete(token);
+      tokensToDelete.push(token);
     }
+  }
+  for (const token of tokensToDelete) {
+    sessions.delete(token);
   }
 }
 
 // Periodic cleanup of expired sessions (every hour)
 const sessionCleanupInterval = setInterval(() => {
   const now = Date.now();
+  const expiredTokens = [];
   for (const [token, session] of sessions.entries()) {
     if (now > session.expiresAt) {
-      sessions.delete(token);
+      expiredTokens.push(token);
     }
+  }
+  for (const token of expiredTokens) {
+    sessions.delete(token);
   }
 }, 60 * 60 * 1000);
 sessionCleanupInterval.unref();
@@ -115,15 +124,11 @@ function checkServerLockout(username) {
 }
 
 function recordServerFailedAttempt(username) {
-  let record = loginAttempts.get(username) || { count: 0, firstAttempt: Date.now(), lockedUntil: null };
   const now = Date.now();
+  let record = loginAttempts.get(username);
 
-  if (record.count > 0 && now - record.firstAttempt > LOGIN_WINDOW_MS) {
+  if (!record || (record.count > 0 && now - record.firstAttempt > LOGIN_WINDOW_MS)) {
     record = { count: 0, firstAttempt: now, lockedUntil: null };
-  }
-
-  if (record.count === 0) {
-    record.firstAttempt = now;
   }
 
   record.count++;

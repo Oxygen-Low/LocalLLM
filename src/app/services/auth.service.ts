@@ -425,7 +425,9 @@ export class AuthService {
     this.passwordResetRequired.set(false);
     this.securityLogger.log('LOGOUT', 'User logged out', user ?? undefined);
 
-    // SOC2 CC6.3: Invalidate server-side session
+    // SOC2 CC6.3: Invalidate server-side session (fire-and-forget).
+    // Client state is already cleared above, so a new login will issue a fresh token
+    // even if this request fails. Not awaiting avoids blocking the UI on network issues.
     if (token) {
       firstValueFrom(
         this.http.post(`${environment.apiUrl}/api/auth/logout`, {})
