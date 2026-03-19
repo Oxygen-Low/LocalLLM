@@ -27,8 +27,27 @@ const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
 
-// Derive a per-user encryption key from the server's master key + username
-const MASTER_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+// Derive a per-user encryption key from the server's master key + username.
+// Key is persisted to data/encryption.key so it survives server restarts.
+const ENCRYPTION_KEY_FILE = path.join(DATA_DIR, 'encryption.key');
+
+function getOrCreateMasterKey() {
+  if (process.env.ENCRYPTION_KEY) {
+    return process.env.ENCRYPTION_KEY;
+  }
+  // Ensure data dir exists before reading/writing key file
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (fs.existsSync(ENCRYPTION_KEY_FILE)) {
+    return fs.readFileSync(ENCRYPTION_KEY_FILE, 'utf-8').trim();
+  }
+  const key = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(ENCRYPTION_KEY_FILE, key, { mode: 0o600 });
+  return key;
+}
+
+const MASTER_KEY = getOrCreateMasterKey();
 
 function deriveUserKey(username) {
   return crypto.pbkdf2Sync(MASTER_KEY, `user:${username}`, 10000, 32, 'sha256');
