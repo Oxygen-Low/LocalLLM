@@ -47,8 +47,8 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/terms.page').then(m => m.TermsPageComponent),
       },
       {
-        path: 'app/:id',
-        loadComponent: () => import('./pages/placeholder.page').then(m => m.PlaceholderPageComponent),
+        path: 'app/general-assistant',
+        loadComponent: () => import('./pages/general-assistant.page').then(m => m.GeneralAssistantPageComponent),
         canActivate: [authGuard],
       },
     ],

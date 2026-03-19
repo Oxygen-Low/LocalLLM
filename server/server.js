@@ -13,11 +13,114 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 const MAX_AUDIT_LOG_BYTES = 10 * 1024 * 1024; // 10 MB
+
+// ---------------------------------------------------------------------------
+// Encryption helpers for API keys and chat data (AES-256-GCM)
+// ---------------------------------------------------------------------------
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const IV_BYTES = 12;
+const AUTH_TAG_BYTES = 16;
+
+// Derive a per-user encryption key from the server's master key + username.
+// Key is persisted to data/encryption.key so it survives server restarts.
+const ENCRYPTION_KEY_FILE = path.join(DATA_DIR, 'encryption.key');
+
+function getOrCreateMasterKey() {
+  if (process.env.ENCRYPTION_KEY) {
+    return process.env.ENCRYPTION_KEY;
+  }
+  // Ensure data dir exists before reading/writing key file
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (fs.existsSync(ENCRYPTION_KEY_FILE)) {
+    return fs.readFileSync(ENCRYPTION_KEY_FILE, 'utf-8').trim();
+  }
+  const key = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(ENCRYPTION_KEY_FILE, key, { mode: 0o600 });
+  return key;
+}
+
+const MASTER_KEY = getOrCreateMasterKey();
+
+function deriveUserKey(username) {
+  return crypto.pbkdf2Sync(MASTER_KEY, `user:${username}`, PBKDF2_ITERATIONS, 32, 'sha256');
+}
+
+function encryptData(plaintext, username) {
+  const key = deriveUserKey(username);
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  // Format: iv:authTag:ciphertext (all hex)
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptData(encryptedStr, username) {
+  const key = deriveUserKey(username);
+  const parts = encryptedStr.split(':');
+  if (parts.length !== 3) throw new Error('Invalid encrypted data format');
+  const iv = Buffer.from(parts[0], 'hex');
+  const authTag = Buffer.from(parts[1], 'hex');
+  const encrypted = Buffer.from(parts[2], 'hex');
+  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  return decipher.update(encrypted, undefined, 'utf8') + decipher.final('utf8');
+}
+
+// ---------------------------------------------------------------------------
+// Kobold.cpp configuration
+// ---------------------------------------------------------------------------
+const KOBOLD_API_URL = process.env.KOBOLD_API_URL || 'http://localhost:5001';
+const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
+
+// ---------------------------------------------------------------------------
+// Supported AI providers and their API configurations
+// ---------------------------------------------------------------------------
+const AI_PROVIDERS = {
+  openrouter: {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    modelsEndpoint: '/models',
+    chatEndpoint: '/chat/completions',
+  },
+  anthropic: {
+    name: 'Anthropic/Claude',
+    baseUrl: 'https://api.anthropic.com',
+    modelsEndpoint: '/v1/models',
+    chatEndpoint: '/v1/messages',
+  },
+  openai: {
+    name: 'OpenAI/ChatGPT',
+    baseUrl: 'https://api.openai.com',
+    modelsEndpoint: '/v1/models',
+    chatEndpoint: '/v1/chat/completions',
+  },
+  deepseek: {
+    name: 'Deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    modelsEndpoint: '/models',
+    chatEndpoint: '/chat/completions',
+  },
+  xai: {
+    name: 'xAI/Grok',
+    baseUrl: 'https://api.x.ai',
+    modelsEndpoint: '/v1/models',
+    chatEndpoint: '/v1/chat/completions',
+  },
+  google: {
+    name: 'Google',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    chatEndpoint: '/v1beta/models/{model}:generateContent',
+  },
+};
 
 // ---------------------------------------------------------------------------
 // SOC2 CC6.1/CC6.2 – Server-side session management
@@ -388,8 +491,8 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
-// SOC2 PI1.1 – Explicit request body size limit to prevent DoS
-app.use(express.json({ limit: '10kb' }));
+// SOC2 PI1.1 – Explicit request body size limit (increased for chat messages)
+app.use(express.json({ limit: '1mb' }));
 app.use('/api', apiLimiter);
 app.use('/api', noCacheMiddleware);
 
@@ -403,6 +506,9 @@ app.get('/api/health', (req, res) => {
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(CHATS_DIR)) {
+  fs.mkdirSync(CHATS_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
@@ -941,6 +1047,591 @@ app.put('/api/user/language', requireSession, (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// API Keys management – Encrypted per-user storage
+// ---------------------------------------------------------------------------
+
+const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
+
+function getUserApiKeysFile(username) {
+  return path.join(DATA_DIR, `apikeys_${username}.enc`);
+}
+
+function readUserApiKeys(username) {
+  const file = getUserApiKeysFile(username);
+  if (!fs.existsSync(file)) return {};
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return {};
+  }
+}
+
+function writeUserApiKeys(username, keys) {
+  const file = getUserApiKeysFile(username);
+  const encrypted = encryptData(JSON.stringify(keys), username);
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
+}
+
+// GET /api/user/api-keys – List configured providers (no actual keys returned)
+app.get('/api/user/api-keys', requireSession, (req, res) => {
+  try {
+    const keys = readUserApiKeys(req.sessionUser);
+    const providers = {};
+    for (const provider of VALID_PROVIDERS) {
+      providers[provider] = {
+        configured: !!keys[provider]?.apiKey,
+        selectedModel: keys[provider]?.selectedModel || null,
+      };
+    }
+    res.json({ success: true, providers });
+  } catch (err) {
+    console.error('Get API keys error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/api-keys/:provider – Set API key and model for a provider
+app.put('/api/user/api-keys/:provider', requireSession, (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { apiKey, selectedModel } = req.body;
+
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ success: false, error: 'Invalid provider' });
+    }
+
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.length > 500) {
+      return res.status(400).json({ success: false, error: 'Valid API key is required' });
+    }
+
+    if (selectedModel && (typeof selectedModel !== 'string' || selectedModel.length > 200)) {
+      return res.status(400).json({ success: false, error: 'Invalid model selection' });
+    }
+
+    const keys = readUserApiKeys(req.sessionUser);
+    keys[provider] = { apiKey, selectedModel: selectedModel || null };
+    writeUserApiKeys(req.sessionUser, keys);
+
+    auditLog({ event: 'API_KEY_SET', message: `API key set for ${provider}`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Set API key error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/user/api-keys/:provider – Remove API key for a provider
+app.delete('/api/user/api-keys/:provider', requireSession, (req, res) => {
+  try {
+    const { provider } = req.params;
+
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ success: false, error: 'Invalid provider' });
+    }
+
+    const keys = readUserApiKeys(req.sessionUser);
+    delete keys[provider];
+    writeUserApiKeys(req.sessionUser, keys);
+
+    auditLog({ event: 'API_KEY_REMOVED', message: `API key removed for ${provider}`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Remove API key error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/api-keys/:provider/model – Update selected model for a provider
+app.put('/api/user/api-keys/:provider/model', requireSession, (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { selectedModel } = req.body;
+
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ success: false, error: 'Invalid provider' });
+    }
+
+    if (!selectedModel || typeof selectedModel !== 'string' || selectedModel.length > 200) {
+      return res.status(400).json({ success: false, error: 'Valid model name is required' });
+    }
+
+    const keys = readUserApiKeys(req.sessionUser);
+    if (!keys[provider]?.apiKey) {
+      return res.status(400).json({ success: false, error: 'API key not configured for this provider' });
+    }
+
+    keys[provider].selectedModel = selectedModel;
+    writeUserApiKeys(req.sessionUser, keys);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Set model error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Kobold.cpp status check
+// ---------------------------------------------------------------------------
+app.get('/api/kobold/status', requireSession, async (req, res) => {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${KOBOLD_API_URL}/api/v1/model`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (response.ok) {
+      const data = await response.json();
+      res.json({ success: true, available: true, model: data.result || 'Unknown Model' });
+    } else {
+      res.json({ success: true, available: false });
+    }
+  } catch {
+    res.json({ success: true, available: false });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Chat storage – Encrypted per-user
+// ---------------------------------------------------------------------------
+
+function getUserChatsDir(username) {
+  const dir = path.join(CHATS_DIR, username);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+function getChatFilePath(username, chatId) {
+  return path.join(getUserChatsDir(username), `${chatId}.enc`);
+}
+
+function readChat(username, chatId) {
+  const file = getChatFilePath(username, chatId);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return null;
+  }
+}
+
+function writeChat(username, chatId, chatData) {
+  const file = getChatFilePath(username, chatId);
+  const encrypted = encryptData(JSON.stringify(chatData), username);
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
+}
+
+function deleteChat(username, chatId) {
+  const file = getChatFilePath(username, chatId);
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+  }
+}
+
+function listUserChats(username) {
+  const dir = getUserChatsDir(username);
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.enc'));
+  const chats = [];
+  for (const file of files) {
+    try {
+      const chatId = file.replace('.enc', '');
+      const encrypted = fs.readFileSync(path.join(dir, file), 'utf-8');
+      const chat = JSON.parse(decryptData(encrypted, username));
+      chats.push({
+        id: chatId,
+        title: chat.title || 'Untitled Chat',
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        provider: chat.provider,
+        model: chat.model,
+      });
+    } catch {
+      // Skip corrupted chat files
+    }
+  }
+  return chats.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+// GET /api/chats – List all chats for user
+app.get('/api/chats', requireSession, (req, res) => {
+  try {
+    const chats = listUserChats(req.sessionUser);
+    res.json({ success: true, chats });
+  } catch (err) {
+    console.error('List chats error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/chats – Create new chat
+app.post('/api/chats', requireSession, (req, res) => {
+  try {
+    const chatId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const chatData = {
+      id: chatId,
+      title: 'New Chat',
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+      provider: req.body.provider || null,
+      model: req.body.model || null,
+    };
+    writeChat(req.sessionUser, chatId, chatData);
+    res.status(201).json({ success: true, chat: chatData });
+  } catch (err) {
+    console.error('Create chat error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/chats/:id – Get a specific chat
+app.get('/api/chats/:id', requireSession, (req, res) => {
+  try {
+    const chatId = req.params.id;
+    if (!/^[a-f0-9-]{36}$/.test(chatId)) {
+      return res.status(400).json({ success: false, error: 'Invalid chat ID' });
+    }
+    const chat = readChat(req.sessionUser, chatId);
+    if (!chat) {
+      return res.status(404).json({ success: false, error: 'Chat not found' });
+    }
+    res.json({ success: true, chat });
+  } catch (err) {
+    console.error('Get chat error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/chats/:id – Update chat (title, messages, etc.)
+app.put('/api/chats/:id', requireSession, (req, res) => {
+  try {
+    const chatId = req.params.id;
+    if (!/^[a-f0-9-]{36}$/.test(chatId)) {
+      return res.status(400).json({ success: false, error: 'Invalid chat ID' });
+    }
+    const existing = readChat(req.sessionUser, chatId);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Chat not found' });
+    }
+
+    // Validate messages if provided
+    let validatedMessages = existing.messages;
+    if (req.body.messages !== undefined) {
+      if (!Array.isArray(req.body.messages)) {
+        return res.status(400).json({ success: false, error: 'Messages must be an array' });
+      }
+      const VALID_ROLES = ['system', 'user', 'assistant'];
+      for (const msg of req.body.messages) {
+        if (!msg || typeof msg !== 'object') {
+          return res.status(400).json({ success: false, error: 'Invalid message format' });
+        }
+        if (typeof msg.role !== 'string' || !VALID_ROLES.includes(msg.role)) {
+          return res.status(400).json({ success: false, error: 'Invalid message role' });
+        }
+        if (typeof msg.content !== 'string') {
+          return res.status(400).json({ success: false, error: 'Invalid message content' });
+        }
+      }
+      validatedMessages = req.body.messages;
+    }
+
+    const updated = {
+      ...existing,
+      title: req.body.title || existing.title,
+      messages: validatedMessages,
+      provider: req.body.provider ?? existing.provider,
+      model: req.body.model ?? existing.model,
+      updatedAt: new Date().toISOString(),
+    };
+    writeChat(req.sessionUser, chatId, updated);
+    res.json({ success: true, chat: updated });
+  } catch (err) {
+    console.error('Update chat error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/chats/:id – Delete a chat
+app.delete('/api/chats/:id', requireSession, (req, res) => {
+  try {
+    const chatId = req.params.id;
+    if (!/^[a-f0-9-]{36}$/.test(chatId)) {
+      return res.status(400).json({ success: false, error: 'Invalid chat ID' });
+    }
+    deleteChat(req.sessionUser, chatId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete chat error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// LLM Chat Proxy – Routes messages to the selected provider
+// ---------------------------------------------------------------------------
+
+async function proxyToKobold(messages) {
+  const prompt = messages.map(m => {
+    if (m.role === 'system') return `### System:\n${m.content}`;
+    if (m.role === 'user') return `### User:\n${m.content}`;
+    return `### Assistant:\n${m.content}`;
+  }).join('\n\n') + '\n\n### Assistant:\n';
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  const response = await fetch(`${KOBOLD_API_URL}/api/v1/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt,
+      max_length: 2048,
+      temperature: 0.7,
+      top_p: 0.9,
+    }),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    throw new Error(`Kobold.cpp error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return { content: data.results?.[0]?.text || '' };
+}
+
+async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, model) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  const response = await fetch(`${baseUrl}${chatEndpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: 4096,
+      temperature: 0.7,
+    }),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`API error ${response.status}: ${errorBody}`);
+  }
+
+  const data = await response.json();
+  return { content: data.choices?.[0]?.message?.content || '' };
+}
+
+async function proxyToAnthropic(messages, apiKey, model) {
+  const systemMsg = messages.find(m => m.role === 'system');
+  const chatMessages = messages.filter(m => m.role !== 'system');
+
+  const body = {
+    model,
+    max_tokens: 4096,
+    messages: chatMessages,
+  };
+  if (systemMsg) {
+    body.system = systemMsg.content;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Anthropic error ${response.status}: ${errorBody}`);
+  }
+
+  const data = await response.json();
+  const text = data.content?.map(c => c.text).join('') || '';
+  return { content: text };
+}
+
+async function proxyToGoogle(messages, apiKey, model) {
+  const systemMsg = messages.find(m => m.role === 'system');
+  const chatMessages = messages.filter(m => m.role !== 'system');
+
+  const contents = chatMessages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+
+  const body = { contents };
+  if (systemMsg) {
+    body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+  }
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Google error ${response.status}: ${errorBody}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+  return { content: text };
+}
+
+// POST /api/chat/send – Send message to LLM
+app.post('/api/chat/send', requireSession, async (req, res) => {
+  try {
+    const { messages, provider, model } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, error: 'Messages are required' });
+    }
+
+    if (!provider || typeof provider !== 'string') {
+      return res.status(400).json({ success: false, error: 'Provider is required' });
+    }
+
+    // Validate messages structure
+    const VALID_ROLES = ['system', 'user', 'assistant'];
+    for (const msg of messages) {
+      if (!msg || typeof msg !== 'object') {
+        return res.status(400).json({ success: false, error: 'Invalid message format' });
+      }
+      if (typeof msg.role !== 'string' || !VALID_ROLES.includes(msg.role)) {
+        return res.status(400).json({ success: false, error: 'Invalid message role' });
+      }
+      if (!msg.content || typeof msg.content !== 'string') {
+        return res.status(400).json({ success: false, error: 'Invalid message format' });
+      }
+    }
+
+    let result;
+
+    if (provider === 'kobold') {
+      result = await proxyToKobold(messages);
+    } else if (VALID_PROVIDERS.includes(provider)) {
+      const keys = readUserApiKeys(req.sessionUser);
+      const providerKeys = keys[provider];
+      if (!providerKeys?.apiKey) {
+        return res.status(400).json({ success: false, error: `API key not configured for ${provider}` });
+      }
+
+      const selectedModel = model || providerKeys.selectedModel;
+      if (!selectedModel) {
+        return res.status(400).json({ success: false, error: 'No model selected' });
+      }
+
+      const providerConfig = AI_PROVIDERS[provider];
+
+      if (provider === 'anthropic') {
+        result = await proxyToAnthropic(messages, providerKeys.apiKey, selectedModel);
+      } else if (provider === 'google') {
+        result = await proxyToGoogle(messages, providerKeys.apiKey, selectedModel);
+      } else {
+        result = await proxyToOpenAICompatible(
+          messages, providerKeys.apiKey, providerConfig.baseUrl,
+          providerConfig.chatEndpoint, selectedModel
+        );
+      }
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid provider' });
+    }
+
+    res.json({ success: true, message: { role: 'assistant', content: result.content } });
+  } catch (err) {
+    const errorId = crypto.randomUUID();
+    console.error(`Chat send error [${errorId}]:`, err);
+    res.status(502).json({
+      success: false,
+      error: 'Failed to get response from LLM',
+      requestId: errorId,
+    });
+  }
+});
+
+// GET /api/providers – List available providers and their status for user
+app.get('/api/providers', requireSession, async (req, res) => {
+  try {
+    const keys = readUserApiKeys(req.sessionUser);
+    const providers = [];
+
+    // Check kobold.cpp
+    let koboldAvailable = false;
+    let koboldModel = null;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const kRes = await fetch(`${KOBOLD_API_URL}/api/v1/model`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (kRes.ok) {
+        const data = await kRes.json();
+        koboldAvailable = true;
+        koboldModel = data.result || 'Local Model';
+      }
+    } catch {
+      // Not available
+    }
+
+    if (koboldAvailable) {
+      providers.push({
+        id: 'kobold',
+        name: 'Local Model',
+        model: koboldModel,
+        available: true,
+      });
+    }
+
+    // Check configured providers
+    for (const [id, config] of Object.entries(AI_PROVIDERS)) {
+      const providerKeys = keys[id];
+      if (providerKeys?.apiKey) {
+        providers.push({
+          id,
+          name: config.name,
+          model: providerKeys.selectedModel || null,
+          available: true,
+        });
+      }
+    }
+
+    res.json({ success: true, providers });
+  } catch (err) {
+    console.error('Get providers error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // Generate or load self-signed TLS certificate for HTTPS (development only)
 const CERT_DIR = path.join(__dirname, '..', 'data');
 const CERT_KEY_FILE = path.join(CERT_DIR, 'dev-key.pem');
@@ -981,4 +1672,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS };

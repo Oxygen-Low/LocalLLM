@@ -1,0 +1,482 @@
+import { Component, inject, signal, ViewChild, ElementRef, OnInit, OnDestroy } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo } from '../services/llm.service';
+
+@Component({
+  selector: 'app-general-assistant',
+  standalone: true,
+  imports: [CommonModule, FormsModule, RouterLink],
+  template: `
+    <div class="h-[calc(100vh-64px)] flex bg-secondary-50">
+      <!-- Sidebar -->
+      <div
+        class="flex flex-col bg-secondary-900 text-white transition-all duration-300"
+        [ngClass]="sidebarOpen() ? 'w-72' : 'w-0 overflow-hidden'"
+      >
+        <!-- New Chat Button -->
+        <div class="p-3">
+          <button
+            (click)="createNewChat()"
+            class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-secondary-700 hover:bg-secondary-800 transition-colors text-sm font-medium"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            New Chat
+          </button>
+        </div>
+
+        <!-- Chat List -->
+        <div class="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
+          @for (chat of chatList(); track chat.id) {
+            <div
+              class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors group flex items-center justify-between cursor-pointer"
+              [ngClass]="currentChatId() === chat.id ? 'bg-secondary-700' : 'hover:bg-secondary-800'"
+            >
+              <button
+                (click)="loadChat(chat.id)"
+                class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0"
+              >{{ chat.title }}</button>
+              <button
+                (click)="deleteExistingChat(chat.id, $event)"
+                class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          }
+          @if (chatList().length === 0) {
+            <p class="text-secondary-500 text-xs text-center py-4">No conversations yet</p>
+          }
+        </div>
+
+        <!-- Bottom links -->
+        <div class="p-3 border-t border-secondary-700">
+          <a routerLink="/dashboard" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-secondary-800 transition-colors text-sm text-secondary-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Dashboard
+          </a>
+          <a routerLink="/settings" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-secondary-800 transition-colors text-sm text-secondary-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Settings
+          </a>
+        </div>
+      </div>
+
+      <!-- Main Chat Area -->
+      <div class="flex-1 flex flex-col min-w-0">
+        <!-- Top Bar -->
+        <div class="flex items-center gap-3 px-4 py-3 border-b border-secondary-200 bg-white">
+          <button (click)="toggleSidebar()" class="p-2 rounded-lg hover:bg-secondary-100 transition-colors">
+            <svg class="w-5 h-5 text-secondary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <h1 class="text-lg font-semibold text-secondary-900 truncate">
+            {{ currentChat()?.title || 'General Assistant' }}
+          </h1>
+        </div>
+
+        <!-- Messages Area -->
+        <div #messagesContainer class="flex-1 overflow-y-auto">
+          @if (currentChat()?.messages?.length) {
+            <div class="max-w-3xl mx-auto px-4 py-6 space-y-6">
+              @for (msg of currentChat()?.messages; track $index) {
+                @if (msg.role !== 'system') {
+                  <div class="flex gap-4" [ngClass]="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                    @if (msg.role === 'assistant') {
+                      <div class="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                        <span class="text-sm">🤖</span>
+                      </div>
+                    }
+                    <div
+                      class="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
+                      [ngClass]="msg.role === 'user'
+                        ? 'bg-primary-600 text-white rounded-br-md'
+                        : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
+                    >{{ msg.content }}</div>
+                    @if (msg.role === 'user') {
+                      <div class="w-8 h-8 rounded-full bg-secondary-200 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-secondary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                    }
+                  </div>
+                }
+              }
+              @if (isLoading()) {
+                <div class="flex gap-4 justify-start">
+                  <div class="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                    <span class="text-sm">🤖</span>
+                  </div>
+                  <div class="bg-white border border-secondary-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                    <div class="flex gap-1">
+                      <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+                      <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
+                      <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          } @else {
+            <!-- Welcome Screen -->
+            <div class="flex items-center justify-center h-full">
+              <div class="text-center max-w-lg px-4">
+                <div class="w-16 h-16 rounded-2xl bg-primary-100 flex items-center justify-center mx-auto mb-6">
+                  <span class="text-3xl">🤖</span>
+                </div>
+                <h2 class="text-2xl font-bold text-secondary-900 mb-3">General Assistant</h2>
+                <p class="text-secondary-500 mb-8">
+                  Ask me anything. I can help with writing, coding, analysis, creative tasks, and more.
+                </p>
+                <div class="grid grid-cols-2 gap-3">
+                  <button (click)="sendQuickPrompt('Explain quantum computing in simple terms')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                    💡 Explain quantum computing
+                  </button>
+                  <button (click)="sendQuickPrompt('Write a short poem about the ocean')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                    ✍️ Write a short poem
+                  </button>
+                  <button (click)="sendQuickPrompt('Help me debug a JavaScript function')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                    🔧 Debug JavaScript code
+                  </button>
+                  <button (click)="sendQuickPrompt('What are good habits for productivity?')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                    📋 Productivity tips
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+
+        <!-- Error message -->
+        @if (errorMessage()) {
+          <div class="px-4">
+            <div class="max-w-3xl mx-auto mb-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
+              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              {{ errorMessage() }}
+              <button (click)="errorMessage.set(null)" class="ml-auto text-red-500 hover:text-red-700">✕</button>
+            </div>
+          </div>
+        }
+
+        <!-- Input Area -->
+        <div class="border-t border-secondary-200 bg-white px-4 py-4">
+          <div class="max-w-3xl mx-auto">
+            <!-- Provider Selector -->
+            <div class="flex items-center gap-2 mb-3">
+              <div class="relative" #providerDropdown>
+                <button
+                  (click)="toggleProviderDropdown($event)"
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-sm transition-colors"
+                >
+                  <span class="w-2 h-2 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
+                  <span class="text-secondary-700 max-w-[200px] truncate">
+                    {{ selectedProvider()?.name || 'Select Provider' }}
+                    @if (selectedProvider()?.model) {
+                      <span class="text-secondary-400"> · {{ selectedProvider()?.model }}</span>
+                    }
+                  </span>
+                  <svg class="w-3.5 h-3.5 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                @if (showProviderDropdown()) {
+                  <div class="absolute bottom-full left-0 mb-1 w-72 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
+                    @if (providers().length === 0) {
+                      <div class="px-4 py-3 text-sm text-secondary-500">
+                        No providers configured.
+                        <a routerLink="/settings" class="text-primary-600 hover:underline">Set up API keys</a>
+                      </div>
+                    }
+                    @for (p of providers(); track p.id) {
+                      <button
+                        (click)="selectProvider(p)"
+                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
+                        [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
+                      >
+                        <span class="w-2 h-2 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                        <div class="flex-1 min-w-0">
+                          <div class="font-medium">{{ p.name }}</div>
+                          @if (p.model) {
+                            <div class="text-xs text-secondary-400 truncate">{{ p.model }}</div>
+                          }
+                        </div>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- Text Input -->
+            <div class="flex items-end gap-3">
+              <div class="flex-1 relative">
+                <textarea
+                  #messageInput
+                  [(ngModel)]="userMessage"
+                  (keydown.enter)="onEnterKey($event)"
+                  placeholder="Type your message..."
+                  rows="1"
+                  class="w-full resize-none rounded-xl border border-secondary-200 px-4 py-3 pr-12 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm leading-relaxed max-h-40 overflow-y-auto"
+                  [disabled]="isLoading()"
+                  (input)="autoResize($event)"
+                ></textarea>
+              </div>
+              <button
+                (click)="sendCurrentMessage()"
+                [disabled]="isLoading() || !userMessage.trim() || !selectedProvider()"
+                class="p-3 rounded-xl bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `,
+})
+export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
+  @ViewChild('messagesContainer') messagesContainer!: ElementRef;
+  @ViewChild('providerDropdown') providerDropdown!: ElementRef;
+
+  private llmService = inject(LlmService);
+
+  sidebarOpen = signal(true);
+  chatList = signal<ChatSummary[]>([]);
+  currentChatId = signal<string | null>(null);
+  currentChat = signal<Chat | null>(null);
+  providers = signal<ProviderInfo[]>([]);
+  selectedProvider = signal<ProviderInfo | null>(null);
+  showProviderDropdown = signal(false);
+  userMessage = '';
+  isLoading = signal(false);
+  errorMessage = signal<string | null>(null);
+
+  private clickOutsideListener: ((e: Event) => void) | null = null;
+
+  async ngOnInit(): Promise<void> {
+    // Close dropdown when clicking outside the dropdown area
+    this.clickOutsideListener = (e: Event) => {
+      if (this.showProviderDropdown() && this.providerDropdown &&
+          !this.providerDropdown.nativeElement.contains(e.target as Node)) {
+        this.showProviderDropdown.set(false);
+      }
+    };
+    document.addEventListener('click', this.clickOutsideListener);
+
+    await Promise.all([
+      this.loadProviders(),
+      this.loadChatList(),
+    ]);
+
+    // Auto-load the most recent chat
+    const chats = this.chatList();
+    if (chats.length > 0) {
+      await this.loadChat(chats[0].id);
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.clickOutsideListener) {
+      document.removeEventListener('click', this.clickOutsideListener);
+    }
+  }
+
+  async loadProviders(): Promise<void> {
+    try {
+      const providers = await this.llmService.getProviders();
+      this.providers.set(providers);
+      if (providers.length > 0 && !this.selectedProvider()) {
+        this.selectedProvider.set(providers[0]);
+      }
+    } catch {
+      // Silent failure
+    }
+  }
+
+  toggleProviderDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showProviderDropdown.set(!this.showProviderDropdown());
+  }
+
+  async loadChatList(): Promise<void> {
+    try {
+      const chats = await this.llmService.listChats();
+      this.chatList.set(chats);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async createNewChat(): Promise<void> {
+    try {
+      const provider = this.selectedProvider();
+      const chat = await this.llmService.createChat(
+        provider?.id || undefined,
+        provider?.model || undefined
+      );
+      this.currentChat.set(chat);
+      this.currentChatId.set(chat.id);
+      await this.loadChatList();
+    } catch {
+      this.errorMessage.set('Failed to create new chat');
+    }
+  }
+
+  async loadChat(chatId: string): Promise<void> {
+    try {
+      const chat = await this.llmService.getChat(chatId);
+      this.currentChat.set(chat);
+      this.currentChatId.set(chatId);
+      this.scrollToBottom();
+    } catch {
+      this.errorMessage.set('Failed to load chat');
+    }
+  }
+
+  async deleteExistingChat(chatId: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    try {
+      await this.llmService.deleteChat(chatId);
+      if (this.currentChatId() === chatId) {
+        this.currentChat.set(null);
+        this.currentChatId.set(null);
+      }
+      await this.loadChatList();
+    } catch {
+      this.errorMessage.set('Failed to delete chat');
+    }
+  }
+
+  selectProvider(provider: ProviderInfo): void {
+    this.selectedProvider.set(provider);
+    this.showProviderDropdown.set(false);
+  }
+
+  toggleSidebar(): void {
+    this.sidebarOpen.set(!this.sidebarOpen());
+  }
+
+  onEnterKey(event: Event): void {
+    const ke = event as KeyboardEvent;
+    if (!ke.shiftKey) {
+      ke.preventDefault();
+      this.sendCurrentMessage();
+    }
+  }
+
+  sendQuickPrompt(prompt: string): void {
+    this.userMessage = prompt;
+    this.sendCurrentMessage();
+  }
+
+  async sendCurrentMessage(): Promise<void> {
+    const message = this.userMessage.trim();
+    const provider = this.selectedProvider();
+
+    if (!message || !provider || this.isLoading()) return;
+
+    this.errorMessage.set(null);
+    this.userMessage = '';
+
+    // Create chat if none exists
+    if (!this.currentChat()) {
+      await this.createNewChat();
+    }
+
+    const chat = this.currentChat();
+    if (!chat) return;
+
+    // Add user message
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    };
+
+    const updatedMessages = [...(chat.messages || []), userMsg];
+    this.currentChat.set({ ...chat, messages: updatedMessages });
+    this.scrollToBottom();
+
+    this.isLoading.set(true);
+
+    try {
+      // Generate title from first user message
+      let title = chat.title;
+      if (chat.title === 'New Chat' && updatedMessages.filter(m => m.role === 'user').length === 1) {
+        title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
+      }
+
+      // Build messages for LLM (include system prompt)
+      const systemPrompt: ChatMessage = {
+        role: 'system',
+        content: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use formatting like paragraphs for readability.',
+      };
+
+      const llmMessages = [systemPrompt, ...updatedMessages.filter(m => m.role !== 'system')];
+
+      // Send to LLM
+      const response = await this.llmService.sendMessage(
+        llmMessages,
+        provider.id,
+        provider.model || ''
+      );
+
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: response.content,
+        timestamp: new Date().toISOString(),
+      };
+
+      const finalMessages = [...updatedMessages, assistantMsg];
+
+      // Save to server
+      const updated = await this.llmService.updateChat(chat.id, {
+        messages: finalMessages,
+        title,
+        provider: provider.id,
+        model: provider.model,
+      });
+
+      this.currentChat.set(updated);
+      await this.loadChatList();
+    } catch (err: unknown) {
+      const error = err as { error?: { error?: string } };
+      this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
+    } finally {
+      this.isLoading.set(false);
+      this.scrollToBottom();
+    }
+  }
+
+  autoResize(event: Event): void {
+    const textarea = event.target as HTMLTextAreaElement;
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+  }
+
+  private scrollToBottom(): void {
+    setTimeout(() => {
+      if (this.messagesContainer?.nativeElement) {
+        this.messagesContainer.nativeElement.scrollTop = this.messagesContainer.nativeElement.scrollHeight;
+      }
+    }, 50);
+  }
+}
