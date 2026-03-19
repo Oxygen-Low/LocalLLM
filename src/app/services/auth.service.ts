@@ -8,6 +8,7 @@ export interface AuthSession {
   username: string;
   expiresAt: number;
   passwordResetRequired?: boolean;
+  token?: string;
 }
 
 interface LoginAttemptRecord {
@@ -21,6 +22,7 @@ interface AuthResponse {
   error?: string;
   username?: string;
   passwordResetRequired?: boolean;
+  token?: string;
 }
 
 const SESSION_STORAGE_KEY = 'localllm_session';
@@ -45,6 +47,18 @@ export class AuthService {
   username = computed(() => this.currentUser());
   isAdmin = computed(() => this.currentUser() === 'admin');
   passwordResetRequired = signal(false);
+
+  /** SOC2 CC6.1: Returns the server-issued session token for authenticated API requests */
+  getSessionToken(): string | null {
+    try {
+      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionData) return null;
+      const session: AuthSession = JSON.parse(sessionData);
+      return session.token ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly userActivityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart'] as const;
@@ -89,11 +103,12 @@ export class AuthService {
     }
   }
 
-  private async createSession(username: string, passwordResetRequired = false): Promise<void> {
+  private async createSession(username: string, passwordResetRequired = false, token?: string): Promise<void> {
     const session: AuthSession = {
       username,
       expiresAt: Date.now() + SESSION_DURATION_MS,
       passwordResetRequired,
+      token,
     };
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     this.currentUser.set(username);
@@ -269,10 +284,7 @@ export class AuthService {
     try {
       const response = await firstValueFrom(
         this.http.get<{ success: boolean; passwordResetRequired: boolean }>(
-          `${environment.apiUrl}/api/auth/password-reset-status`,
-          {
-            params: { username: user },
-          }
+          `${environment.apiUrl}/api/auth/password-reset-status`
         )
       );
 
@@ -342,7 +354,7 @@ export class AuthService {
       );
 
       if (response.success && response.username) {
-        await this.createSession(response.username);
+        await this.createSession(response.username, false, response.token);
         this.securityLogger.log('SIGNUP_SUCCESS', 'New account created', response.username);
         return { success: true };
       }
@@ -382,7 +394,7 @@ export class AuthService {
 
       if (response.success && response.username) {
         this.clearLoginAttempts(normalizedUsername);
-        await this.createSession(response.username, !!response.passwordResetRequired);
+        await this.createSession(response.username, !!response.passwordResetRequired, response.token);
         this.securityLogger.log('LOGIN_SUCCESS', 'User logged in successfully', response.username);
         return { success: true, passwordResetRequired: !!response.passwordResetRequired };
       }
@@ -405,12 +417,22 @@ export class AuthService {
 
   logout(): void {
     const user = this.username();
+    const token = this.getSessionToken();
     this.stopInactivityTimer();
     this.stopPasswordResetMonitor();
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     this.currentUser.set(null);
     this.passwordResetRequired.set(false);
     this.securityLogger.log('LOGOUT', 'User logged out', user ?? undefined);
+
+    // SOC2 CC6.3: Invalidate server-side session
+    if (token) {
+      firstValueFrom(
+        this.http.post(`${environment.apiUrl}/api/auth/logout`, {})
+      ).catch(() => {
+        // Silent failure – session is already cleared client-side
+      });
+    }
   }
 
   async changePassword(
@@ -432,7 +454,6 @@ export class AuthService {
       const hashedNewPassword = await this.hashPassword(newPassword);
       const response = await firstValueFrom(
         this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-password`, {
-          username: user,
           currentPassword: hashedCurrentPassword,
           newPassword: hashedNewPassword,
         })
@@ -465,7 +486,7 @@ export class AuthService {
       const hashedPassword = await this.hashPassword(password);
       const response = await firstValueFrom(
         this.http.delete<AuthResponse>(`${environment.apiUrl}/api/auth/account`, {
-          body: { username: user, password: hashedPassword },
+          body: { password: hashedPassword },
         })
       );
 

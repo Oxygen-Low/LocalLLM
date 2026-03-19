@@ -420,9 +420,7 @@ export class TranslationService {
 
   private loadLanguageFromServer(username: string): void {
     this.http
-      .get<LanguageResponse>(`${environment.apiUrl}/api/user/language`, {
-        params: { username },
-      })
+      .get<LanguageResponse>(`${environment.apiUrl}/api/user/language`)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (response) => {
@@ -447,7 +445,6 @@ export class TranslationService {
   private saveLanguageToServer(username: string, language: string): void {
     this.http
       .put<LanguageResponse>(`${environment.apiUrl}/api/user/language`, {
-        username,
         language,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
