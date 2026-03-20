@@ -931,43 +931,80 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    // Re-encrypt API keys under the new username key
-    const apiKeysData = readUserApiKeys(oldUsername);
+    // Re-encrypt API keys under the new username key.
+    // readUserApiKeysSafe returns null when the file exists but cannot be decrypted.
+    const apiKeysData = readUserApiKeysSafe(oldUsername);
     const oldApiKeysFile = getUserApiKeysFile(oldUsername);
+
+    if (apiKeysData === null) {
+      // File is corrupt / unreadable – abort to avoid data loss
+      console.error(`Change-username: failed to read API keys for ${oldUsername}, aborting username change`);
+      return res.status(500).json({ success: false, error: 'Failed to migrate API keys. Please try again later.' });
+    }
+
     if (Object.keys(apiKeysData).length > 0) {
       writeUserApiKeys(normalizedNew, apiKeysData);
     }
-    // Only remove the old file after we have successfully written (or have nothing to write)
-    if (fs.existsSync(oldApiKeysFile) && Object.keys(apiKeysData).length > 0) {
+    // Remove the old file after a successful read (even if it contained no keys)
+    if (fs.existsSync(oldApiKeysFile)) {
       fs.unlinkSync(oldApiKeysFile);
-    } else if (fs.existsSync(oldApiKeysFile) && Object.keys(apiKeysData).length === 0) {
-      // readUserApiKeys returned empty – file may be corrupt; leave it to avoid data loss
-      console.warn(`Change-username: could not read API keys for ${oldUsername}, leaving file in place`);
     }
 
-    // Re-encrypt chat files under the new username key and move to new directory
+    // Re-encrypt chat files under the new username key (atomic: separate re-encrypt from delete)
     const oldChatsDir = path.join(CHATS_DIR, oldUsername);
     const newChatsDir = path.join(CHATS_DIR, normalizedNew);
     if (fs.existsSync(oldChatsDir)) {
       fs.mkdirSync(newChatsDir, { recursive: true });
       const chatFiles = fs.readdirSync(oldChatsDir).filter((f) => f.endsWith('.enc'));
+
+      // Phase 1: re-encrypt all files into newChatsDir without deleting originals
+      const migratedFiles = [];
+      let migrationFailed = false;
       for (const file of chatFiles) {
         const oldPath = path.join(oldChatsDir, file);
+        const newPath = path.join(newChatsDir, file);
         try {
           const encryptedContent = fs.readFileSync(oldPath, 'utf-8');
           const decrypted = decryptData(encryptedContent, oldUsername);
           const reEncrypted = encryptData(decrypted, normalizedNew);
-          fs.writeFileSync(path.join(newChatsDir, file), reEncrypted, { encoding: 'utf-8', mode: 0o600 });
-          fs.unlinkSync(oldPath);
+          fs.writeFileSync(newPath, reEncrypted, { encoding: 'utf-8', mode: 0o600 });
+          migratedFiles.push({ oldPath, newPath });
         } catch (migrationErr) {
           console.error(`Change-username: failed to re-encrypt chat file ${file} for ${oldUsername}:`, migrationErr);
-          // Original file is preserved; skip so the rest of the migration continues
+          migrationFailed = true;
+          break; // stop further attempts to keep behaviour closer to atomic
         }
       }
-      // Remove the old directory if now empty
-      if (fs.readdirSync(oldChatsDir).length === 0) {
-        fs.rmdirSync(oldChatsDir);
+
+      if (migrationFailed) {
+        // Phase 2 (rollback): remove any newly written files; leave originals intact
+        for (const { newPath } of migratedFiles) {
+          try { if (fs.existsSync(newPath)) fs.unlinkSync(newPath); } catch (e) {
+            console.error('Change-username: rollback failed to remove', newPath, e);
+          }
+        }
+        try {
+          if (fs.readdirSync(newChatsDir).length === 0) fs.rmdirSync(newChatsDir);
+        } catch { /* ignore */ }
+        // Also restore the API keys file we already migrated
+        try {
+          if (Object.keys(apiKeysData).length > 0) {
+            const newApiKeysFile = getUserApiKeysFile(normalizedNew);
+            if (fs.existsSync(newApiKeysFile)) fs.unlinkSync(newApiKeysFile);
+          }
+        } catch { /* ignore */ }
+        return res.status(500).json({ success: false, error: 'Failed to migrate chat files. Username change aborted.' });
       }
+
+      // Phase 2 (success): delete originals and clean up old directory
+      for (const { oldPath } of migratedFiles) {
+        try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch (e) {
+          console.error('Change-username: failed to remove original chat file', oldPath, e);
+        }
+      }
+      try {
+        if (fs.readdirSync(oldChatsDir).length === 0) fs.rmdirSync(oldChatsDir);
+      } catch { /* ignore */ }
     }
 
     // Update user record
@@ -1224,6 +1261,22 @@ function readUserApiKeys(username) {
     return JSON.parse(decryptData(encrypted, username));
   } catch {
     return {};
+  }
+}
+
+/**
+ * Like readUserApiKeys but distinguishes between "file absent" (returns {})
+ * and "file present but unreadable/corrupt" (returns null).
+ * Used by change-username to decide whether to abort the migration.
+ */
+function readUserApiKeysSafe(username) {
+  const file = getUserApiKeysFile(username);
+  if (!fs.existsSync(file)) return {};
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return null;
   }
 }
 

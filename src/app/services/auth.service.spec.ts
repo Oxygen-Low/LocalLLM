@@ -453,4 +453,111 @@ describe('AuthService', () => {
       await loginPromise;
     });
   });
+
+  describe('changeUsername', () => {
+    beforeEach(async () => {
+      // Establish an authenticated session before each username change test.
+      // No `token` in the response so that the global afterEach's service.logout()
+      // does not queue a fire-and-forget POST /api/auth/logout.
+      const signupPromise = service.signup('originaluser', 'Password1!');
+      await flushAsync();
+      const req = httpMock.expectOne('/api/auth/signup');
+      req.flush({ success: true, username: 'originaluser' });
+      flushPasswordStatus('originaluser');
+      await signupPromise;
+    });
+
+    afterEach(() => {
+      // Drain any fire-and-forget POST /api/auth/logout so the global
+      // afterEach's httpMock.verify() sees no open requests.
+      httpMock
+        .match(req => req.method === 'POST' && req.url.includes('/api/auth/logout'))
+        .forEach(req => req.flush({}));
+    });
+
+    it('should return error when not authenticated', async () => {
+      service.logout(); // clears session; logout POST is drained by local afterEach
+      const result = await service.changeUsername('newuser');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Not authenticated');
+    });
+
+    it('should return validation error without making HTTP request for short username', async () => {
+      const result = await service.changeUsername('ab');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('3 characters');
+      httpMock.expectNone('/api/auth/change-username');
+    });
+
+    it('should return validation error without making HTTP request for invalid characters', async () => {
+      const result = await service.changeUsername('bad name!');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('letters, numbers');
+      httpMock.expectNone('/api/auth/change-username');
+    });
+
+    it('should call PUT /api/auth/change-username with the newUsername body', async () => {
+      const changePromise = service.changeUsername('newusername');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/change-username');
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body.newUsername).toBe('newusername');
+      req.flush({ success: true, username: 'newusername' });
+      flushPasswordStatus('newusername');
+      await changePromise;
+    });
+
+    it('should update username signal on success', async () => {
+      const changePromise = service.changeUsername('newusername');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/change-username');
+      req.flush({ success: true, username: 'newusername' });
+      flushPasswordStatus('newusername');
+
+      const result = await changePromise;
+      expect(result.success).toBe(true);
+      expect(service.username()).toBe('newusername');
+    });
+
+    it('should return error from server when username is taken', async () => {
+      const changePromise = service.changeUsername('takenuser');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/change-username');
+      req.flush({ success: false, error: 'Username already taken' }, { status: 409, statusText: 'Conflict' });
+
+      const result = await changePromise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Username already taken');
+    });
+
+    it('should surface retryAfterSeconds on 429 response', async () => {
+      const changePromise = service.changeUsername('newusername');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/change-username');
+      req.flush(
+        { success: false, error: 'Username was changed recently.', retryAfterSeconds: 600 },
+        { status: 429, statusText: 'Too Many Requests' }
+      );
+
+      const result = await changePromise;
+      expect(result.success).toBe(false);
+      expect(result.retryAfterSeconds).toBe(600);
+    });
+
+    it('should return generic error on network failure', async () => {
+      const changePromise = service.changeUsername('newusername');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/change-username');
+      req.error(new ProgressEvent('error'));
+
+      const result = await changePromise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Failed to change username. Please try again.');
+    });
+  });
 });
