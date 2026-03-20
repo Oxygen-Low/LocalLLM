@@ -23,6 +23,7 @@ interface AuthResponse {
   username?: string;
   passwordResetRequired?: boolean;
   token?: string;
+  retryAfterSeconds?: number;
 }
 
 const SESSION_STORAGE_KEY = 'localllm_session';
@@ -440,7 +441,7 @@ export class AuthService {
   async changePassword(
     currentPassword: string,
     newPassword: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; retryAfterSeconds?: number }> {
     const user = this.username();
     if (!user) {
       return { success: false, error: 'Not authenticated' };
@@ -467,12 +468,49 @@ export class AuthService {
         return { success: true };
       }
 
-      return { success: false, error: response.error };
+      return { success: false, error: response.error, retryAfterSeconds: response.retryAfterSeconds };
     } catch (err: unknown) {
       const error = err as { error?: AuthResponse; status?: number };
       const message = error.error?.error ?? 'Failed to change password. Please try again.';
+      const retryAfterSeconds = error.error?.retryAfterSeconds;
       this.securityLogger.log('PASSWORD_CHANGE_FAILURE', message, user);
-      return { success: false, error: message };
+      return { success: false, error: message, retryAfterSeconds };
+    }
+  }
+
+  async changeUsername(
+    newUsername: string
+  ): Promise<{ success: boolean; error?: string; retryAfterSeconds?: number }> {
+    const user = this.username();
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    const usernameErrors = this.validateUsername(newUsername);
+    if (usernameErrors.length > 0) {
+      return { success: false, error: usernameErrors[0] };
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-username`, {
+          newUsername,
+        })
+      );
+
+      if (response.success && response.username) {
+        this.securityLogger.log('USERNAME_CHANGED', 'Username changed successfully', response.username);
+        await this.createSession(response.username, this.passwordResetRequired(), response.token);
+        return { success: true };
+      }
+
+      return { success: false, error: response.error, retryAfterSeconds: response.retryAfterSeconds };
+    } catch (err: unknown) {
+      const error = err as { error?: AuthResponse; status?: number };
+      const message = error.error?.error ?? 'Failed to change username. Please try again.';
+      const retryAfterSeconds = error.error?.retryAfterSeconds;
+      this.securityLogger.log('USERNAME_CHANGE_FAILURE', message, user);
+      return { success: false, error: message, retryAfterSeconds };
     }
   }
 
