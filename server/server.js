@@ -1068,11 +1068,9 @@ app.put('/api/user/language', requireSession, (req, res) => {
 const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
 
 function getUserApiKeysFile(username) {
-  return path.join(DATA_DIR, `apikeys_${username}.enc`);
   const safeUsername = sanitizeUsernameForPath(username);
-  const baseDir = path.join(__dirname, 'data', 'api-keys');
-  const filePath = path.join(baseDir, safeUsername + '.json');
-  return filePath;
+  return path.join(DATA_DIR, `apikeys_${safeUsername}.enc`);
+}
 }
 
 function readUserApiKeys(username) {
