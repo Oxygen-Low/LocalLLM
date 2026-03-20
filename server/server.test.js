@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -794,6 +794,65 @@ describe('ISO 27001 A.8.25 – Server-side username validation', () => {
 
   it('validateUsername accepts hyphens and underscores', () => {
     assert.deepEqual(validateUsername('my-user_name'), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Path traversal prevention – sanitizeUsernameForPath / getUserApiKeysFile
+// ---------------------------------------------------------------------------
+
+describe('Path traversal prevention – sanitizeUsernameForPath', () => {
+  it('allows safe alphanumeric usernames unchanged (lowercased)', () => {
+    assert.equal(sanitizeUsernameForPath('Alice123'), 'alice123');
+  });
+
+  it('allows underscores and hyphens', () => {
+    assert.equal(sanitizeUsernameForPath('my-user_name'), 'my-user_name');
+  });
+
+  it('replaces path separator characters with underscores', () => {
+    const result = sanitizeUsernameForPath('../evil');
+    assert.ok(!result.includes('/'), 'must not contain /');
+    assert.ok(!result.includes('..'), 'must not contain ..');
+  });
+
+  it('replaces dots with underscores', () => {
+    assert.equal(sanitizeUsernameForPath('user.name'), 'user_name');
+  });
+
+  it('handles non-string input by returning fallback', () => {
+    assert.equal(sanitizeUsernameForPath(null), 'user');
+    assert.equal(sanitizeUsernameForPath(undefined), 'user');
+    assert.equal(sanitizeUsernameForPath(42), 'user');
+  });
+
+  it('handles empty-ish result by returning fallback', () => {
+    assert.equal(sanitizeUsernameForPath(''), 'user');
+  });
+});
+
+describe('Path traversal prevention – getUserApiKeysFile', () => {
+  it('returns a path inside DATA_DIR for a normal username', () => {
+    const file = getUserApiKeysFile('alice');
+    assert.ok(file.startsWith(DATA_DIR), 'must be inside DATA_DIR');
+    assert.ok(file.endsWith('.enc'), 'must use encrypted .enc extension');
+  });
+
+  it('cannot escape DATA_DIR with a path-traversal username', () => {
+    const file = getUserApiKeysFile('../evil');
+    assert.ok(
+      path.resolve(file).startsWith(path.resolve(DATA_DIR)),
+      `path ${file} must stay inside DATA_DIR`
+    );
+    assert.ok(!file.includes('..'), 'resolved filename must not contain ..');
+  });
+
+  it('cannot escape DATA_DIR with nested traversal sequences', () => {
+    const file = getUserApiKeysFile('../../etc/passwd');
+    assert.ok(
+      path.resolve(file).startsWith(path.resolve(DATA_DIR)),
+      `path ${file} must stay inside DATA_DIR`
+    );
   });
 });
 

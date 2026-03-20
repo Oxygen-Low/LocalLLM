@@ -1068,11 +1068,8 @@ app.put('/api/user/language', requireSession, (req, res) => {
 const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
 
 function getUserApiKeysFile(username) {
-  return path.join(DATA_DIR, `apikeys_${username}.enc`);
   const safeUsername = sanitizeUsernameForPath(username);
-  const baseDir = path.join(__dirname, 'data', 'api-keys');
-  const filePath = path.join(baseDir, safeUsername + '.json');
-  return filePath;
+  return path.join(DATA_DIR, `apikeys_${safeUsername}.enc`);
 }
 
 function readUserApiKeys(username) {
@@ -1690,4 +1687,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR };
