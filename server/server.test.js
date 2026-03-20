@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1069,6 +1069,61 @@ describe('SOC2 PI1.1 – Request body size limits', () => {
     const res = await request(server, 'POST', '/api/auth/login', largeBody);
     // Express returns 413 for payload too large (limit: 1mb)
     assert.equal(res.status, 413);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeUsernameForPath and getUserApiKeysFile – path traversal prevention
+// ---------------------------------------------------------------------------
+describe('sanitizeUsernameForPath', () => {
+  it('returns a safe path segment for a normal username', () => {
+    assert.equal(sanitizeUsernameForPath('alice'), 'alice');
+    assert.equal(sanitizeUsernameForPath('Bob_123'), 'bob_123');
+    assert.equal(sanitizeUsernameForPath('user-name'), 'user-name');
+  });
+
+  it('replaces path traversal sequences with underscores', () => {
+    const result = sanitizeUsernameForPath('../evil');
+    assert.ok(!result.includes('..'), 'result must not contain ".."');
+    assert.ok(!result.includes('/'), 'result must not contain "/"');
+  });
+
+  it('replaces backslashes and other dangerous chars with underscores', () => {
+    const result = sanitizeUsernameForPath('..\\windows\\evil');
+    assert.ok(!result.includes('\\'), 'result must not contain backslashes');
+    assert.ok(!result.includes('.'), 'result must not contain dots');
+  });
+
+  it('handles non-string input gracefully', () => {
+    assert.equal(sanitizeUsernameForPath(null), 'user');
+    assert.equal(sanitizeUsernameForPath(undefined), 'user');
+    assert.equal(sanitizeUsernameForPath(42), 'user');
+  });
+
+  it('handles empty string by returning fallback', () => {
+    assert.equal(sanitizeUsernameForPath(''), 'user');
+  });
+});
+
+describe('getUserApiKeysFile', () => {
+  it('returns a path within DATA_DIR for a normal username', () => {
+    const filePath = getUserApiKeysFile('alice');
+    assert.ok(filePath.startsWith(DATA_DIR), 'path must be under DATA_DIR');
+    assert.ok(filePath.endsWith('.enc'), 'path must use .enc extension');
+    assert.ok(filePath.includes('apikeys_alice'), 'path must contain sanitized username');
+  });
+
+  it('cannot escape DATA_DIR with path traversal username', () => {
+    const filePath = getUserApiKeysFile('../../../etc/passwd');
+    assert.ok(filePath.startsWith(DATA_DIR), 'path must remain under DATA_DIR');
+    assert.ok(!filePath.includes('..'), 'path must not contain ".."');
+    assert.ok(!filePath.includes('/etc/passwd'), 'path must not reference /etc/passwd');
+  });
+
+  it('cannot escape DATA_DIR with null-byte username', () => {
+    const filePath = getUserApiKeysFile('user\x00../../etc/passwd');
+    assert.ok(filePath.startsWith(DATA_DIR), 'path must remain under DATA_DIR');
+    assert.ok(!filePath.includes('\x00'), 'path must not contain null bytes');
   });
 });
 

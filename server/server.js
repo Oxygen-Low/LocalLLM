@@ -557,6 +557,20 @@ function normalizeUsername(username) {
   return username.toLowerCase();
 }
 
+// Sanitize a username so it is safe to use as a single filesystem path segment.
+// This does NOT change the logical username stored in the system; it only affects
+// how we map a username to a filename on disk.
+function sanitizeUsernameForPath(username) {
+  if (typeof username !== 'string') {
+    return 'user';
+  }
+  const normalized = normalizeUsername(username);
+  // Allow only lowercase letters, digits, underscore and hyphen; replace others with "_".
+  const safe = normalized.replace(/[^a-z0-9_-]/g, '_');
+  // Avoid empty filenames.
+  return safe.length > 0 ? safe : 'user';
+}
+
 async function ensureAdminAccount() {
   const users = readUsers();
   if (users.some((u) => u.username === ADMIN_USERNAME)) {
@@ -1054,7 +1068,8 @@ app.put('/api/user/language', requireSession, (req, res) => {
 const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
 
 function getUserApiKeysFile(username) {
-  return path.join(DATA_DIR, `apikeys_${username}.enc`);
+  const safeUsername = sanitizeUsernameForPath(username);
+  return path.join(DATA_DIR, `apikeys_${safeUsername}.enc`);
 }
 
 function readUserApiKeys(username) {
@@ -1672,4 +1687,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR };
