@@ -557,6 +557,20 @@ function normalizeUsername(username) {
   return username.toLowerCase();
 }
 
+// Sanitize a username so it is safe to use as a single filesystem path segment.
+// This does NOT change the logical username stored in the system; it only affects
+// how we map a username to a filename on disk.
+function sanitizeUsernameForPath(username) {
+  if (typeof username !== 'string') {
+    return 'user';
+  }
+  const normalized = normalizeUsername(username);
+  // Allow only lowercase letters, digits, underscore and hyphen; replace others with "_".
+  const safe = normalized.replace(/[^a-z0-9_-]/g, '_');
+  // Avoid empty filenames.
+  return safe.length > 0 ? safe : 'user';
+}
+
 async function ensureAdminAccount() {
   const users = readUsers();
   if (users.some((u) => u.username === ADMIN_USERNAME)) {
@@ -1055,6 +1069,10 @@ const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
 
 function getUserApiKeysFile(username) {
   return path.join(DATA_DIR, `apikeys_${username}.enc`);
+  const safeUsername = sanitizeUsernameForPath(username);
+  const baseDir = path.join(__dirname, 'data', 'api-keys');
+  const filePath = path.join(baseDir, safeUsername + '.json');
+  return filePath;
 }
 
 function readUserApiKeys(username) {
