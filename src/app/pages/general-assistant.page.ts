@@ -646,17 +646,33 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  private readonly markdownCache = new Map<string, string>();
+
   renderMarkdown(text: string): string {
-    if (!text) return '';
+    if (!text) {
+      return '';
+    }
+
+    const cached = this.markdownCache.get(text);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     try {
       // marked.parse with default settings converts markdown to HTML.
       // Angular's [innerHTML] binding sanitizes the output (strips <script>, event handlers, etc.)
       // providing defense-in-depth against XSS from AI/user content.
       const html = marked.parse(text, { breaks: true, gfm: true }) as string;
+      this.markdownCache.set(text, html);
       return html;
     } catch {
       // Escape HTML if markdown parsing fails to prevent raw injection
-      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      this.markdownCache.set(text, escaped);
+      return escaped;
     }
   }
 
