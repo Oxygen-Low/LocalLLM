@@ -436,14 +436,14 @@ function validateResolvedIP(hostname) {
 
     dns.lookup(hostname, { all: true }, (err, addresses) => {
       if (err) {
-        return resolve({ safe: false, reason: `DNS resolution failed: ${err.code || err.message}` });
+        return resolve({ safe: false, reason: 'DNS resolution failed' });
       }
 
       for (const entry of addresses) {
         if (isPrivateIP(entry.address)) {
           return resolve({
             safe: false,
-            reason: `Hostname resolves to private/internal IP address (${entry.address})`,
+            reason: 'Hostname resolves to a blocked address',
           });
         }
       }
@@ -593,6 +593,19 @@ function sanitizeUsernameForPath(username) {
   const safe = normalized.replace(/[^a-z0-9_-]/g, '_');
   // Avoid empty filenames.
   return safe.length > 0 ? safe : 'user';
+}
+
+/**
+ * Defense-in-depth: verify that the resolved absolutePath stays within parentDir.
+ * Throws if the path escapes the expected directory (e.g. via path traversal).
+ */
+function ensureWithinDir(parentDir, absolutePath) {
+  const resolvedParent = path.resolve(parentDir) + path.sep;
+  const resolvedChild = path.resolve(absolutePath);
+  if (!resolvedChild.startsWith(resolvedParent) && resolvedChild !== path.resolve(parentDir)) {
+    throw new Error('Path traversal detected');
+  }
+  return resolvedChild;
 }
 
 async function ensureAdminAccount() {
@@ -951,8 +964,10 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
     }
 
     // Re-encrypt chat files under the new username key (atomic: separate re-encrypt from delete)
-    const oldChatsDir = path.join(CHATS_DIR, sanitizeUsernameForPath(oldUsername));
-    const newChatsDir = path.join(CHATS_DIR, sanitizeUsernameForPath(normalizedNew));
+    const oldChatsDir = path.join(CHATS_DIR, path.basename(sanitizeUsernameForPath(oldUsername)));
+    const newChatsDir = path.join(CHATS_DIR, path.basename(sanitizeUsernameForPath(normalizedNew)));
+    ensureWithinDir(CHATS_DIR, oldChatsDir);
+    ensureWithinDir(CHATS_DIR, newChatsDir);
     if (fs.existsSync(oldChatsDir)) {
       fs.mkdirSync(newChatsDir, { recursive: true });
       const chatFiles = fs.readdirSync(oldChatsDir).filter((f) => f.endsWith('.enc'));
@@ -964,6 +979,8 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
         const safeFile = path.basename(file);
         const oldPath = path.join(oldChatsDir, safeFile);
         const newPath = path.join(newChatsDir, safeFile);
+        ensureWithinDir(oldChatsDir, oldPath);
+        ensureWithinDir(newChatsDir, newPath);
         try {
           const encryptedContent = fs.readFileSync(oldPath, 'utf-8');
           const decrypted = decryptData(encryptedContent, oldUsername);
@@ -1250,8 +1267,9 @@ app.put('/api/user/language', requireSession, (req, res) => {
 const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
 
 function getUserApiKeysFile(username) {
-  const safeUsername = sanitizeUsernameForPath(username);
-  return path.join(DATA_DIR, `apikeys_${safeUsername}.enc`);
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(DATA_DIR, `apikeys_${safeUsername}.enc`);
+  return ensureWithinDir(DATA_DIR, filePath);
 }
 
 function readUserApiKeys(username) {
@@ -1414,6 +1432,7 @@ app.get('/api/kobold/status', requireSession, async (req, res) => {
 function getUserChatsDir(username) {
   const safeUsername = path.basename(sanitizeUsernameForPath(username));
   const dir = path.join(CHATS_DIR, safeUsername);
+  ensureWithinDir(CHATS_DIR, dir);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -1425,7 +1444,9 @@ function getChatFilePath(username, chatId) {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(chatId)) {
     throw new Error('Invalid chat ID');
   }
-  return path.join(getUserChatsDir(username), `${chatId}.enc`);
+  const userDir = getUserChatsDir(username);
+  const filePath = path.join(userDir, `${chatId}.enc`);
+  return ensureWithinDir(userDir, filePath);
 }
 
 function readChat(username, chatId) {
@@ -1459,7 +1480,8 @@ function listUserChats(username) {
   for (const file of files) {
     try {
       const chatId = file.replace('.enc', '');
-      const encrypted = fs.readFileSync(path.join(dir, path.basename(file)), 'utf-8');
+      const safePath = ensureWithinDir(dir, path.join(dir, path.basename(file)));
+      const encrypted = fs.readFileSync(safePath, 'utf-8');
       const chat = JSON.parse(decryptData(encrypted, username));
       chats.push({
         id: chatId,
@@ -1890,4 +1912,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown };
