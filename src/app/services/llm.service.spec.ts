@@ -172,6 +172,46 @@ describe('LlmService', () => {
       expect(result.role).toBe('assistant');
       expect(result.content).toBe('Hi there!');
     });
+
+    it('should include webSearch flag when enabled', async () => {
+      const messages = [{ role: 'user' as const, content: 'Search something' }];
+      const mockResponse = { role: 'assistant' as const, content: 'Found it!' };
+      const promise = service.sendMessage(messages, 'openai', 'gpt-4', { webSearch: true });
+      const req = httpMock.expectOne('/api/chat/send');
+      expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', webSearch: true });
+      req.flush({ success: true, message: mockResponse });
+      await promise;
+    });
+
+    it('should include think flag when enabled', async () => {
+      const messages = [{ role: 'user' as const, content: 'Think about this' }];
+      const mockResponse = { role: 'assistant' as const, content: 'Thought about it!' };
+      const promise = service.sendMessage(messages, 'openai', 'gpt-4', { think: true });
+      const req = httpMock.expectOne('/api/chat/send');
+      expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', think: true });
+      req.flush({ success: true, message: mockResponse });
+      await promise;
+    });
+
+    it('should include both flags when both enabled', async () => {
+      const messages = [{ role: 'user' as const, content: 'Search and think' }];
+      const mockResponse = { role: 'assistant' as const, content: 'Done!' };
+      const promise = service.sendMessage(messages, 'openai', 'gpt-4', { webSearch: true, think: true });
+      const req = httpMock.expectOne('/api/chat/send');
+      expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', webSearch: true, think: true });
+      req.flush({ success: true, message: mockResponse });
+      await promise;
+    });
+
+    it('should not include flags when options are false', async () => {
+      const messages = [{ role: 'user' as const, content: 'Hello' }];
+      const mockResponse = { role: 'assistant' as const, content: 'Hi!' };
+      const promise = service.sendMessage(messages, 'openai', 'gpt-4', { webSearch: false, think: false });
+      const req = httpMock.expectOne('/api/chat/send');
+      expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4' });
+      req.flush({ success: true, message: mockResponse });
+      await promise;
+    });
   });
 
   describe('getKoboldStatus', () => {

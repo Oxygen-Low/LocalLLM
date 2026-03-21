@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1488,6 +1488,74 @@ describe('POST /api/chat/send validation', () => {
     }, sendToken);
     assert.equal(res.status, 400);
     assert.match(res.body.error, /not configured/i);
+  });
+
+  it('accepts webSearch and think boolean options without error', async () => {
+    // Should still fail for missing API key, but not for the options themselves
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'openai',
+      model: 'gpt-4',
+      webSearch: true,
+      think: true,
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not configured/i);
+  });
+
+  it('ignores non-boolean webSearch and think values', async () => {
+    // Non-boolean values should be coerced to false, not cause errors
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'openai',
+      model: 'gpt-4',
+      webSearch: 'yes',
+      think: 123,
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not configured/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enhanceMessagesForThink tests
+// ---------------------------------------------------------------------------
+describe('enhanceMessagesForThink', () => {
+  it('appends think instruction to existing system message', () => {
+    const messages = [
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'user', content: 'Hello' },
+    ];
+    const result = enhanceMessagesForThink(messages);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].role, 'system');
+    assert.ok(result[0].content.startsWith('You are helpful.'));
+    assert.ok(result[0].content.includes('Think step by step'));
+    // Original messages should not be mutated
+    assert.equal(messages[0].content, 'You are helpful.');
+  });
+
+  it('prepends system message with think instruction when none exists', () => {
+    const messages = [
+      { role: 'user', content: 'Hello' },
+    ];
+    const result = enhanceMessagesForThink(messages);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].role, 'system');
+    assert.ok(result[0].content.includes('Think step by step'));
+    assert.equal(result[1].role, 'user');
+    assert.equal(result[1].content, 'Hello');
+  });
+
+  it('does not mutate the original messages array', () => {
+    const messages = [
+      { role: 'system', content: 'Original' },
+      { role: 'user', content: 'Hello' },
+    ];
+    const result = enhanceMessagesForThink(messages);
+    assert.notEqual(result, messages);
+    assert.equal(messages[0].content, 'Original');
+    assert.notEqual(result[0].content, 'Original');
   });
 });
 
