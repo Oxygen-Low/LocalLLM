@@ -466,11 +466,10 @@ export class AuthService {
     }
 
     try {
-      const hashedCurrentPassword = currentPassword ? await this.hashPassword(currentPassword) : '';
       const hashedNewPassword = await this.hashPassword(newPassword);
-      const body: Record<string, string> = { newPassword: hashedNewPassword };
-      if (hashedCurrentPassword) {
-        body['currentPassword'] = hashedCurrentPassword;
+      const body: { newPassword: string; currentPassword?: string } = { newPassword: hashedNewPassword };
+      if (currentPassword) {
+        body.currentPassword = await this.hashPassword(currentPassword);
       }
       const response = await firstValueFrom(
         this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-password`, body)

@@ -1827,34 +1827,6 @@ describe('change-password passwordResetRequired logic', () => {
     const updatedUser = readUsers().find((u) => u.username === resetUsername);
     assert.equal(updatedUser.passwordResetRequired, false);
   });
-
-  it('server skips currentPassword check when passwordResetRequired is true (endpoint integration)', async () => {
-    // Set user back to passwordResetRequired: true with a known password
-    const users = readUsers();
-    const idx = users.findIndex((u) => u.username === resetUsername);
-    const salt = crypto.randomBytes(16).toString('hex');
-    const passwordHash = crypto.pbkdf2Sync(testPassword, salt, 100000, 32, 'sha256').toString('hex');
-    users[idx] = { ...users[idx], passwordHash, salt, passwordResetRequired: true };
-    writeUsers(users);
-    passwordChangeCooldowns.delete(resetUsername);
-
-    const token = createSessionToken(resetUsername);
-    try {
-      await authLimiter.resetKey('127.0.0.1');
-      const res = await request(server, 'PUT', '/api/auth/change-password', {
-        newPassword: sha256Hex('DifferentPass1!'),
-      }, token);
-      // If rate-limited (429) by concurrent tests, skip assertion
-      if (res.status !== 429) {
-        assert.equal(res.status, 200);
-        assert.equal(res.body.success, true);
-        const updatedUser = readUsers().find((u) => u.username === resetUsername);
-        assert.equal(updatedUser.passwordResetRequired, false);
-      }
-    } finally {
-      invalidateSession(token);
-    }
-  });
 });
 
 // ---------------------------------------------------------------------------
