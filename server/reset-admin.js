@@ -48,7 +48,7 @@ async function resetAdmin() {
   // We replicate that transformation here so the generated password works with the login flow.
   // The resulting value is immediately passed through PBKDF2 (hashPassword) before storage;
   // the SHA-256 digest itself is never persisted.
-  const clientPreHash = crypto.createHash('sha256').update(adminPassword).digest('hex'); // lgtm[js/insufficient-password-hash]
+  const clientPreHash = crypto.createHash('sha256').update(adminPassword).digest('hex');
   const salt = generateSalt();
   const passwordHash = await hashPassword(clientPreHash, salt);
 
