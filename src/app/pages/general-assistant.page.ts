@@ -2,7 +2,8 @@ import { Component, inject, signal, ViewChild, ElementRef, OnInit, OnDestroy } f
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions } from '../services/llm.service';
+import { marked } from 'marked';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult } from '../services/llm.service';
 
 @Component({
   selector: 'app-general-assistant',
@@ -98,12 +99,37 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                         <span class="text-sm">🤖</span>
                       </div>
                     }
-                    <div
-                      class="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
-                      [ngClass]="msg.role === 'user'
-                        ? 'bg-primary-600 text-white rounded-br-md'
-                        : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
-                    >{{ msg.content }}</div>
+                    <div class="max-w-[80%] flex flex-col gap-2">
+                      @if (msg.role === 'assistant' && msg.thinking) {
+                        <details class="thinking-box">
+                          <summary class="cursor-pointer text-sm font-medium text-secondary-500 hover:text-secondary-700 select-none px-3 py-1.5 rounded-lg bg-secondary-100 border border-secondary-200 w-fit">
+                            💭 Thought
+                          </summary>
+                          <div class="mt-2 bg-secondary-50 border border-secondary-200 rounded-lg px-4 py-3 text-sm text-secondary-600 prose prose-sm prose-secondary max-w-none" [innerHTML]="renderMarkdown(msg.thinking)"></div>
+                        </details>
+                      }
+                      @if (msg.role === 'assistant' && msg.searches?.length) {
+                        @for (search of msg.searches; track $index) {
+                          <div class="flex items-center gap-1.5 text-xs text-secondary-500">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <span>Searched</span>
+                            @if (search.url) {
+                              <a [href]="search.url" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline truncate max-w-[300px]">{{ search.query }}</a>
+                            } @else {
+                              <span class="text-secondary-600">{{ search.query }}</span>
+                            }
+                          </div>
+                        }
+                      }
+                      <div
+                        class="rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                        [ngClass]="msg.role === 'user'
+                          ? 'bg-primary-600 text-white rounded-br-md prose-invert'
+                          : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
+                      ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.content)"></div></div>
+                    </div>
                     @if (msg.role === 'user') {
                       <div class="w-8 h-8 rounded-full bg-secondary-200 flex items-center justify-center flex-shrink-0">
                         <svg class="w-4 h-4 text-secondary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -119,12 +145,41 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                   <div class="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                     <span class="text-sm">🤖</span>
                   </div>
-                  <div class="bg-white border border-secondary-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
-                    <div class="flex gap-1">
-                      <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
-                      <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
-                      <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
-                    </div>
+                  <div class="max-w-[80%] flex flex-col gap-2">
+                    @if (streamingThinking()) {
+                      <details [attr.open]="thinkingDone() ? null : ''" class="thinking-box">
+                        <summary class="cursor-pointer text-sm font-medium text-secondary-500 hover:text-secondary-700 select-none px-3 py-1.5 rounded-lg border border-secondary-200 w-fit" [ngClass]="thinkingDone() ? 'bg-secondary-100' : 'bg-amber-50 border-amber-200 text-amber-700'">
+                          {{ thinkingDone() ? '💭 Thought' : '💭 Thinking...' }}
+                        </summary>
+                        <div class="mt-2 bg-secondary-50 border border-secondary-200 rounded-lg px-4 py-3 text-sm text-secondary-600 prose prose-sm prose-secondary max-w-none" [innerHTML]="renderMarkdown(streamingThinking())"></div>
+                      </details>
+                    }
+                    @for (search of streamingSearches(); track $index) {
+                      <div class="flex items-center gap-1.5 text-xs" [ngClass]="search.status === 'searching' ? 'text-amber-600' : 'text-secondary-500'">
+                        <svg class="w-3 h-3" [ngClass]="search.status === 'searching' ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <span>{{ search.status === 'searching' ? 'Searching' : 'Searched' }}</span>
+                        @if (search.url) {
+                          <a [href]="search.url" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline truncate max-w-[300px]">{{ search.query }}</a>
+                        } @else {
+                          <span>{{ search.query }}</span>
+                        }
+                      </div>
+                    }
+                    @if (streamingContent()) {
+                      <div class="bg-white border border-secondary-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                        <div class="prose prose-sm prose-secondary max-w-none" [innerHTML]="renderMarkdown(streamingContent())"></div>
+                      </div>
+                    } @else if (!streamingThinking() && !streamingSearches().length) {
+                      <div class="bg-white border border-secondary-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                        <div class="flex gap-1">
+                          <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+                          <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
+                          <span class="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+                        </div>
+                      </div>
+                    }
                   </div>
                 </div>
               }
@@ -298,6 +353,12 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   userMessage = '';
   isLoading = signal(false);
   errorMessage = signal<string | null>(null);
+
+  // Streaming state
+  streamingThinking = signal('');
+  streamingContent = signal('');
+  streamingSearches = signal<SearchEvent[]>([]);
+  thinkingDone = signal(false);
 
   private clickOutsideListener: ((e: Event) => void) | null = null;
   private providerPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -488,6 +549,12 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
 
     this.isLoading.set(true);
 
+    // Reset streaming state
+    this.streamingThinking.set('');
+    this.streamingContent.set('');
+    this.streamingSearches.set([]);
+    this.thinkingDone.set(false);
+
     try {
       // Generate title from first user message
       let title = chat.title;
@@ -498,26 +565,59 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       // Build messages for LLM (include system prompt)
       const systemPrompt: ChatMessage = {
         role: 'system',
-        content: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use formatting like paragraphs for readability.',
+        content: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use markdown formatting like headings, lists, code blocks, and emphasis for readability.',
       };
 
       const llmMessages = [systemPrompt, ...updatedMessages.filter(m => m.role !== 'system')];
 
-      // Send to LLM
+      // Send to LLM with streaming
       const options: SendMessageOptions = {};
       if (this.webSearchEnabled()) options.webSearch = true;
       if (this.thinkEnabled()) options.think = true;
 
-      const response = await this.llmService.sendMessage(
+      const result = await this.llmService.sendMessageStream(
         llmMessages,
         provider.id,
         provider.model || '',
-        options
+        options,
+        {
+          onThinking: (content) => {
+            this.streamingThinking.update(t => t + content);
+            this.scrollToBottom();
+          },
+          onContent: (content) => {
+            if (!this.thinkingDone() && this.streamingThinking()) {
+              this.thinkingDone.set(true);
+            }
+            this.streamingContent.update(c => c + content);
+            this.scrollToBottom();
+          },
+          onSearch: (data) => {
+            this.streamingSearches.update(s => {
+              // Replace a "searching" event with "searched" for the same query
+              if (data.status === 'searched') {
+                const idx = s.findIndex(e => e.status === 'searching' && e.query === data.query);
+                if (idx >= 0) {
+                  const updated = [...s];
+                  updated[idx] = data;
+                  return updated;
+                }
+              }
+              return [...s, data];
+            });
+            this.scrollToBottom();
+          },
+          onDone: () => {
+            this.thinkingDone.set(true);
+          },
+        }
       );
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: response.content,
+        content: result.content,
+        thinking: result.thinking || undefined,
+        searches: result.searches?.length ? result.searches : undefined,
         timestamp: new Date().toISOString(),
       };
 
@@ -534,11 +634,58 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       this.currentChat.set(updated);
       await this.loadChatList();
     } catch (err: unknown) {
-      const error = err as { error?: { error?: string } };
-      this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
+      if (err instanceof Error) {
+        this.errorMessage.set(err.message);
+      } else {
+        const error = err as { error?: { error?: string } };
+        this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
+      }
     } finally {
       this.isLoading.set(false);
+      this.streamingThinking.set('');
+      this.streamingContent.set('');
+      this.streamingSearches.set([]);
+      this.thinkingDone.set(false);
       this.scrollToBottom();
+    }
+  }
+
+  private static readonly MARKDOWN_CACHE_MAX_SIZE = 500;
+  private readonly markdownCache = new Map<string, string>();
+
+  renderMarkdown(text: string): string {
+    if (!text) {
+      return '';
+    }
+
+    const cached = this.markdownCache.get(text);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    // Escape raw HTML so it is treated as text by marked and cannot produce live elements
+    const escapedText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    try {
+      // marked.parse with default settings converts markdown to HTML.
+      // Angular's [innerHTML] binding sanitizes the output (strips <script>, event handlers, etc.)
+      // providing defense-in-depth against XSS from AI/user content.
+      const html = marked.parse(escapedText, { breaks: true, gfm: true }) as string;
+      if (this.markdownCache.size >= GeneralAssistantPageComponent.MARKDOWN_CACHE_MAX_SIZE) {
+        this.markdownCache.clear();
+      }
+      this.markdownCache.set(text, html);
+      return html;
+    } catch {
+      // Fallback: return the safely escaped text if markdown parsing fails
+      if (this.markdownCache.size >= GeneralAssistantPageComponent.MARKDOWN_CACHE_MAX_SIZE) {
+        this.markdownCache.clear();
+      }
+      this.markdownCache.set(text, escapedText);
+      return escapedText;
     }
   }
 

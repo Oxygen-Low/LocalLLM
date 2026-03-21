@@ -2,11 +2,14 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { AuthService } from './auth.service';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
   timestamp?: string;
+  thinking?: string;
+  searches?: SearchEvent[];
 }
 
 export interface Chat {
@@ -45,11 +48,32 @@ export interface ProviderKeyStatus {
   selectedModel: string | null;
 }
 
+export interface SearchEvent {
+  status: 'searching' | 'searched';
+  query: string;
+  url?: string;
+}
+
+export interface StreamCallbacks {
+  onThinking?: (content: string) => void;
+  onContent?: (content: string) => void;
+  onSearch?: (data: SearchEvent) => void;
+  onDone?: (data: StreamResult) => void;
+  onError?: (error: string) => void;
+}
+
+export interface StreamResult {
+  content: string;
+  thinking: string;
+  searches: SearchEvent[];
+}
+
 @Injectable({
   providedIn: 'root',
 })
 export class LlmService {
   private http = inject(HttpClient);
+  private authService = inject(AuthService);
 
   // --- Providers ---
 
@@ -153,8 +177,112 @@ export class LlmService {
     );
   }
 
-  // --- Send message ---
+  // --- Send message (streaming via SSE) ---
 
+  async sendMessageStream(
+    messages: ChatMessage[],
+    provider: string,
+    model: string,
+    options?: SendMessageOptions,
+    callbacks?: StreamCallbacks
+  ): Promise<StreamResult> {
+    const token = this.authService.getSessionToken();
+    const body: Record<string, unknown> = { messages, provider, model };
+    if (options?.webSearch) body['webSearch'] = true;
+    if (options?.think) body['think'] = true;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`${environment.apiUrl}/api/chat/send`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw { error: errorData };
+    }
+
+    const result: StreamResult = { content: '', thinking: '', searches: [] };
+    const responseBody = response.body;
+    if (!responseBody) {
+      throw new Error(
+        'Streaming response body is missing. The server may have returned an empty response or the stream was already consumed.'
+      );
+    }
+    const reader = (responseBody as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const segments = buffer.split('\n\n');
+        buffer = segments.pop() || '';
+
+        for (const segment of segments) {
+          if (!segment.trim()) continue;
+          const lines = segment.split('\n');
+          let eventType = '';
+          let eventData = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+            else if (line.startsWith('data: ')) eventData += line.slice(6);
+            else if (line.startsWith('data:')) eventData += line.slice(5);
+          }
+
+          if (!eventType || !eventData) continue;
+
+          try {
+            const data = JSON.parse(eventData);
+            switch (eventType) {
+              case 'thinking':
+                result.thinking += data.content || '';
+                callbacks?.onThinking?.(data.content || '');
+                break;
+              case 'content':
+                result.content += data.content || '';
+                callbacks?.onContent?.(data.content || '');
+                break;
+              case 'search':
+                result.searches.push(data);
+                callbacks?.onSearch?.(data);
+                break;
+              case 'done': {
+                // Use the server's finalized payload to correct any missed/incomplete data
+                if (data.content != null) result.content = data.content;
+                if (data.thinking != null) result.thinking = data.thinking;
+                if (Array.isArray(data.searches)) result.searches = data.searches;
+                callbacks?.onDone?.(result);
+                break;
+              }
+              case 'error': {
+                const errMsg = data.error || 'Stream error';
+                callbacks?.onError?.(errMsg);
+                const streamErr = new Error(errMsg);
+                streamErr.name = 'StreamError';
+                throw streamErr;
+              }
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof Error && parseErr.name === 'StreamError') throw parseErr;
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return result;
+  }
+
+  /** @deprecated Use sendMessageStream for streaming support */
   async sendMessage(
     messages: ChatMessage[],
     provider: string,
