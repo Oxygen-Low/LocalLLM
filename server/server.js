@@ -951,8 +951,8 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
     }
 
     // Re-encrypt chat files under the new username key (atomic: separate re-encrypt from delete)
-    const oldChatsDir = path.join(CHATS_DIR, oldUsername);
-    const newChatsDir = path.join(CHATS_DIR, normalizedNew);
+    const oldChatsDir = path.join(CHATS_DIR, sanitizeUsernameForPath(oldUsername));
+    const newChatsDir = path.join(CHATS_DIR, sanitizeUsernameForPath(normalizedNew));
     if (fs.existsSync(oldChatsDir)) {
       fs.mkdirSync(newChatsDir, { recursive: true });
       const chatFiles = fs.readdirSync(oldChatsDir).filter((f) => f.endsWith('.enc'));
@@ -961,8 +961,9 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
       const migratedFiles = [];
       let migrationFailed = false;
       for (const file of chatFiles) {
-        const oldPath = path.join(oldChatsDir, file);
-        const newPath = path.join(newChatsDir, file);
+        const safeFile = path.basename(file);
+        const oldPath = path.join(oldChatsDir, safeFile);
+        const newPath = path.join(newChatsDir, safeFile);
         try {
           const encryptedContent = fs.readFileSync(oldPath, 'utf-8');
           const decrypted = decryptData(encryptedContent, oldUsername);
@@ -1411,7 +1412,8 @@ app.get('/api/kobold/status', requireSession, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 function getUserChatsDir(username) {
-  const dir = path.join(CHATS_DIR, username);
+  const safeUsername = sanitizeUsernameForPath(username);
+  const dir = path.join(CHATS_DIR, safeUsername);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -1419,6 +1421,10 @@ function getUserChatsDir(username) {
 }
 
 function getChatFilePath(username, chatId) {
+  // Strict UUID format check to prevent path traversal
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(chatId)) {
+    throw new Error('Invalid chat ID');
+  }
   return path.join(getUserChatsDir(username), `${chatId}.enc`);
 }
 
@@ -1453,7 +1459,7 @@ function listUserChats(username) {
   for (const file of files) {
     try {
       const chatId = file.replace('.enc', '');
-      const encrypted = fs.readFileSync(path.join(dir, file), 'utf-8');
+      const encrypted = fs.readFileSync(path.join(dir, path.basename(file)), 'utf-8');
       const chat = JSON.parse(decryptData(encrypted, username));
       chats.push({
         id: chatId,
