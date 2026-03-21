@@ -420,6 +420,27 @@ describe('LlmService', () => {
       expect(body.webSearch).toBe(true);
       expect(body.think).toBe(true);
     });
+    it('should use done event payload to finalize result', async () => {
+      const stream = createSSEStream([
+        'event: content\ndata: {"content":"partial"}\n\n',
+        'event: search\ndata: {"status":"searching","query":"test"}\n\n',
+        'event: done\ndata: {"content":"full content","thinking":"full thinking","searches":[{"status":"searched","query":"test","url":"https://example.com"}]}\n\n',
+      ]);
+      mockFetchResponse(200, stream);
+
+      const result = await service.sendMessageStream(
+        [{ role: 'user', content: 'test' }],
+        'openai',
+        'gpt-4'
+      );
+
+      // Done event should overwrite accumulated results with finalized data
+      expect(result.content).toBe('full content');
+      expect(result.thinking).toBe('full thinking');
+      expect(result.searches.length).toBe(1);
+      expect(result.searches[0].status).toBe('searched');
+      expect(result.searches[0].url).toBe('https://example.com');
+    });
   });
 
   describe('setProviderModel', () => {

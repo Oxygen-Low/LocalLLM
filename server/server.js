@@ -1704,7 +1704,7 @@ async function parseSSEStream(response, onEvent) {
   }
 }
 
-async function streamFromKobold(res, messages, options = {}) {
+async function streamFromKobold(res, messages, options = {}, signal) {
   if (options.think) {
     messages = enhanceMessagesForThink(messages);
   }
@@ -1717,6 +1717,7 @@ async function streamFromKobold(res, messages, options = {}) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
   const response = await fetch(`${KOBOLD_API_URL}/api/v1/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1740,7 +1741,7 @@ async function streamFromKobold(res, messages, options = {}) {
   return { content, thinking: '' };
 }
 
-async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEndpoint, model, options = {}) {
+async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEndpoint, model, options = {}, signal) {
   if (options.think) {
     messages = enhanceMessagesForThink(messages);
   }
@@ -1759,6 +1760,7 @@ async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEn
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
   const response = await fetch(`${baseUrl}${chatEndpoint}`, {
     method: 'POST',
     headers: {
@@ -1845,7 +1847,7 @@ async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEn
   return { content: fullContent, thinking: fullThinking, searches };
 }
 
-async function streamFromAnthropic(res, messages, apiKey, model, options = {}) {
+async function streamFromAnthropic(res, messages, apiKey, model, options = {}, signal) {
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
@@ -1863,6 +1865,7 @@ async function streamFromAnthropic(res, messages, apiKey, model, options = {}) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1909,7 +1912,7 @@ async function streamFromAnthropic(res, messages, apiKey, model, options = {}) {
   return { content: fullContent, thinking: fullThinking };
 }
 
-async function streamFromGoogle(res, messages, apiKey, model, options = {}) {
+async function streamFromGoogle(res, messages, apiKey, model, options = {}, signal) {
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
@@ -1932,6 +1935,7 @@ async function streamFromGoogle(res, messages, apiKey, model, options = {}) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2039,6 +2043,10 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
+    // Abort upstream provider requests when client disconnects
+    const clientAbort = new AbortController();
+    res.on('close', () => clientAbort.abort());
+
     // Emit searching event if web search is enabled
     if (webSearch) {
       const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
@@ -2047,15 +2055,15 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
 
     let result;
     if (provider === 'kobold') {
-      result = await streamFromKobold(res, messages, options);
+      result = await streamFromKobold(res, messages, options, clientAbort.signal);
     } else if (provider === 'anthropic') {
-      result = await streamFromAnthropic(res, messages, providerKeys.apiKey, selectedModel, options);
+      result = await streamFromAnthropic(res, messages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else if (provider === 'google') {
-      result = await streamFromGoogle(res, messages, providerKeys.apiKey, selectedModel, options);
+      result = await streamFromGoogle(res, messages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else {
       result = await streamFromOpenAICompatible(
         res, messages, providerKeys.apiKey, providerConfig.baseUrl,
-        providerConfig.chatEndpoint, selectedModel, options
+        providerConfig.chatEndpoint, selectedModel, options, clientAbort.signal
       );
     }
 

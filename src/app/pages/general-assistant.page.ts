@@ -634,8 +634,12 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       this.currentChat.set(updated);
       await this.loadChatList();
     } catch (err: unknown) {
-      const error = err as { error?: { error?: string } };
-      this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
+      if (err instanceof Error) {
+        this.errorMessage.set(err.message);
+      } else {
+        const error = err as { error?: { error?: string } };
+        this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
+      }
     } finally {
       this.isLoading.set(false);
       this.streamingThinking.set('');

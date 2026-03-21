@@ -248,9 +248,14 @@ export class LlmService {
                 result.searches.push(data);
                 callbacks?.onSearch?.(data);
                 break;
-              case 'done':
+              case 'done': {
+                // Use the server's finalized payload to correct any missed/incomplete data
+                if (data.content != null) result.content = data.content;
+                if (data.thinking != null) result.thinking = data.thinking;
+                if (Array.isArray(data.searches)) result.searches = data.searches;
                 callbacks?.onDone?.(result);
                 break;
+              }
               case 'error': {
                 const errMsg = data.error || 'Stream error';
                 callbacks?.onError?.(errMsg);
