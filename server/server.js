@@ -119,6 +119,7 @@ const LLM_DEFAULT_MAX_TOKENS = 4096;
 const THINK_MAX_TOKENS = 16000; // Higher limit to accommodate thinking + response tokens
 const ANTHROPIC_THINKING_BUDGET = 10000; // Budget tokens for Anthropic extended thinking
 const GOOGLE_THINKING_BUDGET = 8192; // Budget tokens for Google thinking mode
+const KOBOLD_STREAM_CHUNK_SIZE = 4; // Characters per simulated streaming chunk for Kobold
 
 // ---------------------------------------------------------------------------
 // Supported AI providers and their API configurations
@@ -1732,9 +1733,8 @@ async function streamFromKobold(res, messages, options = {}) {
   const content = data.results?.[0]?.text || '';
 
   // Simulate streaming by sending content in small chunks
-  const CHUNK_SIZE = 4;
-  for (let i = 0; i < content.length; i += CHUNK_SIZE) {
-    sendSSE(res, 'content', { content: content.substring(i, i + CHUNK_SIZE) });
+  for (let i = 0; i < content.length; i += KOBOLD_STREAM_CHUNK_SIZE) {
+    sendSSE(res, 'content', { content: content.substring(i, i + KOBOLD_STREAM_CHUNK_SIZE) });
   }
 
   return { content, thinking: '' };

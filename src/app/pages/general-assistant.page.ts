@@ -649,10 +649,14 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   renderMarkdown(text: string): string {
     if (!text) return '';
     try {
+      // marked.parse with default settings converts markdown to HTML.
+      // Angular's [innerHTML] binding sanitizes the output (strips <script>, event handlers, etc.)
+      // providing defense-in-depth against XSS from AI/user content.
       const html = marked.parse(text, { breaks: true, gfm: true }) as string;
       return html;
     } catch {
-      return text;
+      // Escape HTML if markdown parsing fails to prevent raw injection
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
   }
 
