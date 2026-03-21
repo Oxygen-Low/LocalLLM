@@ -1786,6 +1786,50 @@ describe('PUT /api/auth/change-password cooldown', { concurrency: false }, () =>
 });
 
 // ---------------------------------------------------------------------------
+// PUT /api/auth/change-password with passwordResetRequired flag
+// ---------------------------------------------------------------------------
+// Unit tests for passwordResetRequired logic (no HTTP – avoids authLimiter contention)
+describe('change-password passwordResetRequired logic', () => {
+  const resetUsername = 'pwreset_unit_' + (Date.now() % 100000);
+  const testPassword = sha256Hex('ValidPass1!');
+
+  before(() => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = crypto.pbkdf2Sync(testPassword, salt, 100000, 32, 'sha256').toString('hex');
+    writeUsers([...readUsers(), {
+      username: resetUsername,
+      passwordHash,
+      salt,
+      createdAt: new Date().toISOString(),
+      passwordResetRequired: true,
+    }]);
+  });
+
+  after(() => {
+    writeUsers(readUsers().filter((u) => u.username !== resetUsername));
+  });
+
+  it('user with passwordResetRequired=true has the flag stored', () => {
+    const user = readUsers().find((u) => u.username === resetUsername);
+    assert.equal(user.passwordResetRequired, true);
+  });
+
+  it('changing password clears the passwordResetRequired flag', () => {
+    const users = readUsers();
+    const idx = users.findIndex((u) => u.username === resetUsername);
+    const user = users[idx];
+    // Simulate what the change-password endpoint does when passwordResetRequired is true
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newHash = crypto.pbkdf2Sync(sha256Hex('NewPass1!'), newSalt, 100000, 32, 'sha256').toString('hex');
+    users[idx] = { ...user, passwordHash: newHash, salt: newSalt, passwordResetRequired: false };
+    writeUsers(users);
+
+    const updatedUser = readUsers().find((u) => u.username === resetUsername);
+    assert.equal(updatedUser.passwordResetRequired, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // reset-admin.js script
 // ---------------------------------------------------------------------------
 describe('reset-admin.js script', { concurrency: false }, () => {

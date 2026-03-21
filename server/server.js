@@ -848,9 +848,6 @@ app.put('/api/auth/change-password', authLimiter, requireSession, async (req, re
     const { currentPassword, newPassword } = req.body;
     const normalizedUsername = req.sessionUser;
 
-    if (!currentPassword || typeof currentPassword !== 'string') {
-      return res.status(400).json({ success: false, error: 'Current password is required' });
-    }
     if (!newPassword || typeof newPassword !== 'string') {
       return res.status(400).json({ success: false, error: 'New password is required' });
     }
@@ -870,11 +867,17 @@ app.put('/api/auth/change-password', authLimiter, requireSession, async (req, re
     }
 
     const user = users[userIndex];
-    const currentHash = await hashPassword(currentPassword, user.salt);
 
-    if (!timingSafeCompare(currentHash, user.passwordHash)) {
-      auditLog({ event: 'PASSWORD_CHANGE_FAILURE', message: 'Current password is incorrect', username: normalizedUsername, req });
-      return res.status(401).json({ success: false, error: 'Current password is incorrect' });
+    // Skip current password verification when admin required a password reset
+    if (!user.passwordResetRequired) {
+      if (!currentPassword || typeof currentPassword !== 'string') {
+        return res.status(400).json({ success: false, error: 'Current password is required' });
+      }
+      const currentHash = await hashPassword(currentPassword, user.salt);
+      if (!timingSafeCompare(currentHash, user.passwordHash)) {
+        auditLog({ event: 'PASSWORD_CHANGE_FAILURE', message: 'Current password is incorrect', username: normalizedUsername, req });
+        return res.status(401).json({ success: false, error: 'Current password is incorrect' });
+      }
     }
 
     // Verify new password differs from current password using the same salt

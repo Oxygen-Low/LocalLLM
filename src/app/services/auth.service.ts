@@ -276,6 +276,18 @@ export class AuthService {
     }
   }
 
+  private updateSessionPasswordResetFlag(required: boolean): void {
+    try {
+      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionData) return;
+      const session: AuthSession = JSON.parse(sessionData);
+      session.passwordResetRequired = required;
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    } catch {
+      // Storage unavailable - silently fail
+    }
+  }
+
   private async checkPasswordResetStatus(): Promise<void> {
     const user = this.username();
     if (!user) {
@@ -292,6 +304,7 @@ export class AuthService {
       if (response.success) {
         const required = !!response.passwordResetRequired;
         this.passwordResetRequired.set(required);
+        this.updateSessionPasswordResetFlag(required);
       }
     } catch {
       // Silent failure to avoid impacting UX on network issues
@@ -453,18 +466,19 @@ export class AuthService {
     }
 
     try {
-      const hashedCurrentPassword = await this.hashPassword(currentPassword);
       const hashedNewPassword = await this.hashPassword(newPassword);
+      const body: { newPassword: string; currentPassword?: string } = { newPassword: hashedNewPassword };
+      if (currentPassword) {
+        body.currentPassword = await this.hashPassword(currentPassword);
+      }
       const response = await firstValueFrom(
-        this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-password`, {
-          currentPassword: hashedCurrentPassword,
-          newPassword: hashedNewPassword,
-        })
+        this.http.put<AuthResponse>(`${environment.apiUrl}/api/auth/change-password`, body)
       );
 
       if (response.success) {
         this.securityLogger.log('PASSWORD_CHANGED', 'Password changed successfully', user);
         this.passwordResetRequired.set(false);
+        this.updateSessionPasswordResetFlag(false);
         return { success: true };
       }
 

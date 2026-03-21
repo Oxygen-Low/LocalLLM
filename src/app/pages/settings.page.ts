@@ -234,6 +234,7 @@ interface ProviderConfig {
             }
 
             <form (ngSubmit)="onChangePassword()" class="space-y-5">
+              @if (!authService.passwordResetRequired()) {
               <div>
                 <label for="currentPassword" class="block text-sm font-medium text-secondary-700 mb-2">
                   Current Password
@@ -249,6 +250,7 @@ interface ProviderConfig {
                   placeholder="Enter your current password"
                 />
               </div>
+              }
 
               <div>
                 <label for="newPassword" class="block text-sm font-medium text-secondary-700 mb-2">
@@ -592,7 +594,14 @@ export class SettingsPageComponent implements OnInit {
     this.passwordErrorMessage.set(null);
     this.passwordSuccessMessage.set(null);
 
-    if (!this.currentPassword || !this.newPassword || !this.confirmNewPassword) {
+    const resetRequired = this.authService.passwordResetRequired();
+
+    if (!resetRequired && !this.currentPassword) {
+      this.passwordErrorMessage.set('Please fill in all fields');
+      return;
+    }
+
+    if (!this.newPassword || !this.confirmNewPassword) {
       this.passwordErrorMessage.set('Please fill in all fields');
       return;
     }
@@ -602,7 +611,7 @@ export class SettingsPageComponent implements OnInit {
       return;
     }
 
-    if (this.currentPassword === this.newPassword) {
+    if (this.currentPassword && this.currentPassword === this.newPassword) {
       this.passwordErrorMessage.set('New password must be different from your current password');
       return;
     }
