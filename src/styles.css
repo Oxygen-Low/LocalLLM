@@ -71,3 +71,41 @@
     @apply text-secondary-600;
   }
 }
+
+/* Markdown prose overrides for chat messages */
+.prose.prose-sm pre {
+  @apply bg-secondary-900 text-secondary-100 rounded-lg overflow-x-auto;
+}
+
+.prose.prose-sm code:not(pre code) {
+  @apply bg-secondary-100 text-secondary-800 px-1.5 py-0.5 rounded text-xs font-mono;
+}
+
+.prose.prose-invert code:not(pre code) {
+  @apply bg-white/20 text-white;
+}
+
+.prose.prose-sm p:first-child {
+  margin-top: 0;
+}
+
+.prose.prose-sm p:last-child {
+  margin-bottom: 0;
+}
+
+/* Thinking box styles */
+.thinking-box summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking-box summary::before {
+  content: '▶';
+  display: inline-block;
+  margin-right: 0.35rem;
+  font-size: 0.65em;
+  transition: transform 0.15s ease;
+}
+
+.thinking-box[open] summary::before {
+  transform: rotate(90deg);
+}

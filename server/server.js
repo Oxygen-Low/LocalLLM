@@ -1646,7 +1646,7 @@ app.delete('/api/chats/:id', requireSession, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// LLM Chat Proxy – Routes messages to the selected provider
+// LLM Chat Proxy – Routes messages to the selected provider (SSE streaming)
 // ---------------------------------------------------------------------------
 
 function enhanceMessagesForThink(messages) {
@@ -1661,8 +1661,49 @@ function enhanceMessagesForThink(messages) {
   return enhanced;
 }
 
-async function proxyToKobold(messages, options = {}) {
-  // Apply think instruction to system prompt if requested
+// Send a Server-Sent Event to the client
+function sendSSE(res, event, data) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+// Parse an SSE stream from a fetch Response, calling onEvent(eventType, data) for each
+async function parseSSEStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const segments = buffer.split('\n\n');
+      buffer = segments.pop() || '';
+
+      for (const segment of segments) {
+        if (!segment.trim()) continue;
+        const lines = segment.split('\n');
+        let eventType = 'message';
+        let eventData = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          else if (line.startsWith('data: ')) eventData += line.slice(6);
+          else if (line.startsWith('data:')) eventData += line.slice(5);
+        }
+
+        if (eventData) {
+          onEvent(eventType, eventData.trim());
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function streamFromKobold(res, messages, options = {}) {
   if (options.think) {
     messages = enhanceMessagesForThink(messages);
   }
@@ -1678,12 +1719,7 @@ async function proxyToKobold(messages, options = {}) {
   const response = await fetch(`${KOBOLD_API_URL}/api/v1/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt,
-      max_length: 2048,
-      temperature: 0.7,
-      top_p: 0.9,
-    }),
+    body: JSON.stringify({ prompt, max_length: 2048, temperature: 0.7, top_p: 0.9 }),
     signal: controller.signal,
   });
   clearTimeout(timeout);
@@ -1693,11 +1729,18 @@ async function proxyToKobold(messages, options = {}) {
   }
 
   const data = await response.json();
-  return { content: data.results?.[0]?.text || '' };
+  const content = data.results?.[0]?.text || '';
+
+  // Simulate streaming by sending content in small chunks
+  const CHUNK_SIZE = 4;
+  for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+    sendSSE(res, 'content', { content: content.substring(i, i + CHUNK_SIZE) });
+  }
+
+  return { content, thinking: '' };
 }
 
-async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, model, options = {}) {
-  // Apply think instruction to system prompt if requested
+async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEndpoint, model, options = {}) {
   if (options.think) {
     messages = enhanceMessagesForThink(messages);
   }
@@ -1705,11 +1748,11 @@ async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, 
   const body = {
     model,
     messages,
-    max_tokens: LLM_DEFAULT_MAX_TOKENS,
+    max_tokens: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
     temperature: 0.7,
+    stream: true,
   };
 
-  // Add web search tool for providers that support it (OpenAI, OpenRouter)
   if (options.webSearch) {
     body.tools = [{ type: 'web_search_preview' }];
   }
@@ -1732,11 +1775,77 @@ async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, 
     throw new Error(`API error ${response.status}: ${errorBody}`);
   }
 
-  const data = await response.json();
-  return { content: data.choices?.[0]?.message?.content || '' };
+  let fullContent = '';
+  let fullThinking = '';
+  let inThinkTag = false;
+  const searches = [];
+
+  await parseSSEStream(response, (eventType, eventData) => {
+    if (eventData === '[DONE]') return;
+    try {
+      const parsed = JSON.parse(eventData);
+      const delta = parsed.choices?.[0]?.delta;
+      if (!delta) return;
+
+      // Handle reasoning_content (OpenAI o-series models)
+      if (delta.reasoning_content) {
+        fullThinking += delta.reasoning_content;
+        sendSSE(res, 'thinking', { content: delta.reasoning_content });
+      }
+
+      if (delta.content != null) {
+        let chunk = delta.content;
+
+        // Handle <think> tags (DeepSeek and similar models)
+        while (chunk.length > 0) {
+          if (inThinkTag) {
+            const endIdx = chunk.indexOf('</think>');
+            if (endIdx !== -1) {
+              const thinkPart = chunk.substring(0, endIdx);
+              fullThinking += thinkPart;
+              if (thinkPart) sendSSE(res, 'thinking', { content: thinkPart });
+              inThinkTag = false;
+              chunk = chunk.substring(endIdx + 8);
+            } else {
+              fullThinking += chunk;
+              sendSSE(res, 'thinking', { content: chunk });
+              chunk = '';
+            }
+          } else {
+            const startIdx = chunk.indexOf('<think>');
+            if (startIdx !== -1) {
+              const contentPart = chunk.substring(0, startIdx);
+              if (contentPart) {
+                fullContent += contentPart;
+                sendSSE(res, 'content', { content: contentPart });
+              }
+              inThinkTag = true;
+              chunk = chunk.substring(startIdx + 7);
+            } else {
+              fullContent += chunk;
+              sendSSE(res, 'content', { content: chunk });
+              chunk = '';
+            }
+          }
+        }
+      }
+
+      // Detect search annotations (url_citation) from OpenAI web_search_preview
+      if (delta.annotations) {
+        for (const ann of delta.annotations) {
+          if (ann.type === 'url_citation' && ann.url) {
+            searches.push({ query: ann.title || ann.url, url: ann.url });
+            sendSSE(res, 'search', { status: 'searched', query: ann.title || ann.url, url: ann.url });
+          }
+        }
+      }
+    } catch (_e) { /* skip unparseable chunks */ }
+  });
+
+  return { content: fullContent, thinking: fullThinking, searches };
 }
 
-async function proxyToAnthropic(messages, apiKey, model, options = {}) {
+async function streamFromAnthropic(res, messages, apiKey, model, options = {}) {
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
@@ -1744,17 +1853,12 @@ async function proxyToAnthropic(messages, apiKey, model, options = {}) {
     model,
     max_tokens: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
     messages: chatMessages,
+    stream: true,
   };
-  if (systemMsg) {
-    body.system = systemMsg.content;
-  }
+  if (systemMsg) body.system = systemMsg.content;
 
-  // Add native extended thinking for Anthropic
   if (options.think) {
     body.thinking = { type: 'enabled', budget_tokens: ANTHROPIC_THINKING_BUDGET };
-    // Anthropic requires temperature=1 when thinking is enabled; omit temperature
-  } else {
-    // No temperature set by default (Anthropic uses its own default)
   }
 
   const controller = new AbortController();
@@ -1776,12 +1880,36 @@ async function proxyToAnthropic(messages, apiKey, model, options = {}) {
     throw new Error(`Anthropic error ${response.status}: ${errorBody}`);
   }
 
-  const data = await response.json();
-  const text = data.content?.map(c => c.text).join('') || '';
-  return { content: text };
+  let fullContent = '';
+  let fullThinking = '';
+  let currentBlockType = null;
+
+  await parseSSEStream(response, (_eventType, eventData) => {
+    try {
+      const parsed = JSON.parse(eventData);
+
+      if (parsed.type === 'content_block_start') {
+        currentBlockType = parsed.content_block?.type;
+      } else if (parsed.type === 'content_block_delta') {
+        if (currentBlockType === 'thinking') {
+          const text = parsed.delta?.thinking || '';
+          fullThinking += text;
+          if (text) sendSSE(res, 'thinking', { content: text });
+        } else if (currentBlockType === 'text') {
+          const text = parsed.delta?.text || '';
+          fullContent += text;
+          if (text) sendSSE(res, 'content', { content: text });
+        }
+      } else if (parsed.type === 'content_block_stop') {
+        currentBlockType = null;
+      }
+    } catch (_e) { /* skip unparseable chunks */ }
+  });
+
+  return { content: fullContent, thinking: fullThinking };
 }
 
-async function proxyToGoogle(messages, apiKey, model, options = {}) {
+async function streamFromGoogle(res, messages, apiKey, model, options = {}) {
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
@@ -1794,18 +1922,14 @@ async function proxyToGoogle(messages, apiKey, model, options = {}) {
   if (systemMsg) {
     body.systemInstruction = { parts: [{ text: systemMsg.content }] };
   }
-
-  // Add Google Search grounding tool
   if (options.webSearch) {
     body.tools = [{ googleSearch: {} }];
   }
-
-  // Add native thinking config for Google
   if (options.think) {
     body.generationConfig = { thinkingConfig: { thinkingBudget: GOOGLE_THINKING_BUDGET } };
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   const response = await fetch(endpoint, {
@@ -1821,12 +1945,45 @@ async function proxyToGoogle(messages, apiKey, model, options = {}) {
     throw new Error(`Google error ${response.status}: ${errorBody}`);
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-  return { content: text };
+  let fullContent = '';
+  let fullThinking = '';
+  const searches = [];
+
+  await parseSSEStream(response, (_eventType, eventData) => {
+    try {
+      const parsed = JSON.parse(eventData);
+      const parts = parsed.candidates?.[0]?.content?.parts || [];
+
+      for (const part of parts) {
+        if (part.text != null) {
+          if (part.thought) {
+            fullThinking += part.text;
+            sendSSE(res, 'thinking', { content: part.text });
+          } else {
+            fullContent += part.text;
+            sendSSE(res, 'content', { content: part.text });
+          }
+        }
+      }
+
+      // Extract grounding metadata for search results
+      const grounding = parsed.candidates?.[0]?.groundingMetadata;
+      if (grounding?.groundingChunks) {
+        for (const chunk of grounding.groundingChunks) {
+          if (chunk.web) {
+            const search = { query: chunk.web.title || chunk.web.uri, url: chunk.web.uri };
+            searches.push(search);
+            sendSSE(res, 'search', { status: 'searched', ...search });
+          }
+        }
+      }
+    } catch (_e) { /* skip unparseable chunks */ }
+  });
+
+  return { content: fullContent, thinking: fullThinking, searches };
 }
 
-// POST /api/chat/send – Send message to LLM
+// POST /api/chat/send – Send message to LLM (SSE streaming)
 app.post('/api/chat/send', requireSession, async (req, res) => {
   try {
     const { messages, provider, model } = req.body;
@@ -1856,47 +2013,72 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       }
     }
 
-    let result;
-
+    // Validate provider and API key before starting SSE stream
+    let providerKeys, selectedModel, providerConfig;
     if (provider === 'kobold') {
-      result = await proxyToKobold(messages, options);
+      // kobold doesn't need API key validation
     } else if (VALID_PROVIDERS.includes(provider)) {
       const keys = readUserApiKeys(req.sessionUser);
-      const providerKeys = keys[provider];
+      providerKeys = keys[provider];
       if (!providerKeys?.apiKey) {
         return res.status(400).json({ success: false, error: `API key not configured for ${provider}` });
       }
-
-      const selectedModel = model || providerKeys.selectedModel;
+      selectedModel = model || providerKeys.selectedModel;
       if (!selectedModel) {
         return res.status(400).json({ success: false, error: 'No model selected' });
       }
-
-      const providerConfig = AI_PROVIDERS[provider];
-
-      if (provider === 'anthropic') {
-        result = await proxyToAnthropic(messages, providerKeys.apiKey, selectedModel, options);
-      } else if (provider === 'google') {
-        result = await proxyToGoogle(messages, providerKeys.apiKey, selectedModel, options);
-      } else {
-        result = await proxyToOpenAICompatible(
-          messages, providerKeys.apiKey, providerConfig.baseUrl,
-          providerConfig.chatEndpoint, selectedModel, options
-        );
-      }
+      providerConfig = AI_PROVIDERS[provider];
     } else {
       return res.status(400).json({ success: false, error: 'Invalid provider' });
     }
 
-    res.json({ success: true, message: { role: 'assistant', content: result.content } });
+    // Start SSE stream
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    // Emit searching event if web search is enabled
+    if (webSearch) {
+      const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+      sendSSE(res, 'search', { status: 'searching', query: lastUserMsg?.content?.substring(0, 100) || 'web search' });
+    }
+
+    let result;
+    if (provider === 'kobold') {
+      result = await streamFromKobold(res, messages, options);
+    } else if (provider === 'anthropic') {
+      result = await streamFromAnthropic(res, messages, providerKeys.apiKey, selectedModel, options);
+    } else if (provider === 'google') {
+      result = await streamFromGoogle(res, messages, providerKeys.apiKey, selectedModel, options);
+    } else {
+      result = await streamFromOpenAICompatible(
+        res, messages, providerKeys.apiKey, providerConfig.baseUrl,
+        providerConfig.chatEndpoint, selectedModel, options
+      );
+    }
+
+    sendSSE(res, 'done', {
+      content: result.content,
+      thinking: result.thinking || '',
+      searches: result.searches || [],
+    });
+    res.end();
   } catch (err) {
     const errorId = crypto.randomUUID();
     console.error(`Chat send error [${errorId}]:`, err);
-    res.status(502).json({
-      success: false,
-      error: 'Failed to get response from LLM',
-      requestId: errorId,
-    });
+    // If headers already sent (SSE started), send error as SSE event
+    if (res.headersSent) {
+      sendSSE(res, 'error', { error: 'Failed to get response from LLM', requestId: errorId });
+      res.end();
+    } else {
+      res.status(502).json({
+        success: false,
+        error: 'Failed to get response from LLM',
+        requestId: errorId,
+      });
+    }
   }
 });
 
