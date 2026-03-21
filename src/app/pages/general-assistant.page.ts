@@ -650,6 +650,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  private static readonly MARKDOWN_CACHE_MAX_SIZE = 500;
   private readonly markdownCache = new Map<string, string>();
 
   renderMarkdown(text: string): string {
@@ -662,21 +663,29 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       return cached;
     }
 
+    // Escape raw HTML so it is treated as text by marked and cannot produce live elements
+    const escapedText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
     try {
       // marked.parse with default settings converts markdown to HTML.
       // Angular's [innerHTML] binding sanitizes the output (strips <script>, event handlers, etc.)
       // providing defense-in-depth against XSS from AI/user content.
-      const html = marked.parse(text, { breaks: true, gfm: true }) as string;
+      const html = marked.parse(escapedText, { breaks: true, gfm: true }) as string;
+      if (this.markdownCache.size >= GeneralAssistantPageComponent.MARKDOWN_CACHE_MAX_SIZE) {
+        this.markdownCache.clear();
+      }
       this.markdownCache.set(text, html);
       return html;
     } catch {
-      // Escape HTML if markdown parsing fails to prevent raw injection
-      const escaped = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      this.markdownCache.set(text, escaped);
-      return escaped;
+      // Fallback: return the safely escaped text if markdown parsing fails
+      if (this.markdownCache.size >= GeneralAssistantPageComponent.MARKDOWN_CACHE_MAX_SIZE) {
+        this.markdownCache.clear();
+      }
+      this.markdownCache.set(text, escapedText);
+      return escapedText;
     }
   }
 

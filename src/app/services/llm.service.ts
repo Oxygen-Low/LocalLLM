@@ -206,7 +206,13 @@ export class LlmService {
     }
 
     const result: StreamResult = { content: '', thinking: '', searches: [] };
-    const reader = response.body!.getReader();
+    const responseBody = response.body;
+    if (!responseBody) {
+      throw new Error(
+        'Streaming response body is missing. The server may have returned an empty response or the stream was already consumed.'
+      );
+    }
+    const reader = (responseBody as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 

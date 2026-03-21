@@ -1664,7 +1664,17 @@ function enhanceMessagesForThink(messages) {
 
 // Send a Server-Sent Event to the client
 function sendSSE(res, event, data) {
-  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  if (!res || res.writableEnded || res.finished || res.destroyed === true || res.writable === false) {
+    return;
+  }
+  try {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch (err) {
+    if (err && err.code === 'ERR_STREAM_WRITE_AFTER_END') {
+      return;
+    }
+    throw err;
+  }
 }
 
 // Parse an SSE stream from a fetch Response, calling onEvent(eventType, data) for each
@@ -1735,6 +1745,9 @@ async function streamFromKobold(res, messages, options = {}, signal) {
 
   // Simulate streaming by sending content in small chunks
   for (let i = 0; i < content.length; i += KOBOLD_STREAM_CHUNK_SIZE) {
+    if ((signal && signal.aborted) || res.writableEnded || res.destroyed) {
+      break;
+    }
     sendSSE(res, 'content', { content: content.substring(i, i + KOBOLD_STREAM_CHUNK_SIZE) });
   }
 
@@ -1836,7 +1849,7 @@ async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEn
       if (delta.annotations) {
         for (const ann of delta.annotations) {
           if (ann.type === 'url_citation' && ann.url) {
-            searches.push({ query: ann.title || ann.url, url: ann.url });
+            searches.push({ status: 'searched', query: ann.title || ann.url, url: ann.url });
             sendSSE(res, 'search', { status: 'searched', query: ann.title || ann.url, url: ann.url });
           }
         }
@@ -1975,9 +1988,9 @@ async function streamFromGoogle(res, messages, apiKey, model, options = {}, sign
       if (grounding?.groundingChunks) {
         for (const chunk of grounding.groundingChunks) {
           if (chunk.web) {
-            const search = { query: chunk.web.title || chunk.web.uri, url: chunk.web.uri };
+            const search = { status: 'searched', query: chunk.web.title || chunk.web.uri, url: chunk.web.uri };
             searches.push(search);
-            sendSSE(res, 'search', { status: 'searched', ...search });
+            sendSSE(res, 'search', search);
           }
         }
       }
