@@ -68,6 +68,17 @@ export interface StreamResult {
   searches: SearchEvent[];
 }
 
+export interface UniverseCharacterSummary {
+  id: string;
+  name: string;
+}
+
+export interface UniverseSummary {
+  id: string;
+  name: string;
+  characters: UniverseCharacterSummary[];
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -129,6 +140,17 @@ export class LlmService {
       )
     );
     return { available: res.available, model: res.model || '' };
+  }
+
+  // --- Universes ---
+
+  async getUniverses(): Promise<UniverseSummary[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; universes: UniverseSummary[] }>(
+        `${environment.apiUrl}/api/universes`
+      )
+    );
+    return res.universes || [];
   }
 
   // --- Chats ---

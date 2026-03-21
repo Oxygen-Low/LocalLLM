@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { marked } from 'marked';
-import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult } from '../services/llm.service';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary } from '../services/llm.service';
 
 @Component({
   selector: 'app-general-assistant',
