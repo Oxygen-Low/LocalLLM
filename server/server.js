@@ -988,7 +988,7 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
           fs.writeFileSync(newPath, reEncrypted, { encoding: 'utf-8', mode: 0o600 });
           migratedFiles.push({ oldPath, newPath });
         } catch (migrationErr) {
-          console.error(`Change-username: failed to re-encrypt chat file ${file} for ${oldUsername}:`, migrationErr);
+          console.error('Change-username: failed to re-encrypt chat file %s for %s:', file, oldUsername, migrationErr);
           migrationFailed = true;
           break; // stop further attempts to keep behaviour closer to atomic
         }
