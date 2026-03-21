@@ -56,7 +56,7 @@ export class DashboardPageComponent {
   apps: AIApp[] = [
     {
       id: 'general-assistant',
-      name: 'General Assistant',
+      name: 'Chat',
       description: 'A versatile AI assistant for conversations, questions, writing, coding, and more. Connect your preferred AI provider or use a local model.',
       icon: '🤖',
       category: 'Assistant',
