@@ -1412,7 +1412,7 @@ app.get('/api/kobold/status', requireSession, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 function getUserChatsDir(username) {
-  const safeUsername = sanitizeUsernameForPath(username);
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
   const dir = path.join(CHATS_DIR, safeUsername);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
