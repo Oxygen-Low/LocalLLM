@@ -60,6 +60,62 @@ interface ProviderConfig {
             </div>
           </div>
 
+          <!-- Change Username -->
+          <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
+            <h2 class="text-xl font-semibold text-secondary-900 mb-2">Change Username</h2>
+            <p class="text-sm text-muted mb-6">Update your username. A 15-minute cooldown applies between changes.</p>
+
+            @if (usernameSuccessMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {{ usernameSuccessMessage() }}
+              </div>
+            }
+            @if (usernameErrorMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {{ usernameErrorMessage() }}
+              </div>
+            }
+
+            <form (ngSubmit)="onChangeUsername()" class="space-y-5">
+              <div>
+                <label for="newUsername" class="block text-sm font-medium text-secondary-700 mb-2">
+                  New Username
+                </label>
+                <input
+                  id="newUsername"
+                  type="text"
+                  [(ngModel)]="newUsername"
+                  name="newUsername"
+                  required
+                  autocomplete="username"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
+                  placeholder="Enter your new username"
+                />
+                <div class="mt-2 space-y-1">
+                  <p class="text-xs" [ngClass]="usernameHasMinLength() ? 'text-green-600' : 'text-muted'">
+                    {{ usernameHasMinLength() ? '✓' : '○' }} At least 3 characters
+                  </p>
+                  <p class="text-xs" [ngClass]="usernameHasMaxLength() ? 'text-green-600' : 'text-muted'">
+                    {{ usernameHasMaxLength() ? '✓' : '○' }} At most 30 characters
+                  </p>
+                  <p class="text-xs" [ngClass]="isValidUsernameChars() ? 'text-green-600' : 'text-muted'">
+                    {{ isValidUsernameChars() ? '✓' : '○' }} Letters, numbers, hyphens, and underscores only
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-4">
+                <button
+                  type="submit"
+                  [disabled]="isChangingUsername()"
+                  class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {{ isChangingUsername() ? 'Updating...' : 'Update Username' }}
+                </button>
+              </div>
+            </form>
+          </div>
+
           <!-- AI Provider API Keys -->
           <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
             <h2 class="text-xl font-semibold text-secondary-900 mb-2">AI Provider API Keys</h2>
@@ -164,7 +220,7 @@ interface ProviderConfig {
           <!-- Change Password -->
           <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
             <h2 class="text-xl font-semibold text-secondary-900 mb-2">Change Password</h2>
-            <p class="text-sm text-muted mb-6">Update your password to keep your account secure.</p>
+            <p class="text-sm text-muted mb-6">Update your password to keep your account secure. A 3-minute cooldown applies between changes.</p>
 
             @if (passwordSuccessMessage()) {
               <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
@@ -326,6 +382,12 @@ interface ProviderConfig {
   `,
 })
 export class SettingsPageComponent implements OnInit {
+  // Change username fields
+  newUsername = '';
+  isChangingUsername = signal(false);
+  usernameErrorMessage = signal<string | null>(null);
+  usernameSuccessMessage = signal<string | null>(null);
+
   // Change password fields
   currentPassword = '';
   newPassword = '';
@@ -429,6 +491,50 @@ export class SettingsPageComponent implements OnInit {
     return /[^A-Za-z0-9]/.test(this.newPassword);
   }
 
+  isValidUsernameChars(): boolean {
+    return this.newUsername.length > 0 && /^[a-zA-Z0-9_-]+$/.test(this.newUsername);
+  }
+
+  usernameHasMinLength(): boolean {
+    return this.newUsername.length >= 3;
+  }
+
+  usernameHasMaxLength(): boolean {
+    return this.newUsername.length > 0 && this.newUsername.length <= 30;
+  }
+
+  // --- Username methods ---
+
+  async onChangeUsername(): Promise<void> {
+    this.usernameErrorMessage.set(null);
+    this.usernameSuccessMessage.set(null);
+
+    if (!this.newUsername) {
+      this.usernameErrorMessage.set('Please enter a new username');
+      return;
+    }
+
+    this.isChangingUsername.set(true);
+
+    try {
+      const result = await this.authService.changeUsername(this.newUsername);
+
+      if (result.success) {
+        this.usernameSuccessMessage.set('Username updated successfully');
+        this.newUsername = '';
+      } else if (result.retryAfterSeconds) {
+        const minutes = Math.ceil(result.retryAfterSeconds / 60);
+        this.usernameErrorMessage.set(`Username was changed recently. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before changing it again.`);
+      } else {
+        this.usernameErrorMessage.set(result.error ?? 'Failed to update username');
+      }
+    } catch {
+      this.usernameErrorMessage.set('An unexpected error occurred. Please try again.');
+    } finally {
+      this.isChangingUsername.set(false);
+    }
+  }
+
   // --- API Key methods ---
 
   startEditProvider(providerId: string): void {
@@ -511,6 +617,9 @@ export class SettingsPageComponent implements OnInit {
         this.currentPassword = '';
         this.newPassword = '';
         this.confirmNewPassword = '';
+      } else if (result.retryAfterSeconds) {
+        const minutes = Math.ceil(result.retryAfterSeconds / 60);
+        this.passwordErrorMessage.set(`Password was changed recently. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before changing it again.`);
       } else {
         this.passwordErrorMessage.set(result.error ?? 'Failed to update password');
       }

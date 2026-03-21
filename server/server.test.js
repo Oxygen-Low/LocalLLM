@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1469,5 +1469,200 @@ describe('GET /api/providers', () => {
   it('requires authentication', async () => {
     const res = await request(server, 'GET', '/api/providers', null);
     assert.equal(res.status, 401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/auth/change-username tests
+// ---------------------------------------------------------------------------
+describe('PUT /api/auth/change-username', { concurrency: false }, () => {
+  let changeUsernameServer;
+  let testToken = null;
+  const baseUsername = 'cut_' + (Date.now() % 100000);
+  const testPassword = sha256Hex('ValidPass1!');
+
+  before(async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    changeUsernameServer = http.createServer(app);
+    await new Promise((resolve) => changeUsernameServer.listen(0, '127.0.0.1', resolve));
+
+    // Create initial test user
+    const res = await request(changeUsernameServer, 'POST', '/api/auth/signup', {
+      username: baseUsername,
+      password: testPassword,
+    });
+    assert.equal(res.status, 201);
+    testToken = res.body.token;
+
+    // Ensure username cooldown is clear for this user
+    usernameChangeCooldowns.delete(baseUsername);
+  });
+
+  after(async () => {
+    await new Promise((resolve) => changeUsernameServer.close(resolve));
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: 'whatever' });
+    assert.equal(res.status, 401);
+  });
+
+  it('rejects missing newUsername', async () => {
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', {}, testToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects invalid username characters', async () => {
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: 'bad name!' }, testToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects username that is too short', async () => {
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: 'ab' }, testToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects changing to the reserved admin username', async () => {
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: 'admin' }, testToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects changing to the same username', async () => {
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: baseUsername }, testToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('successfully changes username and returns new token', async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    const newName = baseUsername + '_renamed';
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: newName }, testToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.username, newName);
+    assert.ok(res.body.token, 'Expected a new session token');
+    // Old token is now invalid
+    const oldTokenRes = await request(changeUsernameServer, 'GET', '/api/user/language', null, testToken);
+    assert.equal(oldTokenRes.status, 401);
+    // New token works
+    testToken = res.body.token;
+    const newTokenRes = await request(changeUsernameServer, 'GET', '/api/user/language', null, testToken);
+    assert.equal(newTokenRes.status, 200);
+  });
+
+  it('enforces 15-minute cooldown after a username change', async () => {
+    // The previous test just changed the username, so cooldown is now active
+    await authLimiter.resetKey('127.0.0.1');
+    const currentName = baseUsername + '_renamed';
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: currentName + '_again' }, testToken);
+    assert.equal(res.status, 429);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.retryAfterSeconds > 0, 'Expected retryAfterSeconds to be positive');
+    // Clean up cooldown for any subsequent tests
+    usernameChangeCooldowns.delete(currentName);
+  });
+
+  it('rejects changing to an already-taken username', async () => {
+    // Create a second user
+    await authLimiter.resetKey('127.0.0.1');
+    const takenName = 'cutaken_' + Date.now();
+    await request(changeUsernameServer, 'POST', '/api/auth/signup', {
+      username: takenName,
+      password: testPassword,
+    });
+    const currentName = baseUsername + '_renamed';
+    usernameChangeCooldowns.delete(currentName);
+    await authLimiter.resetKey('127.0.0.1');
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: takenName }, testToken);
+    assert.equal(res.status, 409);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects admin changing username', async () => {
+    const adminToken = createSessionToken('admin');
+    const res = await request(changeUsernameServer, 'PUT', '/api/auth/change-username', { newUsername: 'newadminname' }, adminToken);
+    assert.equal(res.status, 403);
+    assert.equal(res.body.success, false);
+    invalidateSession(adminToken);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/auth/change-password cooldown tests
+// ---------------------------------------------------------------------------
+// The HTTP-based test verifies the endpoint enforces the cooldown (returns 429
+// with retryAfterSeconds). The cooldown logic itself (allowed/expired state) is
+// covered by direct unit tests of checkCooldown, which avoid authLimiter contention.
+describe('PUT /api/auth/change-password cooldown', { concurrency: false }, () => {
+  let cooldownServer;
+  let cooldownToken = null;
+  const cooldownUsername = 'pwcooldown_' + (Date.now() % 100000);
+  const testPassword = sha256Hex('ValidPass1!');
+  const newPassword = sha256Hex('ValidPass2@');
+
+  before(async () => {
+    // Create user directly without HTTP to avoid consuming authLimiter slots
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = crypto.pbkdf2Sync(testPassword, salt, 100000, 32, 'sha256').toString('hex');
+    writeUsers([...readUsers(), {
+      username: cooldownUsername,
+      passwordHash,
+      salt,
+      createdAt: new Date().toISOString(),
+      passwordResetRequired: false,
+    }]);
+    // Issue session directly to avoid authLimiter
+    cooldownToken = createSessionToken(cooldownUsername);
+
+    cooldownServer = http.createServer(app);
+    await new Promise((resolve) => cooldownServer.listen(0, '127.0.0.1', resolve));
+
+    passwordChangeCooldowns.delete(cooldownUsername);
+  });
+
+  after(async () => {
+    if (cooldownToken) invalidateSession(cooldownToken);
+    writeUsers(readUsers().filter((u) => u.username !== cooldownUsername));
+    passwordChangeCooldowns.delete(cooldownUsername);
+    await new Promise((resolve) => cooldownServer.close(resolve));
+  });
+
+  // Unit tests for checkCooldown logic (no HTTP – no authLimiter contention)
+  it('checkCooldown: blocks when cooldown is active', () => {
+    const map = new Map();
+    map.set('u', Date.now());
+    const result = checkCooldown(map, 'u', PASSWORD_CHANGE_COOLDOWN_MS);
+    assert.equal(result.allowed, false);
+    assert.ok(result.retryAfterMs > 0, 'Expected retryAfterMs > 0');
+  });
+
+  it('checkCooldown: allows when cooldown has expired', () => {
+    const map = new Map();
+    map.set('u', Date.now() - PASSWORD_CHANGE_COOLDOWN_MS - 1000);
+    const result = checkCooldown(map, 'u', PASSWORD_CHANGE_COOLDOWN_MS);
+    assert.equal(result.allowed, true);
+  });
+
+  it('checkCooldown: allows when no entry exists', () => {
+    const result = checkCooldown(new Map(), 'nonexistent', PASSWORD_CHANGE_COOLDOWN_MS);
+    assert.equal(result.allowed, true);
+  });
+
+  // HTTP endpoint test: endpoint returns 429 + retryAfterSeconds when cooldown is active
+  it('returns 429 with retryAfterSeconds from the endpoint when cooldown is active', async () => {
+    passwordChangeCooldowns.set(cooldownUsername, Date.now());
+    await authLimiter.resetKey('127.0.0.1');
+    const res = await request(cooldownServer, 'PUT', '/api/auth/change-password', {
+      currentPassword: testPassword,
+      newPassword: newPassword,
+    }, cooldownToken);
+    assert.equal(res.status, 429);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.retryAfterSeconds > 0, 'Expected retryAfterSeconds to be positive');
+    passwordChangeCooldowns.delete(cooldownUsername);
   });
 });

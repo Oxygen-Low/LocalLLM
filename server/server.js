@@ -248,6 +248,30 @@ function clearServerLoginAttempts(username) {
 }
 
 // ---------------------------------------------------------------------------
+// Action cooldown tracking (password change: 3 min, username change: 15 min)
+// ---------------------------------------------------------------------------
+const PASSWORD_CHANGE_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
+const USERNAME_CHANGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const passwordChangeCooldowns = new Map(); // username -> lastChangedAtMs
+const usernameChangeCooldowns = new Map(); // username -> lastChangedAtMs
+
+/**
+ * Check whether a user is still within a cooldown period.
+ * Returns { allowed: true } when the cooldown has elapsed, or
+ * { allowed: false, retryAfterMs } while it is still active.
+ */
+function checkCooldown(cooldownMap, username, cooldownMs) {
+  const lastChange = cooldownMap.get(username);
+  if (!lastChange) return { allowed: true };
+  const elapsed = Date.now() - lastChange;
+  if (elapsed < cooldownMs) {
+    return { allowed: false, retryAfterMs: cooldownMs - elapsed };
+  }
+  cooldownMap.delete(username);
+  return { allowed: true };
+}
+
+// ---------------------------------------------------------------------------
 // SOC2 CC6.1 – Server-side password hash format validation
 // ---------------------------------------------------------------------------
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
@@ -814,6 +838,13 @@ app.put('/api/auth/change-password', authLimiter, requireSession, async (req, re
       return res.status(400).json({ success: false, error: 'New password is required' });
     }
 
+    // Enforce 3-minute cooldown between password changes
+    const cooldownCheck = checkCooldown(passwordChangeCooldowns, normalizedUsername, PASSWORD_CHANGE_COOLDOWN_MS);
+    if (!cooldownCheck.allowed) {
+      const retryAfterSeconds = Math.ceil(cooldownCheck.retryAfterMs / 1000);
+      return res.status(429).json({ success: false, error: 'Password was changed recently. Please wait before changing it again.', retryAfterSeconds });
+    }
+
     const users = readUsers();
     const userIndex = users.findIndex((u) => u.username === normalizedUsername);
 
@@ -841,10 +872,160 @@ app.put('/api/auth/change-password', authLimiter, requireSession, async (req, re
     users[userIndex] = { ...user, passwordHash: newHash, salt: newSalt, passwordResetRequired: false };
     writeUsers(users);
 
+    passwordChangeCooldowns.set(normalizedUsername, Date.now());
     auditLog({ event: 'PASSWORD_CHANGED', message: 'Password changed successfully', username: normalizedUsername, req });
     res.json({ success: true });
   } catch (err) {
     console.error('Change password error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/auth/change-username – requires valid session; enforces 15-min cooldown
+app.put('/api/auth/change-username', authLimiter, requireSession, async (req, res) => {
+  try {
+    const { newUsername } = req.body;
+    const oldUsername = req.sessionUser;
+
+    if (!newUsername || typeof newUsername !== 'string') {
+      return res.status(400).json({ success: false, error: 'New username is required' });
+    }
+
+    // Admin account username is fixed
+    if (oldUsername === ADMIN_USERNAME) {
+      return res.status(403).json({ success: false, error: 'Admin username cannot be changed' });
+    }
+
+    // Server-side username validation
+    const usernameErrors = validateUsername(newUsername);
+    if (usernameErrors.length > 0) {
+      return res.status(400).json({ success: false, error: usernameErrors[0] });
+    }
+
+    const normalizedNew = normalizeUsername(newUsername);
+
+    if (normalizedNew === oldUsername) {
+      return res.status(400).json({ success: false, error: 'New username must be different from current username' });
+    }
+
+    // New username must not be 'admin'
+    if (normalizedNew === ADMIN_USERNAME) {
+      return res.status(400).json({ success: false, error: 'That username is reserved' });
+    }
+
+    // Enforce 15-minute cooldown between username changes
+    const cooldownCheck = checkCooldown(usernameChangeCooldowns, oldUsername, USERNAME_CHANGE_COOLDOWN_MS);
+    if (!cooldownCheck.allowed) {
+      const retryAfterSeconds = Math.ceil(cooldownCheck.retryAfterMs / 1000);
+      return res.status(429).json({ success: false, error: 'Username was changed recently. Please wait before changing it again.', retryAfterSeconds });
+    }
+
+    const users = readUsers();
+
+    if (users.some((u) => u.username === normalizedNew)) {
+      return res.status(409).json({ success: false, error: 'Username already taken' });
+    }
+
+    const userIndex = users.findIndex((u) => u.username === oldUsername);
+    if (userIndex === -1) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    // Re-encrypt API keys under the new username key.
+    // readUserApiKeysSafe returns null when the file exists but cannot be decrypted.
+    const apiKeysData = readUserApiKeysSafe(oldUsername);
+    const oldApiKeysFile = getUserApiKeysFile(oldUsername);
+
+    if (apiKeysData === null) {
+      // File is corrupt / unreadable – abort to avoid data loss
+      console.error(`Change-username: failed to read API keys for ${oldUsername}, aborting username change`);
+      return res.status(500).json({ success: false, error: 'Failed to migrate API keys. Please try again later.' });
+    }
+
+    if (Object.keys(apiKeysData).length > 0) {
+      writeUserApiKeys(normalizedNew, apiKeysData);
+    }
+    // Remove the old file after a successful read (even if it contained no keys)
+    if (fs.existsSync(oldApiKeysFile)) {
+      fs.unlinkSync(oldApiKeysFile);
+    }
+
+    // Re-encrypt chat files under the new username key (atomic: separate re-encrypt from delete)
+    const oldChatsDir = path.join(CHATS_DIR, oldUsername);
+    const newChatsDir = path.join(CHATS_DIR, normalizedNew);
+    if (fs.existsSync(oldChatsDir)) {
+      fs.mkdirSync(newChatsDir, { recursive: true });
+      const chatFiles = fs.readdirSync(oldChatsDir).filter((f) => f.endsWith('.enc'));
+
+      // Phase 1: re-encrypt all files into newChatsDir without deleting originals
+      const migratedFiles = [];
+      let migrationFailed = false;
+      for (const file of chatFiles) {
+        const oldPath = path.join(oldChatsDir, file);
+        const newPath = path.join(newChatsDir, file);
+        try {
+          const encryptedContent = fs.readFileSync(oldPath, 'utf-8');
+          const decrypted = decryptData(encryptedContent, oldUsername);
+          const reEncrypted = encryptData(decrypted, normalizedNew);
+          fs.writeFileSync(newPath, reEncrypted, { encoding: 'utf-8', mode: 0o600 });
+          migratedFiles.push({ oldPath, newPath });
+        } catch (migrationErr) {
+          console.error(`Change-username: failed to re-encrypt chat file ${file} for ${oldUsername}:`, migrationErr);
+          migrationFailed = true;
+          break; // stop further attempts to keep behaviour closer to atomic
+        }
+      }
+
+      if (migrationFailed) {
+        // Phase 2 (rollback): remove any newly written files; leave originals intact
+        for (const { newPath } of migratedFiles) {
+          try { if (fs.existsSync(newPath)) fs.unlinkSync(newPath); } catch (e) {
+            console.error('Change-username: rollback failed to remove', newPath, e);
+          }
+        }
+        try {
+          if (fs.readdirSync(newChatsDir).length === 0) fs.rmdirSync(newChatsDir);
+        } catch { /* ignore */ }
+        // Also restore the API keys file we already migrated
+        try {
+          if (Object.keys(apiKeysData).length > 0) {
+            const newApiKeysFile = getUserApiKeysFile(normalizedNew);
+            if (fs.existsSync(newApiKeysFile)) fs.unlinkSync(newApiKeysFile);
+          }
+        } catch { /* ignore */ }
+        return res.status(500).json({ success: false, error: 'Failed to migrate chat files. Username change aborted.' });
+      }
+
+      // Phase 2 (success): delete originals and clean up old directory
+      for (const { oldPath } of migratedFiles) {
+        try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch (e) {
+          console.error('Change-username: failed to remove original chat file', oldPath, e);
+        }
+      }
+      try {
+        if (fs.readdirSync(oldChatsDir).length === 0) fs.rmdirSync(oldChatsDir);
+      } catch { /* ignore */ }
+    }
+
+    // Update user record
+    users[userIndex] = { ...users[userIndex], username: normalizedNew };
+    writeUsers(users);
+
+    // Invalidate old sessions and issue a new token for the renamed user
+    invalidateUserSessions(oldUsername);
+    const newToken = createSessionToken(normalizedNew);
+
+    // Transfer any password-change cooldown to the new username
+    if (passwordChangeCooldowns.has(oldUsername)) {
+      passwordChangeCooldowns.set(normalizedNew, passwordChangeCooldowns.get(oldUsername));
+      passwordChangeCooldowns.delete(oldUsername);
+    }
+    usernameChangeCooldowns.set(normalizedNew, Date.now());
+
+    auditLog({ event: 'USERNAME_CHANGED', message: `Username changed from ${oldUsername} to ${normalizedNew}`, username: normalizedNew, req });
+    res.json({ success: true, username: normalizedNew, token: newToken });
+  } catch (err) {
+    console.error('Change username error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -1080,6 +1261,22 @@ function readUserApiKeys(username) {
     return JSON.parse(decryptData(encrypted, username));
   } catch {
     return {};
+  }
+}
+
+/**
+ * Like readUserApiKeys but distinguishes between "file absent" (returns {})
+ * and "file present but unreadable/corrupt" (returns null).
+ * Used by change-username to decide whether to abort the migration.
+ */
+function readUserApiKeysSafe(username) {
+  const file = getUserApiKeysFile(username);
+  if (!fs.existsSync(file)) return {};
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return null;
   }
 }
 
@@ -1687,4 +1884,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown };
