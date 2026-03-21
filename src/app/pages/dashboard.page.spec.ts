@@ -86,7 +86,7 @@ describe('DashboardPageComponent', () => {
     expect(badge?.textContent?.trim()).toContain('대시보드');
   });
 
-  it('should display the General Assistant app card', () => {
+  it('should display the Chat app card', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
 

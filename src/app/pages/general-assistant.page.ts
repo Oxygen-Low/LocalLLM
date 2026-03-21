@@ -83,7 +83,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
             </svg>
           </button>
           <h1 class="text-lg font-semibold text-secondary-900 truncate">
-            {{ currentChat()?.title || 'General Assistant' }}
+            {{ currentChat()?.title || 'Chat' }}
           </h1>
         </div>
 
@@ -191,7 +191,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                 <div class="w-16 h-16 rounded-2xl bg-primary-100 flex items-center justify-center mx-auto mb-6">
                   <span class="text-3xl">🤖</span>
                 </div>
-                <h2 class="text-2xl font-bold text-secondary-900 mb-3">General Assistant</h2>
+                <h2 class="text-2xl font-bold text-secondary-900 mb-3">Chat</h2>
                 <p class="text-secondary-500 mb-8">
                   Ask me anything. I can help with writing, coding, analysis, creative tasks, and more.
                 </p>
