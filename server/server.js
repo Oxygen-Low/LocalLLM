@@ -82,16 +82,16 @@ const KOBOLD_API_URL = process.env.KOBOLD_API_URL || 'http://localhost:5001';
 const KOBOLD_CHECK_TIMEOUT_MS = 5000; // 5-second timeout for kobold.cpp status checks
 const KOBOLD_CACHE_TTL_MS = 5000; // Cache kobold status for 5 seconds
 
-let _koboldCache = { timestamp: 0, available: false, model: null };
+let koboldCache = { timestamp: 0, available: false, model: null };
 
 function resetKoboldCache() {
-  _koboldCache = { timestamp: 0, available: false, model: null };
+  koboldCache = { timestamp: 0, available: false, model: null };
 }
 
 async function checkKoboldStatus() {
   const now = Date.now();
-  if (now - _koboldCache.timestamp < KOBOLD_CACHE_TTL_MS) {
-    return { available: _koboldCache.available, model: _koboldCache.model };
+  if (now - koboldCache.timestamp < KOBOLD_CACHE_TTL_MS) {
+    return { available: koboldCache.available, model: koboldCache.model };
   }
   let available = false;
   let model = null;
@@ -110,7 +110,7 @@ async function checkKoboldStatus() {
   } catch {
     // Kobold.cpp not reachable
   }
-  _koboldCache = { timestamp: now, available, model };
+  koboldCache = { timestamp: now, available, model };
   return { available, model };
 }
 
@@ -1453,7 +1453,7 @@ app.get('/api/kobold/status', requireSession, async (req, res) => {
   res.json({
     success: true,
     available: status.available,
-    model: status.model || 'Unknown Model',
+    model: status.model || 'Local Model',
   });
 });
 
