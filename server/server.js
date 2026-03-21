@@ -79,6 +79,41 @@ function decryptData(encryptedStr, username) {
 // Kobold.cpp configuration
 // ---------------------------------------------------------------------------
 const KOBOLD_API_URL = process.env.KOBOLD_API_URL || 'http://localhost:5001';
+const KOBOLD_CHECK_TIMEOUT_MS = 5000; // 5-second timeout for kobold.cpp status checks
+const KOBOLD_CACHE_TTL_MS = 5000; // Cache kobold status for 5 seconds
+
+let koboldCache = { timestamp: 0, available: false, model: null };
+
+function resetKoboldCache() {
+  koboldCache = { timestamp: 0, available: false, model: null };
+}
+
+async function checkKoboldStatus() {
+  const now = Date.now();
+  if (now - koboldCache.timestamp < KOBOLD_CACHE_TTL_MS) {
+    return { available: koboldCache.available, model: koboldCache.model };
+  }
+  let available = false;
+  let model = null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), KOBOLD_CHECK_TIMEOUT_MS);
+    const response = await fetch(`${KOBOLD_API_URL}/api/v1/model`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (response.ok) {
+      const data = await response.json();
+      available = true;
+      model = data.result || 'Local Model';
+    }
+  } catch {
+    // Kobold.cpp not reachable
+  }
+  koboldCache = { timestamp: now, available, model };
+  return { available, model };
+}
+
 const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
 const LLM_DEFAULT_MAX_TOKENS = 4096;
 const THINK_MAX_TOKENS = 16000; // Higher limit to accommodate thinking + response tokens
@@ -1414,22 +1449,12 @@ app.put('/api/user/api-keys/:provider/model', requireSession, (req, res) => {
 // Kobold.cpp status check
 // ---------------------------------------------------------------------------
 app.get('/api/kobold/status', requireSession, async (req, res) => {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(`${KOBOLD_API_URL}/api/v1/model`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (response.ok) {
-      const data = await response.json();
-      res.json({ success: true, available: true, model: data.result || 'Unknown Model' });
-    } else {
-      res.json({ success: true, available: false });
-    }
-  } catch {
-    res.json({ success: true, available: false });
-  }
+  const status = await checkKoboldStatus();
+  res.json({
+    success: true,
+    available: status.available,
+    model: status.model || 'Local Model',
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1881,30 +1906,13 @@ app.get('/api/providers', requireSession, async (req, res) => {
     const keys = readUserApiKeys(req.sessionUser);
     const providers = [];
 
-    // Check kobold.cpp
-    let koboldAvailable = false;
-    let koboldModel = null;
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      const kRes = await fetch(`${KOBOLD_API_URL}/api/v1/model`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (kRes.ok) {
-        const data = await kRes.json();
-        koboldAvailable = true;
-        koboldModel = data.result || 'Local Model';
-      }
-    } catch {
-      // Not available
-    }
-
-    if (koboldAvailable) {
+    // Check kobold.cpp (cached)
+    const koboldStatus = await checkKoboldStatus();
+    if (koboldStatus.available) {
       providers.push({
         id: 'kobold',
         name: 'Local Model',
-        model: koboldModel,
+        model: koboldStatus.model,
         available: true,
       });
     }
@@ -1969,4 +1977,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache };

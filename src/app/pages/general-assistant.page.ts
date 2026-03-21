@@ -300,6 +300,10 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   errorMessage = signal<string | null>(null);
 
   private clickOutsideListener: ((e: Event) => void) | null = null;
+  private providerPollTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly PROVIDER_POLL_INTERVAL_MS = 10_000;
+  private static readonly PROVIDER_RETRY_COUNT = 3;
+  private static readonly PROVIDER_RETRY_DELAY_MS = 2_000;
 
   async ngOnInit(): Promise<void> {
     // Close dropdown when clicking outside the dropdown area
@@ -312,9 +316,12 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     document.addEventListener('click', this.clickOutsideListener);
 
     await Promise.all([
-      this.loadProviders(),
+      this.loadProvidersWithRetry(),
       this.loadChatList(),
     ]);
+
+    // Poll for providers periodically if no local model was detected
+    this.startProviderPollingIfNeeded();
 
     // Auto-load the most recent chat
     const chats = this.chatList();
@@ -326,6 +333,40 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.clickOutsideListener) {
       document.removeEventListener('click', this.clickOutsideListener);
+    }
+    this.stopProviderPolling();
+  }
+
+  private hasLocalProvider(): boolean {
+    return this.providers().some(p => p.id === 'kobold');
+  }
+
+  private startProviderPollingIfNeeded(): void {
+    if (this.hasLocalProvider()) return;
+    this.providerPollTimer = setInterval(async () => {
+      await this.loadProviders();
+      if (this.hasLocalProvider()) {
+        this.stopProviderPolling();
+      }
+    }, GeneralAssistantPageComponent.PROVIDER_POLL_INTERVAL_MS);
+  }
+
+  private stopProviderPolling(): void {
+    if (this.providerPollTimer) {
+      clearInterval(this.providerPollTimer);
+      this.providerPollTimer = null;
+    }
+  }
+
+  private async loadProvidersWithRetry(): Promise<void> {
+    for (let attempt = 0; attempt < GeneralAssistantPageComponent.PROVIDER_RETRY_COUNT; attempt++) {
+      await this.loadProviders();
+      if (this.providers().length > 0) return;
+      if (attempt < GeneralAssistantPageComponent.PROVIDER_RETRY_COUNT - 1) {
+        await new Promise(resolve =>
+          setTimeout(resolve, GeneralAssistantPageComponent.PROVIDER_RETRY_DELAY_MS)
+        );
+      }
     }
   }
 
