@@ -35,6 +35,11 @@ export interface ProviderInfo {
   available: boolean;
 }
 
+export interface SendMessageOptions {
+  webSearch?: boolean;
+  think?: boolean;
+}
+
 export interface ProviderKeyStatus {
   configured: boolean;
   selectedModel: string | null;
@@ -153,12 +158,16 @@ export class LlmService {
   async sendMessage(
     messages: ChatMessage[],
     provider: string,
-    model: string
+    model: string,
+    options?: SendMessageOptions
   ): Promise<ChatMessage> {
+    const body: Record<string, unknown> = { messages, provider, model };
+    if (options?.webSearch) body['webSearch'] = true;
+    if (options?.think) body['think'] = true;
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; message: ChatMessage }>(
         `${environment.apiUrl}/api/chat/send`,
-        { messages, provider, model }
+        body
       )
     );
     return res.message;

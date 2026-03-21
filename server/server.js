@@ -1617,7 +1617,24 @@ app.delete('/api/chats/:id', requireSession, (req, res) => {
 // LLM Chat Proxy – Routes messages to the selected provider
 // ---------------------------------------------------------------------------
 
-async function proxyToKobold(messages) {
+function enhanceMessagesForThink(messages) {
+  const thinkInstruction = '\n\nThink step by step. Consider the problem carefully and show your reasoning before providing your final answer.';
+  const systemIdx = messages.findIndex(m => m.role === 'system');
+  const enhanced = [...messages];
+  if (systemIdx >= 0) {
+    enhanced[systemIdx] = { ...enhanced[systemIdx], content: enhanced[systemIdx].content + thinkInstruction };
+  } else {
+    enhanced.unshift({ role: 'system', content: thinkInstruction.trim() });
+  }
+  return enhanced;
+}
+
+async function proxyToKobold(messages, options = {}) {
+  // Apply think instruction to system prompt if requested
+  if (options.think) {
+    messages = enhanceMessagesForThink(messages);
+  }
+
   const prompt = messages.map(m => {
     if (m.role === 'system') return `### System:\n${m.content}`;
     if (m.role === 'user') return `### User:\n${m.content}`;
@@ -1647,7 +1664,24 @@ async function proxyToKobold(messages) {
   return { content: data.results?.[0]?.text || '' };
 }
 
-async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, model) {
+async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, model, options = {}) {
+  // Apply think instruction to system prompt if requested
+  if (options.think) {
+    messages = enhanceMessagesForThink(messages);
+  }
+
+  const body = {
+    model,
+    messages,
+    max_tokens: 4096,
+    temperature: 0.7,
+  };
+
+  // Add web search tool for providers that support it (OpenAI, OpenRouter)
+  if (options.webSearch) {
+    body.tools = [{ type: 'web_search_preview' }];
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   const response = await fetch(`${baseUrl}${chatEndpoint}`, {
@@ -1656,12 +1690,7 @@ async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, 
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: 4096,
-      temperature: 0.7,
-    }),
+    body: JSON.stringify(body),
     signal: controller.signal,
   });
   clearTimeout(timeout);
@@ -1675,17 +1704,25 @@ async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, 
   return { content: data.choices?.[0]?.message?.content || '' };
 }
 
-async function proxyToAnthropic(messages, apiKey, model) {
+async function proxyToAnthropic(messages, apiKey, model, options = {}) {
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
   const body = {
     model,
-    max_tokens: 4096,
+    max_tokens: options.think ? 16000 : 4096,
     messages: chatMessages,
   };
   if (systemMsg) {
     body.system = systemMsg.content;
+  }
+
+  // Add native extended thinking for Anthropic
+  if (options.think) {
+    body.thinking = { type: 'enabled', budget_tokens: 10000 };
+    // Anthropic requires temperature=1 when thinking is enabled; omit temperature
+  } else {
+    // No temperature set by default (Anthropic uses its own default)
   }
 
   const controller = new AbortController();
@@ -1712,7 +1749,7 @@ async function proxyToAnthropic(messages, apiKey, model) {
   return { content: text };
 }
 
-async function proxyToGoogle(messages, apiKey, model) {
+async function proxyToGoogle(messages, apiKey, model, options = {}) {
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
@@ -1724,6 +1761,16 @@ async function proxyToGoogle(messages, apiKey, model) {
   const body = { contents };
   if (systemMsg) {
     body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+  }
+
+  // Add Google Search grounding tool
+  if (options.webSearch) {
+    body.tools = [{ googleSearch: {} }];
+  }
+
+  // Add native thinking config for Google
+  if (options.think) {
+    body.generationConfig = { thinkingConfig: { thinkingBudget: 8192 } };
   }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -1751,6 +1798,9 @@ async function proxyToGoogle(messages, apiKey, model) {
 app.post('/api/chat/send', requireSession, async (req, res) => {
   try {
     const { messages, provider, model } = req.body;
+    const webSearch = req.body.webSearch === true;
+    const think = req.body.think === true;
+    const options = { webSearch, think };
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ success: false, error: 'Messages are required' });
@@ -1777,7 +1827,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     let result;
 
     if (provider === 'kobold') {
-      result = await proxyToKobold(messages);
+      result = await proxyToKobold(messages, options);
     } else if (VALID_PROVIDERS.includes(provider)) {
       const keys = readUserApiKeys(req.sessionUser);
       const providerKeys = keys[provider];
@@ -1793,13 +1843,13 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       const providerConfig = AI_PROVIDERS[provider];
 
       if (provider === 'anthropic') {
-        result = await proxyToAnthropic(messages, providerKeys.apiKey, selectedModel);
+        result = await proxyToAnthropic(messages, providerKeys.apiKey, selectedModel, options);
       } else if (provider === 'google') {
-        result = await proxyToGoogle(messages, providerKeys.apiKey, selectedModel);
+        result = await proxyToGoogle(messages, providerKeys.apiKey, selectedModel, options);
       } else {
         result = await proxyToOpenAICompatible(
           messages, providerKeys.apiKey, providerConfig.baseUrl,
-          providerConfig.chatEndpoint, selectedModel
+          providerConfig.chatEndpoint, selectedModel, options
         );
       }
     } else {
@@ -1912,4 +1962,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink };

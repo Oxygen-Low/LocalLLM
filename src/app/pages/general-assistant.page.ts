@@ -2,7 +2,7 @@ import { Component, inject, signal, ViewChild, ElementRef, OnInit, OnDestroy } f
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo } from '../services/llm.service';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions } from '../services/llm.service';
 
 @Component({
   selector: 'app-general-assistant',
@@ -220,6 +220,34 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                   </div>
                 }
               </div>
+
+              <!-- Web Search Toggle -->
+              <button
+                (click)="webSearchEnabled.set(!webSearchEnabled())"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                [ngClass]="webSearchEnabled()
+                  ? 'border-primary-300 bg-primary-50 text-primary-700'
+                  : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Search
+              </button>
+
+              <!-- Think Toggle -->
+              <button
+                (click)="thinkEnabled.set(!thinkEnabled())"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                [ngClass]="thinkEnabled()
+                  ? 'border-primary-300 bg-primary-50 text-primary-700'
+                  : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Think
+              </button>
             </div>
 
             <!-- Text Input -->
@@ -265,6 +293,8 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   providers = signal<ProviderInfo[]>([]);
   selectedProvider = signal<ProviderInfo | null>(null);
   showProviderDropdown = signal(false);
+  webSearchEnabled = signal(false);
+  thinkEnabled = signal(false);
   userMessage = '';
   isLoading = signal(false);
   errorMessage = signal<string | null>(null);
@@ -433,10 +463,15 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       const llmMessages = [systemPrompt, ...updatedMessages.filter(m => m.role !== 'system')];
 
       // Send to LLM
+      const options: SendMessageOptions = {};
+      if (this.webSearchEnabled()) options.webSearch = true;
+      if (this.thinkEnabled()) options.think = true;
+
       const response = await this.llmService.sendMessage(
         llmMessages,
         provider.id,
-        provider.model || ''
+        provider.model || '',
+        options
       );
 
       const assistantMsg: ChatMessage = {
