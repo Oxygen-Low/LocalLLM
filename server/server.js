@@ -1664,7 +1664,7 @@ function enhanceMessagesForThink(messages) {
 
 // Send a Server-Sent Event to the client
 function sendSSE(res, event, data) {
-  if (!res || res.writableEnded || res.finished || res.destroyed === true || res.writable === false) {
+  if (!res || res.writableEnded || res.finished || res.destroyed || !res.writable) {
     return;
   }
   try {
