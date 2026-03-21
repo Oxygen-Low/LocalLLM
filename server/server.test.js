@@ -1168,6 +1168,12 @@ describe('ensureWithinDir', () => {
       ensureWithinDir('/home/data', '/etc/passwd');
     }, /Path traversal detected/);
   });
+
+  it('rejects the parent directory itself as a valid path', () => {
+    assert.throws(() => {
+      ensureWithinDir('/home/data', '/home/data');
+    }, /Path traversal detected/);
+  });
 });
 
 // ---------------------------------------------------------------------------

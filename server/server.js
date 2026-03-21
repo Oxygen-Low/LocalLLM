@@ -602,7 +602,7 @@ function sanitizeUsernameForPath(username) {
 function ensureWithinDir(parentDir, absolutePath) {
   const resolvedParent = path.resolve(parentDir) + path.sep;
   const resolvedChild = path.resolve(absolutePath);
-  if (!resolvedChild.startsWith(resolvedParent) && resolvedChild !== path.resolve(parentDir)) {
+  if (!resolvedChild.startsWith(resolvedParent)) {
     throw new Error('Path traversal detected');
   }
   return resolvedChild;
