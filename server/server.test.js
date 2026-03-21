@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown } = require('./server');
@@ -1713,5 +1714,132 @@ describe('PUT /api/auth/change-password cooldown', { concurrency: false }, () =>
     assert.equal(res.body.success, false);
     assert.ok(res.body.retryAfterSeconds > 0, 'Expected retryAfterSeconds to be positive');
     passwordChangeCooldowns.delete(cooldownUsername);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reset-admin.js script
+// ---------------------------------------------------------------------------
+describe('reset-admin.js script', { concurrency: false }, () => {
+  const RESET_SCRIPT = path.join(__dirname, 'reset-admin.js');
+  const USERS_FILE = path.join(DATA_DIR, 'users.json');
+
+  function runResetAdmin() {
+    return execFileSync(process.execPath, [RESET_SCRIPT], {
+      encoding: 'utf-8',
+      timeout: 15000,
+    });
+  }
+
+  it('creates admin account when users.json does not exist', () => {
+    // Remove users.json if it exists
+    if (fs.existsSync(USERS_FILE)) fs.unlinkSync(USERS_FILE);
+
+    const output = runResetAdmin();
+
+    assert.ok(output.includes('Admin account password has been reset'), 'Should print reset message');
+    assert.ok(output.includes('Username : admin'), 'Should print admin username');
+    assert.ok(output.includes('Password :'), 'Should print new password');
+
+    // Verify the file was created with the admin user
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    assert.equal(users.length, 1);
+    assert.equal(users[0].username, 'admin');
+    assert.ok(users[0].passwordHash, 'Should have passwordHash');
+    assert.ok(users[0].salt, 'Should have salt');
+    assert.equal(users[0].passwordResetRequired, false);
+
+    // Reload server cache
+    writeUsers(users);
+  });
+
+  it('resets admin password when admin already exists', () => {
+    // Ensure admin exists first
+    const usersBefore = readUsers();
+    const adminBefore = usersBefore.find((u) => u.username === 'admin');
+    const oldHash = adminBefore.passwordHash;
+    const oldSalt = adminBefore.salt;
+
+    const output = runResetAdmin();
+
+    assert.ok(output.includes('Admin account password has been reset'));
+
+    const usersAfter = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const adminAfter = usersAfter.find((u) => u.username === 'admin');
+
+    // Password hash and salt should be different after reset
+    assert.notEqual(adminAfter.passwordHash, oldHash, 'Password hash should change');
+    assert.notEqual(adminAfter.salt, oldSalt, 'Salt should change');
+
+    // Reload server cache
+    writeUsers(usersAfter);
+  });
+
+  it('preserves non-admin users', () => {
+    // Add a non-admin user
+    const users = readUsers();
+    const testUser = {
+      username: 'resettest',
+      passwordHash: 'fakehash123',
+      salt: 'fakesalt456',
+      createdAt: new Date().toISOString(),
+      passwordResetRequired: false,
+    };
+    users.push(testUser);
+    writeUsers(users);
+
+    runResetAdmin();
+
+    const usersAfter = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const preserved = usersAfter.find((u) => u.username === 'resettest');
+
+    assert.ok(preserved, 'Non-admin user should be preserved');
+    assert.equal(preserved.passwordHash, 'fakehash123');
+    assert.equal(preserved.salt, 'fakesalt456');
+
+    // Also verify admin is present
+    const adminAfter = usersAfter.find((u) => u.username === 'admin');
+    assert.ok(adminAfter, 'Admin should exist');
+
+    // Clean up: remove test user and reload cache
+    writeUsers(usersAfter.filter((u) => u.username !== 'resettest'));
+  });
+
+  it('produces a password that works with the login flow', async () => {
+    const output = runResetAdmin();
+
+    // Extract the password from the output
+    const match = output.match(/Password : (.+)/);
+    assert.ok(match, 'Should be able to extract password from output');
+    const newPassword = match[1].trim();
+
+    // Reload the users into the server cache
+    const usersFromFile = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    writeUsers(usersFromFile);
+
+    // Simulate the login flow: client pre-hashes with SHA-256, server verifies with PBKDF2
+    const clientPreHash = sha256Hex(newPassword);
+    const admin = readUsers().find((u) => u.username === 'admin');
+    const { pbkdf2 } = crypto;
+    const derivedKey = await new Promise((resolve, reject) => {
+      pbkdf2(clientPreHash, admin.salt, 100000, 32, 'sha256', (err, key) => {
+        if (err) reject(err);
+        else resolve(key.toString('hex'));
+      });
+    });
+    assert.equal(derivedKey, admin.passwordHash, 'Password should verify correctly');
+  });
+
+  it('does not create duplicate admin entries on repeated runs', () => {
+    runResetAdmin();
+    runResetAdmin();
+    runResetAdmin();
+
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const admins = users.filter((u) => u.username === 'admin');
+    assert.equal(admins.length, 1, 'Should have exactly one admin user');
+
+    // Reload server cache
+    writeUsers(users);
   });
 });
