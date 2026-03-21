@@ -80,6 +80,10 @@ function decryptData(encryptedStr, username) {
 // ---------------------------------------------------------------------------
 const KOBOLD_API_URL = process.env.KOBOLD_API_URL || 'http://localhost:5001';
 const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
+const LLM_DEFAULT_MAX_TOKENS = 4096;
+const THINK_MAX_TOKENS = 16000; // Higher limit to accommodate thinking + response tokens
+const ANTHROPIC_THINKING_BUDGET = 10000; // Budget tokens for Anthropic extended thinking
+const GOOGLE_THINKING_BUDGET = 8192; // Budget tokens for Google thinking mode
 
 // ---------------------------------------------------------------------------
 // Supported AI providers and their API configurations
@@ -1673,7 +1677,7 @@ async function proxyToOpenAICompatible(messages, apiKey, baseUrl, chatEndpoint, 
   const body = {
     model,
     messages,
-    max_tokens: 4096,
+    max_tokens: LLM_DEFAULT_MAX_TOKENS,
     temperature: 0.7,
   };
 
@@ -1710,7 +1714,7 @@ async function proxyToAnthropic(messages, apiKey, model, options = {}) {
 
   const body = {
     model,
-    max_tokens: options.think ? 16000 : 4096,
+    max_tokens: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
     messages: chatMessages,
   };
   if (systemMsg) {
@@ -1719,7 +1723,7 @@ async function proxyToAnthropic(messages, apiKey, model, options = {}) {
 
   // Add native extended thinking for Anthropic
   if (options.think) {
-    body.thinking = { type: 'enabled', budget_tokens: 10000 };
+    body.thinking = { type: 'enabled', budget_tokens: ANTHROPIC_THINKING_BUDGET };
     // Anthropic requires temperature=1 when thinking is enabled; omit temperature
   } else {
     // No temperature set by default (Anthropic uses its own default)
@@ -1770,7 +1774,7 @@ async function proxyToGoogle(messages, apiKey, model, options = {}) {
 
   // Add native thinking config for Google
   if (options.think) {
-    body.generationConfig = { thinkingConfig: { thinkingBudget: 8192 } };
+    body.generationConfig = { thinkingConfig: { thinkingBudget: GOOGLE_THINKING_BUDGET } };
   }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
