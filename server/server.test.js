@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -576,6 +576,19 @@ describe('SSRF protection (A10)', () => {
       const result = await validateResolvedIP('169.254.169.254');
       assert.equal(result.safe, false);
     });
+
+    it('does not leak internal IP addresses in rejection reason', async () => {
+      const result = await validateResolvedIP('127.0.0.1');
+      assert.equal(result.safe, false);
+      assert.ok(!result.reason.includes('127.0.0.1'), 'reason must not contain the actual IP address');
+    });
+
+    it('does not leak DNS error details in rejection reason', async () => {
+      const result = await validateResolvedIP('this-host-does-not-exist-xyz.invalid');
+      assert.equal(result.safe, false);
+      assert.ok(!result.reason.includes('ENOTFOUND'), 'reason must not leak DNS error codes');
+      assert.ok(!result.reason.includes('SERVFAIL'), 'reason must not leak DNS error codes');
+    });
   });
 
   describe('ssrfSafeUrlValidation', () => {
@@ -1124,6 +1137,42 @@ describe('getUserApiKeysFile', () => {
     const filePath = getUserApiKeysFile('user\x00../../etc/passwd');
     assert.ok(filePath.startsWith(DATA_DIR), 'path must remain under DATA_DIR');
     assert.ok(!filePath.includes('\x00'), 'path must not contain null bytes');
+  });
+});
+
+describe('ensureWithinDir', () => {
+  it('allows paths within the parent directory', () => {
+    const result = ensureWithinDir('/home/data', '/home/data/file.txt');
+    assert.equal(result, path.resolve('/home/data/file.txt'));
+  });
+
+  it('allows paths in subdirectories', () => {
+    const result = ensureWithinDir('/home/data', '/home/data/sub/file.txt');
+    assert.equal(result, path.resolve('/home/data/sub/file.txt'));
+  });
+
+  it('throws on path traversal via ../', () => {
+    assert.throws(() => {
+      ensureWithinDir('/home/data', '/home/data/../etc/passwd');
+    }, /Path traversal detected/);
+  });
+
+  it('throws when resolved path escapes parent', () => {
+    assert.throws(() => {
+      ensureWithinDir('/home/data/chats', '/home/data/other/file.txt');
+    }, /Path traversal detected/);
+  });
+
+  it('throws on completely unrelated path', () => {
+    assert.throws(() => {
+      ensureWithinDir('/home/data', '/etc/passwd');
+    }, /Path traversal detected/);
+  });
+
+  it('rejects the parent directory itself as a valid path', () => {
+    assert.throws(() => {
+      ensureWithinDir('/home/data', '/home/data');
+    }, /Path traversal detected/);
   });
 });
 
