@@ -13,6 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const UNIVERSES_FILE = path.join(DATA_DIR, 'universes.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PBKDF2_ITERATIONS = 100000;
@@ -577,6 +578,9 @@ if (!fs.existsSync(CHATS_DIR)) {
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
 }
+if (!fs.existsSync(UNIVERSES_FILE)) {
+  fs.writeFileSync(UNIVERSES_FILE, JSON.stringify([]), 'utf-8');
+}
 
 // In-memory users cache – loaded from disk once at startup, kept in sync on every write
 let usersCache = null;
@@ -595,6 +599,32 @@ function loadUsersFromDisk() {
 
 // Eagerly load the cache at module init (data dir / file are guaranteed to exist above)
 loadUsersFromDisk();
+
+// ---------------------------------------------------------------------------
+// Universes & Characters – in-memory cache with disk persistence
+// ---------------------------------------------------------------------------
+let universesCache = null;
+
+function loadUniversesFromDisk() {
+  try {
+    const data = fs.readFileSync(UNIVERSES_FILE, 'utf-8');
+    universesCache = JSON.parse(data);
+    if (!Array.isArray(universesCache)) universesCache = [];
+  } catch {
+    universesCache = [];
+  }
+}
+
+loadUniversesFromDisk();
+
+function readUniverses() {
+  return universesCache;
+}
+
+function writeUniverses(universes) {
+  universesCache = universes;
+  fs.writeFileSync(UNIVERSES_FILE, JSON.stringify(universesCache, null, 2), 'utf-8');
+}
 
 const ADMIN_USERNAME = 'admin';
 
@@ -719,6 +749,9 @@ async function verifyAdminCredentials(adminUsername, adminPassword) {
 function saveAllData() {
   if (usersCache !== null) {
     fs.writeFileSync(USERS_FILE, JSON.stringify(usersCache, null, 2), 'utf-8');
+  }
+  if (universesCache !== null) {
+    fs.writeFileSync(UNIVERSES_FILE, JSON.stringify(universesCache, null, 2), 'utf-8');
   }
 }
 
@@ -1224,6 +1257,267 @@ app.post('/api/admin/users/delete', async (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     console.error('Admin delete user error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Universes & Characters – Admin management endpoints
+// ---------------------------------------------------------------------------
+
+const MAX_UNIVERSE_NAME_LENGTH = 100;
+const MAX_CHARACTER_NAME_LENGTH = 100;
+const MAX_CHARACTER_DESCRIPTION_LENGTH = 5000;
+
+// GET /api/universes – List all universes with characters (names only for non-admin)
+app.get('/api/universes', requireSession, (req, res) => {
+  try {
+    const universes = readUniverses().map((u) => ({
+      id: u.id,
+      name: u.name,
+      characters: (u.characters || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+      })),
+    }));
+    return res.json({ success: true, universes });
+  } catch (err) {
+    console.error('List universes error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/universes/admin – List all universes with full character details (admin only)
+app.post('/api/admin/universes/list', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin universes list attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const universes = readUniverses();
+    return res.json({ success: true, universes });
+  } catch (err) {
+    console.error('Admin list universes error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/universes – Create a new universe
+app.post('/api/admin/universes', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, name } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin create universe attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Universe name is required' });
+    }
+    if (name.trim().length > MAX_UNIVERSE_NAME_LENGTH) {
+      return res.status(400).json({ success: false, error: `Universe name must be at most ${MAX_UNIVERSE_NAME_LENGTH} characters` });
+    }
+
+    const universes = readUniverses();
+    const universe = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      characters: [],
+    };
+    universes.push(universe);
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_CREATE_UNIVERSE', message: `Admin created universe "${universe.name}"`, username: adminUsername, req });
+    return res.status(201).json({ success: true, universe });
+  } catch (err) {
+    console.error('Admin create universe error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/admin/universes/:id – Update a universe
+app.put('/api/admin/universes/:id', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, name } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin update universe attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Universe name is required' });
+    }
+    if (name.trim().length > MAX_UNIVERSE_NAME_LENGTH) {
+      return res.status(400).json({ success: false, error: `Universe name must be at most ${MAX_UNIVERSE_NAME_LENGTH} characters` });
+    }
+
+    const universes = readUniverses();
+    const index = universes.findIndex((u) => u.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    universes[index] = { ...universes[index], name: name.trim() };
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_UPDATE_UNIVERSE', message: `Admin updated universe "${name.trim()}"`, username: adminUsername, req });
+    return res.json({ success: true, universe: universes[index] });
+  } catch (err) {
+    console.error('Admin update universe error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/universes/:id – Delete a universe
+app.delete('/api/admin/universes/:id', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin delete universe attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const universes = readUniverses();
+    const index = universes.findIndex((u) => u.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    const removed = universes.splice(index, 1)[0];
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_DELETE_UNIVERSE', message: `Admin deleted universe "${removed.name}"`, username: adminUsername, req });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Admin delete universe error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/universes/:universeId/characters – Create a character in a universe
+app.post('/api/admin/universes/:universeId/characters', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, name, description } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin create character attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Character name is required' });
+    }
+    if (name.trim().length > MAX_CHARACTER_NAME_LENGTH) {
+      return res.status(400).json({ success: false, error: `Character name must be at most ${MAX_CHARACTER_NAME_LENGTH} characters` });
+    }
+    if (description != null && typeof description !== 'string') {
+      return res.status(400).json({ success: false, error: 'Character description must be a string' });
+    }
+    if (typeof description === 'string' && description.length > MAX_CHARACTER_DESCRIPTION_LENGTH) {
+      return res.status(400).json({ success: false, error: `Character description must be at most ${MAX_CHARACTER_DESCRIPTION_LENGTH} characters` });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find((u) => u.id === req.params.universeId);
+    if (!universe) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    const character = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      description: (description || '').trim(),
+    };
+    if (!universe.characters) universe.characters = [];
+    universe.characters.push(character);
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_CREATE_CHARACTER', message: `Admin created character "${character.name}" in universe "${universe.name}"`, username: adminUsername, req });
+    return res.status(201).json({ success: true, character });
+  } catch (err) {
+    console.error('Admin create character error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/admin/universes/:universeId/characters/:characterId – Update a character
+app.put('/api/admin/universes/:universeId/characters/:characterId', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, name, description } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin update character attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Character name is required' });
+    }
+    if (name.trim().length > MAX_CHARACTER_NAME_LENGTH) {
+      return res.status(400).json({ success: false, error: `Character name must be at most ${MAX_CHARACTER_NAME_LENGTH} characters` });
+    }
+    if (description != null && typeof description !== 'string') {
+      return res.status(400).json({ success: false, error: 'Character description must be a string' });
+    }
+    if (typeof description === 'string' && description.length > MAX_CHARACTER_DESCRIPTION_LENGTH) {
+      return res.status(400).json({ success: false, error: `Character description must be at most ${MAX_CHARACTER_DESCRIPTION_LENGTH} characters` });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find((u) => u.id === req.params.universeId);
+    if (!universe) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    const characters = universe.characters || [];
+    const charIndex = characters.findIndex((c) => c.id === req.params.characterId);
+    if (charIndex === -1) {
+      return res.status(404).json({ success: false, error: 'Character not found' });
+    }
+
+    characters[charIndex] = {
+      ...characters[charIndex],
+      name: name.trim(),
+      description: (description || '').trim(),
+    };
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_UPDATE_CHARACTER', message: `Admin updated character "${name.trim()}" in universe "${universe.name}"`, username: adminUsername, req });
+    return res.json({ success: true, character: characters[charIndex] });
+  } catch (err) {
+    console.error('Admin update character error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/universes/:universeId/characters/:characterId – Delete a character
+app.delete('/api/admin/universes/:universeId/characters/:characterId', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin delete character attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find((u) => u.id === req.params.universeId);
+    if (!universe) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    const characters = universe.characters || [];
+    const charIndex = characters.findIndex((c) => c.id === req.params.characterId);
+    if (charIndex === -1) {
+      return res.status(404).json({ success: false, error: 'Character not found' });
+    }
+
+    const removed = characters.splice(charIndex, 1)[0];
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_DELETE_CHARACTER', message: `Admin deleted character "${removed.name}" from universe "${universe.name}"`, username: adminUsername, req });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Admin delete character error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -2180,4 +2474,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream };

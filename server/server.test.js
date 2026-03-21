@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -447,6 +447,233 @@ describe('Admin management endpoints', () => {
     });
     const usernames = list.body.users.map((u) => u.username);
     assert.ok(!usernames.includes(managedUser));
+  });
+});
+
+describe('Universes & Characters admin endpoints', { concurrency: false }, () => {
+  before(async () => {
+    writeUsers(readUsers().filter((u) => u.username !== 'admin'));
+    adminPassword = await ensureAdminAccount();
+    // Start with a clean universes state
+    writeUniverses([]);
+  });
+
+  after(() => {
+    writeUniverses([]);
+  });
+
+  const adminHash = () => sha256Hex(adminPassword);
+  let testUniverseId;
+  let testCharacterId;
+
+  it('rejects universe list without valid credentials', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes/list', {});
+    assert.equal(res.status, 403);
+  });
+
+  it('returns empty universes list when none exist', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes/list', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.deepEqual(res.body.universes, []);
+  });
+
+  it('creates a universe', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Fantasy World',
+    });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.universe.name, 'Fantasy World');
+    assert.ok(res.body.universe.id);
+    assert.deepEqual(res.body.universe.characters, []);
+    testUniverseId = res.body.universe.id;
+  });
+
+  it('rejects creating a universe without a name', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects creating a universe with an empty name', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: '   ',
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('updates a universe name', async () => {
+    const res = await request(server, 'PUT', `/api/admin/universes/${testUniverseId}`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Sci-Fi World',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.universe.name, 'Sci-Fi World');
+  });
+
+  it('returns 404 when updating a non-existent universe', async () => {
+    const res = await request(server, 'PUT', '/api/admin/universes/nonexistent-id', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Updated',
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('creates a character in a universe', async () => {
+    const res = await request(server, 'POST', `/api/admin/universes/${testUniverseId}/characters`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Wizard',
+      description: 'A wise and powerful wizard who speaks in riddles.',
+    });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.character.name, 'Wizard');
+    assert.equal(res.body.character.description, 'A wise and powerful wizard who speaks in riddles.');
+    assert.ok(res.body.character.id);
+    testCharacterId = res.body.character.id;
+  });
+
+  it('rejects creating a character without a name', async () => {
+    const res = await request(server, 'POST', `/api/admin/universes/${testUniverseId}/characters`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      description: 'Some description',
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('returns 404 when creating character in non-existent universe', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes/nonexistent-id/characters', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Ghost',
+      description: 'A ghost character',
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('updates a character', async () => {
+    const res = await request(server, 'PUT', `/api/admin/universes/${testUniverseId}/characters/${testCharacterId}`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Sorcerer',
+      description: 'A powerful sorcerer with dark magic.',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.character.name, 'Sorcerer');
+    assert.equal(res.body.character.description, 'A powerful sorcerer with dark magic.');
+  });
+
+  it('returns 404 when updating character in non-existent universe', async () => {
+    const res = await request(server, 'PUT', `/api/admin/universes/nonexistent-id/characters/${testCharacterId}`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Updated',
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('returns 404 when updating a non-existent character', async () => {
+    const res = await request(server, 'PUT', `/api/admin/universes/${testUniverseId}/characters/nonexistent-id`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+      name: 'Updated',
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('lists universes with full details for admin', async () => {
+    const res = await request(server, 'POST', '/api/admin/universes/list', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.universes.length, 1);
+    assert.equal(res.body.universes[0].name, 'Sci-Fi World');
+    assert.equal(res.body.universes[0].characters.length, 1);
+    assert.equal(res.body.universes[0].characters[0].name, 'Sorcerer');
+    assert.equal(res.body.universes[0].characters[0].description, 'A powerful sorcerer with dark magic.');
+  });
+
+  it('lists universes with character names only for authenticated users', async () => {
+    // Create a session token for a regular user
+    const token = createSessionToken('admin');
+    const res = await request(server, 'GET', '/api/universes', null, token);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.universes.length, 1);
+    assert.equal(res.body.universes[0].name, 'Sci-Fi World');
+    assert.equal(res.body.universes[0].characters[0].name, 'Sorcerer');
+    // Non-admin listing should NOT include description
+    assert.equal(res.body.universes[0].characters[0].description, undefined);
+  });
+
+  it('requires authentication for GET /api/universes', async () => {
+    const res = await request(server, 'GET', '/api/universes', null);
+    assert.equal(res.status, 401);
+  });
+
+  it('deletes a character', async () => {
+    const res = await request(server, 'DELETE', `/api/admin/universes/${testUniverseId}/characters/${testCharacterId}`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+
+    // Verify character is gone
+    const list = await request(server, 'POST', '/api/admin/universes/list', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(list.body.universes[0].characters.length, 0);
+  });
+
+  it('returns 404 when deleting a non-existent character', async () => {
+    const res = await request(server, 'DELETE', `/api/admin/universes/${testUniverseId}/characters/nonexistent-id`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('deletes a universe', async () => {
+    const res = await request(server, 'DELETE', `/api/admin/universes/${testUniverseId}`, {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+
+    // Verify universe is gone
+    const list = await request(server, 'POST', '/api/admin/universes/list', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.deepEqual(list.body.universes, []);
+  });
+
+  it('returns 404 when deleting a non-existent universe', async () => {
+    const res = await request(server, 'DELETE', '/api/admin/universes/nonexistent-id', {
+      adminUsername: 'admin',
+      adminPassword: adminHash(),
+    });
+    assert.equal(res.status, 404);
   });
 });
 
