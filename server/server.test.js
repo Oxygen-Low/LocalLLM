@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1518,7 +1518,81 @@ describe('POST /api/chat/send validation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// enhanceMessagesForThink tests
+// SSE streaming helper tests
+// ---------------------------------------------------------------------------
+describe('sendSSE', () => {
+  it('writes correctly formatted SSE event', () => {
+    const chunks = [];
+    const mockRes = { write: (data) => chunks.push(data) };
+    sendSSE(mockRes, 'content', { content: 'Hello' });
+    assert.equal(chunks.length, 1);
+    assert.equal(chunks[0], 'event: content\ndata: {"content":"Hello"}\n\n');
+  });
+
+  it('serializes complex data to JSON', () => {
+    const chunks = [];
+    const mockRes = { write: (data) => chunks.push(data) };
+    sendSSE(mockRes, 'search', { status: 'searched', query: 'test', url: 'https://example.com' });
+    assert.equal(chunks.length, 1);
+    const parsed = JSON.parse(chunks[0].split('\ndata: ')[1].replace('\n\n', ''));
+    assert.equal(parsed.status, 'searched');
+    assert.equal(parsed.url, 'https://example.com');
+  });
+});
+
+describe('parseSSEStream', () => {
+  it('parses SSE events from a readable stream', async () => {
+    const events = [];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: content\ndata: {"content":"Hello"}\n\n'));
+        controller.enqueue(encoder.encode('event: done\ndata: {}\n\n'));
+        controller.close();
+      },
+    });
+    const mockResponse = { body: stream };
+    await parseSSEStream(mockResponse, (type, data) => events.push({ type, data }));
+    assert.equal(events.length, 2);
+    assert.equal(events[0].type, 'content');
+    assert.deepEqual(JSON.parse(events[0].data), { content: 'Hello' });
+    assert.equal(events[1].type, 'done');
+  });
+
+  it('handles multiple events in a single chunk', async () => {
+    const events = [];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          'event: thinking\ndata: {"content":"hmm"}\n\nevent: content\ndata: {"content":"ok"}\n\n'
+        ));
+        controller.close();
+      },
+    });
+    await parseSSEStream({ body: stream }, (type, data) => events.push({ type, data }));
+    assert.equal(events.length, 2);
+    assert.equal(events[0].type, 'thinking');
+    assert.equal(events[1].type, 'content');
+  });
+
+  it('handles events split across chunks', async () => {
+    const events = [];
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: content\n'));
+        controller.enqueue(encoder.encode('data: {"content":"split"}\n\n'));
+        controller.close();
+      },
+    });
+    await parseSSEStream({ body: stream }, (type, data) => events.push({ type, data }));
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'content');
+    assert.deepEqual(JSON.parse(events[0].data), { content: 'split' });
+  });
+});
+
 // ---------------------------------------------------------------------------
 describe('enhanceMessagesForThink', () => {
   it('appends think instruction to existing system message', () => {

@@ -2,10 +2,16 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { LlmService } from './llm.service';
+import { AuthService } from './auth.service';
+import { vi } from 'vitest';
 
 describe('LlmService', () => {
   let service: LlmService;
   let httpMock: HttpTestingController;
+
+  const mockAuthService = {
+    getSessionToken: () => 'test-token',
+  };
 
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -13,6 +19,7 @@ describe('LlmService', () => {
         LlmService,
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: AuthService, useValue: mockAuthService },
       ],
     });
     service = TestBed.inject(LlmService);
@@ -232,6 +239,186 @@ describe('LlmService', () => {
       const result = await promise;
       expect(result.available).toBe(false);
       expect(result.model).toBe('');
+    });
+  });
+
+  describe('sendMessageStream', () => {
+    // Helper to create a ReadableStream from SSE event strings
+    function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
+      const encoder = new TextEncoder();
+      const sseText = events.join('');
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(sseText));
+          controller.close();
+        },
+      });
+    }
+
+    function mockFetchResponse(status: number, body: ReadableStream<Uint8Array> | object): void {
+      const isStream = body instanceof ReadableStream;
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: status >= 200 && status < 300,
+        status,
+        body: isStream ? body : null,
+        json: () => Promise.resolve(body),
+        headers: new Headers(),
+      } as Response);
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should parse SSE content events and return result', async () => {
+      const stream = createSSEStream([
+        'event: content\ndata: {"content":"Hello "}\n\n',
+        'event: content\ndata: {"content":"world!"}\n\n',
+        'event: done\ndata: {}\n\n',
+      ]);
+      mockFetchResponse(200, stream);
+
+      const result = await service.sendMessageStream(
+        [{ role: 'user', content: 'Hi' }],
+        'openai',
+        'gpt-4'
+      );
+
+      expect(result.content).toBe('Hello world!');
+      expect(result.thinking).toBe('');
+    });
+
+    it('should parse SSE thinking events', async () => {
+      const stream = createSSEStream([
+        'event: thinking\ndata: {"content":"Let me think..."}\n\n',
+        'event: content\ndata: {"content":"The answer is 42"}\n\n',
+        'event: done\ndata: {}\n\n',
+      ]);
+      mockFetchResponse(200, stream);
+
+      const result = await service.sendMessageStream(
+        [{ role: 'user', content: 'Think about this' }],
+        'openai',
+        'gpt-4',
+        { think: true }
+      );
+
+      expect(result.thinking).toBe('Let me think...');
+      expect(result.content).toBe('The answer is 42');
+    });
+
+    it('should parse SSE search events', async () => {
+      const stream = createSSEStream([
+        'event: search\ndata: {"status":"searching","query":"test query"}\n\n',
+        'event: content\ndata: {"content":"Found results"}\n\n',
+        'event: search\ndata: {"status":"searched","query":"test query","url":"https://example.com"}\n\n',
+        'event: done\ndata: {}\n\n',
+      ]);
+      mockFetchResponse(200, stream);
+
+      const result = await service.sendMessageStream(
+        [{ role: 'user', content: 'Search for something' }],
+        'openai',
+        'gpt-4',
+        { webSearch: true }
+      );
+
+      expect(result.searches.length).toBe(2);
+      expect(result.searches[0].status).toBe('searching');
+      expect(result.searches[1].status).toBe('searched');
+      expect(result.searches[1].url).toBe('https://example.com');
+    });
+
+    it('should call callbacks for each event type', async () => {
+      const stream = createSSEStream([
+        'event: thinking\ndata: {"content":"hmm"}\n\n',
+        'event: content\ndata: {"content":"ok"}\n\n',
+        'event: search\ndata: {"status":"searched","query":"q"}\n\n',
+        'event: done\ndata: {}\n\n',
+      ]);
+      mockFetchResponse(200, stream);
+
+      const thinkingChunks: string[] = [];
+      const contentChunks: string[] = [];
+      const searchEvents: unknown[] = [];
+      let doneCalled = false;
+
+      await service.sendMessageStream(
+        [{ role: 'user', content: 'test' }],
+        'openai',
+        'gpt-4',
+        {},
+        {
+          onThinking: (c) => thinkingChunks.push(c),
+          onContent: (c) => contentChunks.push(c),
+          onSearch: (d) => searchEvents.push(d),
+          onDone: () => { doneCalled = true; },
+        }
+      );
+
+      expect(thinkingChunks).toEqual(['hmm']);
+      expect(contentChunks).toEqual(['ok']);
+      expect(searchEvents.length).toBe(1);
+      expect(doneCalled).toBe(true);
+    });
+
+    it('should throw on non-ok response', async () => {
+      mockFetchResponse(400, { success: false, error: 'Bad request' });
+
+      await expect(
+        service.sendMessageStream(
+          [{ role: 'user', content: 'test' }],
+          'openai',
+          'gpt-4'
+        )
+      ).rejects.toEqual({ error: { success: false, error: 'Bad request' } });
+    });
+
+    it('should throw on SSE error event', async () => {
+      const stream = createSSEStream([
+        'event: error\ndata: {"error":"Something went wrong"}\n\n',
+      ]);
+      mockFetchResponse(200, stream);
+
+      await expect(
+        service.sendMessageStream(
+          [{ role: 'user', content: 'test' }],
+          'openai',
+          'gpt-4'
+        )
+      ).rejects.toThrow('Something went wrong');
+    });
+
+    it('should include auth token and request body correctly', async () => {
+      const stream = createSSEStream([
+        'event: content\ndata: {"content":"hi"}\n\n',
+        'event: done\ndata: {}\n\n',
+      ]);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: stream,
+        headers: new Headers(),
+      } as Response);
+
+      await service.sendMessageStream(
+        [{ role: 'user', content: 'test' }],
+        'openai',
+        'gpt-4',
+        { webSearch: true, think: true }
+      );
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('/api/chat/send');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body as string);
+      expect(body.messages).toEqual([{ role: 'user', content: 'test' }]);
+      expect(body.provider).toBe('openai');
+      expect(body.model).toBe('gpt-4');
+      expect(body.webSearch).toBe(true);
+      expect(body.think).toBe(true);
     });
   });
 

@@ -251,12 +251,16 @@ export class LlmService {
               case 'done':
                 callbacks?.onDone?.(result);
                 break;
-              case 'error':
-                callbacks?.onError?.(data.error || 'Unknown error');
-                throw new Error(data.error || 'Stream error');
+              case 'error': {
+                const errMsg = data.error || 'Stream error';
+                callbacks?.onError?.(errMsg);
+                const streamErr = new Error(errMsg);
+                streamErr.name = 'StreamError';
+                throw streamErr;
+              }
             }
           } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message === 'Stream error') throw parseErr;
+            if (parseErr instanceof Error && parseErr.name === 'StreamError') throw parseErr;
           }
         }
       }
