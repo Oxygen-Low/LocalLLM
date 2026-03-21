@@ -105,7 +105,7 @@ async function checkKoboldStatus() {
     if (response.ok) {
       const data = await response.json();
       available = true;
-      model = data.result || 'Local Model';
+      model = data.result || 'Server Model';
     }
   } catch {
     // Kobold.cpp not reachable
@@ -1454,7 +1454,7 @@ app.get('/api/kobold/status', requireSession, async (req, res) => {
   res.json({
     success: true,
     available: status.available,
-    model: status.model || 'Local Model',
+    model: status.model || 'Server Model',
   });
 });
 
@@ -2114,7 +2114,7 @@ app.get('/api/providers', requireSession, async (req, res) => {
     if (koboldStatus.available) {
       providers.push({
         id: 'kobold',
-        name: 'Local Model',
+        name: 'Server Model',
         model: koboldStatus.model,
         available: true,
       });
