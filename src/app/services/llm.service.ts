@@ -4,12 +4,22 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 
+export interface MessageAlternative {
+  content: string;
+  thinking?: string;
+  searches?: SearchEvent[];
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
   timestamp?: string;
   thinking?: string;
   searches?: SearchEvent[];
+  /** Stored alternatives for AI messages (populated on retry). */
+  alternatives?: MessageAlternative[];
+  /** Index into `alternatives` for the currently displayed response. */
+  alternativeIndex?: number;
 }
 
 export interface Chat {
