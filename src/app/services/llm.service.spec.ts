@@ -453,4 +453,64 @@ describe('LlmService', () => {
       await promise;
     });
   });
+
+  describe('getUniverses', () => {
+    it('should fetch universe list with character summaries', async () => {
+      const mockUniverses = [
+        {
+          id: 'u1',
+          name: 'Fantasy World',
+          characters: [
+            { id: 'c1', name: 'Wizard' },
+            { id: 'c2', name: 'Knight' },
+          ],
+        },
+      ];
+      const promise = service.getUniverses();
+      const req = httpMock.expectOne('/api/universes');
+      expect(req.request.method).toBe('GET');
+      req.flush({ success: true, universes: mockUniverses });
+      const result = await promise;
+      expect(result).toEqual(mockUniverses);
+      expect(result[0].characters.length).toBe(2);
+    });
+
+    it('should return empty array when universes is undefined', async () => {
+      const promise = service.getUniverses();
+      const req = httpMock.expectOne('/api/universes');
+      req.flush({ success: true });
+      const result = await promise;
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array when no universes exist', async () => {
+      const promise = service.getUniverses();
+      const req = httpMock.expectOne('/api/universes');
+      req.flush({ success: true, universes: [] });
+      const result = await promise;
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('sendMessage with characterId', () => {
+    it('should include characterId when provided', async () => {
+      const messages = [{ role: 'user' as const, content: 'Hello' }];
+      const mockResponse = { role: 'assistant' as const, content: 'Hi!' };
+      const promise = service.sendMessage(messages, 'openai', 'gpt-4', { characterId: 'char-123' });
+      const req = httpMock.expectOne('/api/chat/send');
+      expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', characterId: 'char-123' });
+      req.flush({ success: true, message: mockResponse });
+      await promise;
+    });
+
+    it('should not include characterId when not provided', async () => {
+      const messages = [{ role: 'user' as const, content: 'Hello' }];
+      const mockResponse = { role: 'assistant' as const, content: 'Hi!' };
+      const promise = service.sendMessage(messages, 'openai', 'gpt-4');
+      const req = httpMock.expectOne('/api/chat/send');
+      expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4' });
+      req.flush({ success: true, message: mockResponse });
+      await promise;
+    });
+  });
 });

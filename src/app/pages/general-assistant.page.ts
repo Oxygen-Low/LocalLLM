@@ -654,6 +654,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       const options: SendMessageOptions = {};
       if (this.webSearchEnabled()) options.webSearch = true;
       if (this.thinkEnabled()) options.think = true;
+      if (this.selectedCharacter()) options.characterId = this.selectedCharacter()!.id;
 
       const result = await this.llmService.sendMessageStream(
         llmMessages,

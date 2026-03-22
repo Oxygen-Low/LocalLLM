@@ -213,6 +213,7 @@ export class LlmService {
     const body: Record<string, unknown> = { messages, provider, model };
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
+    if (options?.characterId) body['characterId'] = options.characterId;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -315,6 +316,7 @@ export class LlmService {
     const body: Record<string, unknown> = { messages, provider, model };
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
+    if (options?.characterId) body['characterId'] = options.characterId;
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; message: ChatMessage }>(
         `${environment.apiUrl}/api/chat/send`,
