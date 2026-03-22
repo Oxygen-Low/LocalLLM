@@ -561,6 +561,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       if (this.showProviderDropdown() && this.providerDropdown &&
           !this.providerDropdown.nativeElement.contains(e.target as Node)) {
         this.showProviderDropdown.set(false);
+        this.expandedProvider.set(null);
       }
       if (this.showCharacterDropdown() && this.characterDropdown &&
           !this.characterDropdown.nativeElement.contains(e.target as Node)) {

@@ -135,9 +135,9 @@ async function checkOllamaStatus() {
   }
   let available = false;
   let models = [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_CHECK_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), OLLAMA_CHECK_TIMEOUT_MS);
     const response = await fetch(`${OLLAMA_API_URL}/api/tags`, {
       signal: controller.signal,
     });
@@ -151,6 +151,8 @@ async function checkOllamaStatus() {
     }
   } catch {
     // Ollama not reachable
+  } finally {
+    clearTimeout(timeout);
   }
   ollamaCache = { timestamp: now, available, models };
   return { available, models };
@@ -2115,13 +2117,17 @@ async function streamFromOllama(res, messages, model, options = {}, signal) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
   if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
-  const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: controller.signal,
-  });
-  clearTimeout(timeout);
+  let response;
+  try {
+    response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`Ollama error: ${response.status}`);
@@ -2152,6 +2158,19 @@ async function streamFromOllama(res, messages, model, options = {}, signal) {
           }
         } catch (_e) { /* skip unparseable lines */ }
       }
+    }
+
+    // Flush any remaining decoded text
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      try {
+        const parsed = JSON.parse(buffer.trim());
+        const chunk = parsed.message?.content || '';
+        if (chunk) {
+          fullContent += chunk;
+          sendSSE(res, 'content', { content: chunk });
+        }
+      } catch (_e) { /* skip unparseable final buffer */ }
     }
   } finally {
     reader.releaseLock();
@@ -2469,10 +2488,16 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     if (provider === 'kobold') {
       // kobold doesn't need API key validation
     } else if (provider === 'ollama') {
-      // ollama doesn't need API key validation but requires a model
-      selectedModel = model;
+      // ollama doesn't need API key validation but requires a valid model string
+      if (typeof model !== 'string') {
+        return res.status(400).json({ success: false, error: 'Invalid model for Ollama: expected a string' });
+      }
+      selectedModel = model.trim();
       if (!selectedModel) {
         return res.status(400).json({ success: false, error: 'No model selected for Ollama' });
+      }
+      if (selectedModel.length > 200) {
+        return res.status(400).json({ success: false, error: 'Model name too long for Ollama' });
       }
     } else if (VALID_PROVIDERS.includes(provider)) {
       const keys = readUserApiKeys(req.sessionUser);
