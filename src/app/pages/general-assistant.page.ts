@@ -91,7 +91,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
         <div #messagesContainer class="flex-1 overflow-y-auto">
           @if (currentChat()?.messages?.length) {
             <div class="max-w-3xl mx-auto px-4 py-6 space-y-6">
-              @for (msg of currentChat()?.messages; track $index) {
+              @for (msg of currentChat()?.messages; track (msg.timestamp ?? $index)) {
                 @if (msg.role !== 'system') {
                   <div
                     class="flex gap-4 group"
@@ -161,8 +161,9 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           @if (msg.role === 'assistant' && (msg.alternatives?.length ?? 0) > 1) {
                             <button
                               (click)="navigateAlternative($index, -1)"
-                              [disabled]="(msg.alternativeIndex ?? 0) === 0"
+                              [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === 0"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              aria-label="Previous response"
                               title="Previous response"
                             >
                               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -172,8 +173,9 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                             <span class="text-xs text-secondary-400 select-none px-0.5">{{ (msg.alternativeIndex ?? 0) + 1 }}/{{ msg.alternatives?.length }}</span>
                             <button
                               (click)="navigateAlternative($index, 1)"
-                              [disabled]="(msg.alternativeIndex ?? 0) === (msg.alternatives?.length ?? 1) - 1"
+                              [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === (msg.alternatives?.length ?? 1) - 1"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              aria-label="Next response"
                               title="Next response"
                             >
                               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -184,7 +186,9 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           @if (msg.role === 'assistant' && !isLoading()) {
                             <button
                               (click)="retryAssistantMessage($index)"
-                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100"
+                              [disabled]="editingMessageIndex() !== null"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                              aria-label="Retry response"
                               title="Retry response"
                             >
                               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -195,7 +199,9 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           @if (msg.role === 'user' && !isLoading()) {
                             <button
                               (click)="startEditUserMessage($index)"
-                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100"
+                              [disabled]="editingMessageIndex() !== null"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                              aria-label="Edit message"
                               title="Edit message"
                             >
                               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -206,7 +212,9 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           @if (!isLoading()) {
                             <button
                               (click)="deleteMessage($index)"
-                              class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                              [disabled]="editingMessageIndex() !== null"
+                              class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                              aria-label="Delete message"
                               title="Delete message"
                             >
                               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -822,6 +830,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     try {
       const updated = await this.llmService.updateChat(chat.id, { messages: updatedMessages });
       this.currentChat.set(updated);
+      await this.loadChatList();
     } catch {
       this.errorMessage.set('Failed to save updated chat');
     }
@@ -830,7 +839,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   /** Navigate between stored response alternatives for an assistant message. */
   async navigateAlternative(msgIndex: number, direction: number): Promise<void> {
     const chat = this.currentChat();
-    if (!chat) return;
+    if (!chat || this.isLoading()) return;
 
     const msg = chat.messages[msgIndex];
     if (!msg?.alternatives?.length) return;
@@ -857,6 +866,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     try {
       const updated = await this.llmService.updateChat(chat.id, { messages: updatedMessages });
       this.currentChat.set(updated);
+      await this.loadChatList();
     } catch {
       this.errorMessage.set('Failed to save updated chat');
     }
@@ -883,6 +893,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     try {
       const updated = await this.llmService.updateChat(chat.id, { messages: msgs });
       this.currentChat.set(updated);
+      await this.loadChatList();
     } catch {
       this.errorMessage.set('Failed to delete message');
     }
@@ -952,6 +963,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     try {
       const updated = await this.llmService.updateChat(chat.id, { messages: finalMessages });
       this.currentChat.set(updated);
+      await this.loadChatList();
     } catch {
       this.errorMessage.set('Failed to save updated chat');
     }
