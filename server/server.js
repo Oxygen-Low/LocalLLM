@@ -2300,6 +2300,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     const { messages, provider, model } = req.body;
     const webSearch = req.body.webSearch === true;
     const think = req.body.think === true;
+    const characterId = typeof req.body.characterId === 'string' ? req.body.characterId : null;
     const options = { webSearch, think };
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -2321,6 +2322,33 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       }
       if (!msg.content || typeof msg.content !== 'string') {
         return res.status(400).json({ success: false, error: 'Invalid message format' });
+      }
+    }
+
+    // If a characterId is provided, look up the character and inject its description
+    // into the first system message so the AI adopts that persona.
+    let processedMessages = messages;
+    if (characterId) {
+      const universes = readUniverses();
+      let character = null;
+      for (const u of universes) {
+        character = (u.characters || []).find((c) => c.id === characterId);
+        if (character) break;
+      }
+      if (character && character.description) {
+        processedMessages = messages.map((msg, idx) => {
+          if (msg.role === 'system' && idx === 0) {
+            return { ...msg, content: `You are playing the role of "${character.name}". ${character.description}\n\n${msg.content}` };
+          }
+          return msg;
+        });
+        // If there's no system message, prepend one
+        if (!processedMessages.some((m) => m.role === 'system')) {
+          processedMessages = [
+            { role: 'system', content: `You are playing the role of "${character.name}". ${character.description}` },
+            ...processedMessages,
+          ];
+        }
       }
     }
 
@@ -2356,20 +2384,20 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
 
     // Emit searching event if web search is enabled
     if (webSearch) {
-      const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+      const lastUserMsg = [...processedMessages].reverse().find(m => m.role === 'user');
       sendSSE(res, 'search', { status: 'searching', query: lastUserMsg?.content?.substring(0, 100) || 'web search' });
     }
 
     let result;
     if (provider === 'kobold') {
-      result = await streamFromKobold(res, messages, options, clientAbort.signal);
+      result = await streamFromKobold(res, processedMessages, options, clientAbort.signal);
     } else if (provider === 'anthropic') {
-      result = await streamFromAnthropic(res, messages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
+      result = await streamFromAnthropic(res, processedMessages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else if (provider === 'google') {
-      result = await streamFromGoogle(res, messages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
+      result = await streamFromGoogle(res, processedMessages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else {
       result = await streamFromOpenAICompatible(
-        res, messages, providerKeys.apiKey, providerConfig.baseUrl,
+        res, processedMessages, providerKeys.apiKey, providerConfig.baseUrl,
         providerConfig.chatEndpoint, selectedModel, options, clientAbort.signal
       );
     }

@@ -41,6 +41,7 @@ export interface ProviderInfo {
 export interface SendMessageOptions {
   webSearch?: boolean;
   think?: boolean;
+  characterId?: string;
 }
 
 export interface ProviderKeyStatus {
