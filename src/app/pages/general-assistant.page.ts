@@ -345,7 +345,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                 </button>
 
                 @if (showProviderDropdown()) {
-                  <div class="absolute bottom-full left-0 mb-1 w-72 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
+                  <div class="absolute bottom-full left-0 mb-1 w-72 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-80 overflow-y-auto">
                     @if (providers().length === 0) {
                       <div class="px-4 py-3 text-sm text-secondary-500">
                         No providers configured.
@@ -353,19 +353,52 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                       </div>
                     }
                     @for (p of providers(); track p.id) {
-                      <button
-                        (click)="selectProvider(p)"
-                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
-                        [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
-                      >
-                        <span class="w-2 h-2 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
-                        <div class="flex-1 min-w-0">
-                          <div class="font-medium">{{ p.name }}</div>
-                          @if (p.model) {
-                            <div class="text-xs text-secondary-400 truncate">{{ p.model }}</div>
+                      @if (p.models && p.models.length > 1) {
+                        <div>
+                          <button
+                            (click)="toggleModelList(p, $event)"
+                            class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
+                            [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
+                          >
+                            <span class="w-2 h-2 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                            <div class="flex-1 min-w-0">
+                              <div class="font-medium">{{ p.name }}</div>
+                              <div class="text-xs text-secondary-400 truncate">{{ p.models.length }} models available</div>
+                            </div>
+                            <svg class="w-3.5 h-3.5 text-secondary-400 transition-transform" [ngClass]="expandedProvider() === p.id ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                          @if (expandedProvider() === p.id) {
+                            <div class="border-t border-secondary-100 bg-secondary-50">
+                              @for (m of p.models; track m) {
+                                <button
+                                  (click)="selectProviderModel(p, m)"
+                                  class="w-full text-left pl-9 pr-4 py-2 text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2"
+                                  [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === m ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
+                                >
+                                  <span class="w-1.5 h-1.5 rounded-full" [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === m ? 'bg-primary-600' : 'bg-secondary-300'"></span>
+                                  <span class="truncate">{{ m }}</span>
+                                </button>
+                              }
+                            </div>
                           }
                         </div>
-                      </button>
+                      } @else {
+                        <button
+                          (click)="selectProvider(p)"
+                          class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
+                          [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
+                        >
+                          <span class="w-2 h-2 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                          <div class="flex-1 min-w-0">
+                            <div class="font-medium">{{ p.name }}</div>
+                            @if (p.model) {
+                              <div class="text-xs text-secondary-400 truncate">{{ p.model }}</div>
+                            }
+                          </div>
+                        </button>
+                      }
                     }
                   </div>
                 }
@@ -494,6 +527,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   providers = signal<ProviderInfo[]>([]);
   selectedProvider = signal<ProviderInfo | null>(null);
   showProviderDropdown = signal(false);
+  expandedProvider = signal<string | null>(null);
   webSearchEnabled = signal(false);
   thinkEnabled = signal(false);
   userMessage = '';
@@ -559,7 +593,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   }
 
   private hasLocalProvider(): boolean {
-    return this.providers().some(p => p.id === 'kobold');
+    return this.providers().some(p => p.id === 'kobold' || p.id === 'ollama');
   }
 
   private startProviderPollingIfNeeded(): void {
@@ -605,7 +639,11 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
 
   toggleProviderDropdown(event: Event): void {
     event.stopPropagation();
-    this.showProviderDropdown.set(!this.showProviderDropdown());
+    const opening = !this.showProviderDropdown();
+    this.showProviderDropdown.set(opening);
+    if (!opening) {
+      this.expandedProvider.set(null);
+    }
   }
 
   async loadChatList(): Promise<void> {
@@ -660,6 +698,22 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   selectProvider(provider: ProviderInfo): void {
     this.selectedProvider.set(provider);
     this.showProviderDropdown.set(false);
+    this.expandedProvider.set(null);
+  }
+
+  toggleModelList(provider: ProviderInfo, event: Event): void {
+    event.stopPropagation();
+    if (this.expandedProvider() === provider.id) {
+      this.expandedProvider.set(null);
+    } else {
+      this.expandedProvider.set(provider.id);
+    }
+  }
+
+  selectProviderModel(provider: ProviderInfo, model: string): void {
+    this.selectedProvider.set({ ...provider, model });
+    this.showProviderDropdown.set(false);
+    this.expandedProvider.set(null);
   }
 
   async loadUniverses(): Promise<void> {

@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1742,6 +1742,26 @@ describe('POST /api/chat/send validation', () => {
     assert.equal(res.status, 400);
     assert.match(res.body.error, /not configured/i);
   });
+
+  it('rejects ollama provider without model', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'ollama',
+    }, sendToken);
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /model/i);
+  });
+
+  it('accepts ollama as a valid provider (does not return invalid provider error)', async () => {
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'ollama',
+      model: 'llama3.2',
+    }, sendToken);
+    // It will fail because Ollama isn't running, but it should NOT be "Invalid provider"
+    // It should either start streaming (and fail connecting) or return a 502
+    assert.notEqual(res.body?.error, 'Invalid provider');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1887,6 +1907,38 @@ describe('GET /api/providers', () => {
 
   it('requires authentication', async () => {
     const res = await request(server, 'GET', '/api/providers', null);
+    assert.equal(res.status, 401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/ollama/status tests
+// ---------------------------------------------------------------------------
+describe('GET /api/ollama/status', { concurrency: false }, () => {
+  const testUsername = 'ollama_test_' + Date.now();
+  let ollamaToken = null;
+
+  before(async () => {
+    resetOllamaCache();
+    // Create token directly to avoid rate limiter issues
+    ollamaToken = createSessionToken(testUsername);
+  });
+
+  after(() => {
+    resetOllamaCache();
+    invalidateSession(ollamaToken);
+  });
+
+  it('returns ollama status', async () => {
+    const res = await request(server, 'GET', '/api/ollama/status', null, ollamaToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(typeof res.body.available, 'boolean');
+    assert.ok(Array.isArray(res.body.models));
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(server, 'GET', '/api/ollama/status', null);
     assert.equal(res.status, 401);
   });
 });

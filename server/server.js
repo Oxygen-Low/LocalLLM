@@ -115,6 +115,47 @@ async function checkKoboldStatus() {
   return { available, model };
 }
 
+// ---------------------------------------------------------------------------
+// Ollama local LLM support
+// ---------------------------------------------------------------------------
+const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
+const OLLAMA_CHECK_TIMEOUT_MS = 5000;
+const OLLAMA_CACHE_TTL_MS = 5000;
+
+let ollamaCache = { timestamp: 0, available: false, models: [] };
+
+function resetOllamaCache() {
+  ollamaCache = { timestamp: 0, available: false, models: [] };
+}
+
+async function checkOllamaStatus() {
+  const now = Date.now();
+  if (now - ollamaCache.timestamp < OLLAMA_CACHE_TTL_MS) {
+    return { available: ollamaCache.available, models: ollamaCache.models };
+  }
+  let available = false;
+  let models = [];
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OLLAMA_CHECK_TIMEOUT_MS);
+    const response = await fetch(`${OLLAMA_API_URL}/api/tags`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data.models) && data.models.length > 0) {
+        available = true;
+        models = data.models.map(m => m.name).filter(Boolean);
+      }
+    }
+  } catch {
+    // Ollama not reachable
+  }
+  ollamaCache = { timestamp: now, available, models };
+  return { available, models };
+}
+
 const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
 const LLM_DEFAULT_MAX_TOKENS = 4096;
 const THINK_MAX_TOKENS = 16000; // Higher limit to accommodate thinking + response tokens
@@ -1753,6 +1794,18 @@ app.get('/api/kobold/status', requireSession, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Ollama status & models check
+// ---------------------------------------------------------------------------
+app.get('/api/ollama/status', requireSession, async (req, res) => {
+  const status = await checkOllamaStatus();
+  res.json({
+    success: true,
+    available: status.available,
+    models: status.models,
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Chat storage – Encrypted per-user
 // ---------------------------------------------------------------------------
 
@@ -2046,6 +2099,65 @@ async function streamFromKobold(res, messages, options = {}, signal) {
   }
 
   return { content, thinking: '' };
+}
+
+async function streamFromOllama(res, messages, model, options = {}, signal) {
+  if (options.think) {
+    messages = enhanceMessagesForThink(messages);
+  }
+
+  const body = {
+    model,
+    messages,
+    stream: true,
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+  const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    throw new Error(`Ollama error: ${response.status}`);
+  }
+
+  let fullContent = '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          const chunk = parsed.message?.content || '';
+          if (chunk) {
+            fullContent += chunk;
+            sendSSE(res, 'content', { content: chunk });
+          }
+        } catch (_e) { /* skip unparseable lines */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { content: fullContent, thinking: '' };
 }
 
 async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEndpoint, model, options = {}, signal) {
@@ -2356,6 +2468,12 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     let providerKeys, selectedModel, providerConfig;
     if (provider === 'kobold') {
       // kobold doesn't need API key validation
+    } else if (provider === 'ollama') {
+      // ollama doesn't need API key validation but requires a model
+      selectedModel = model;
+      if (!selectedModel) {
+        return res.status(400).json({ success: false, error: 'No model selected for Ollama' });
+      }
     } else if (VALID_PROVIDERS.includes(provider)) {
       const keys = readUserApiKeys(req.sessionUser);
       providerKeys = keys[provider];
@@ -2391,6 +2509,8 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     let result;
     if (provider === 'kobold') {
       result = await streamFromKobold(res, processedMessages, options, clientAbort.signal);
+    } else if (provider === 'ollama') {
+      result = await streamFromOllama(res, processedMessages, selectedModel, options, clientAbort.signal);
     } else if (provider === 'anthropic') {
       result = await streamFromAnthropic(res, processedMessages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else if (provider === 'google') {
@@ -2438,6 +2558,18 @@ app.get('/api/providers', requireSession, async (req, res) => {
         id: 'kobold',
         name: 'Server Model',
         model: koboldStatus.model,
+        available: true,
+      });
+    }
+
+    // Check Ollama (cached)
+    const ollamaStatus = await checkOllamaStatus();
+    if (ollamaStatus.available && ollamaStatus.models.length > 0) {
+      providers.push({
+        id: 'ollama',
+        name: 'Ollama',
+        model: ollamaStatus.models[0],
+        models: ollamaStatus.models,
         available: true,
       });
     }
@@ -2502,4 +2634,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, sendSSE, parseSSEStream };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream };
