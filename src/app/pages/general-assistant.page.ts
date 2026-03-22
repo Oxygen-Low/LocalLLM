@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { marked } from 'marked';
-import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary } from '../services/llm.service';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type MessageAlternative, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary } from '../services/llm.service';
 
 @Component({
   selector: 'app-general-assistant',
@@ -93,7 +93,10 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
             <div class="max-w-3xl mx-auto px-4 py-6 space-y-6">
               @for (msg of currentChat()?.messages; track $index) {
                 @if (msg.role !== 'system') {
-                  <div class="flex gap-4" [ngClass]="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                  <div
+                    class="flex gap-4 group"
+                    [ngClass]="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+                  >
                     @if (msg.role === 'assistant') {
                       <div class="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                         <span class="text-sm">🤖</span>
@@ -123,12 +126,96 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                           </div>
                         }
                       }
-                      <div
-                        class="rounded-2xl px-4 py-3 text-sm leading-relaxed"
-                        [ngClass]="msg.role === 'user'
-                          ? 'bg-primary-600 text-white rounded-br-md prose-invert'
-                          : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
-                      ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.content)"></div></div>
+                      @if (editingMessageIndex() === $index) {
+                        <!-- Inline edit mode for user messages -->
+                        <div class="flex flex-col gap-2 min-w-[280px]">
+                          <textarea
+                            [(ngModel)]="editingContent"
+                            rows="3"
+                            class="resize-none rounded-xl border border-primary-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm leading-relaxed"
+                            (keydown.escape)="cancelEdit()"
+                          ></textarea>
+                          <div class="flex gap-2 justify-end">
+                            <button
+                              (click)="cancelEdit()"
+                              class="px-3 py-1.5 rounded-lg text-sm border border-secondary-200 hover:bg-secondary-50 transition-colors"
+                            >Cancel</button>
+                            <button
+                              (click)="saveUserEdit($index)"
+                              class="px-3 py-1.5 rounded-lg text-sm bg-primary-600 text-white hover:bg-primary-700 transition-colors"
+                            >Save &amp; Re-send</button>
+                          </div>
+                        </div>
+                      } @else {
+                        <div
+                          class="rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                          [ngClass]="msg.role === 'user'
+                            ? 'bg-primary-600 text-white rounded-br-md prose-invert'
+                            : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
+                        ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.content)"></div></div>
+                        <!-- Per-message action buttons -->
+                        <div
+                          class="flex items-center gap-0.5"
+                          [ngClass]="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+                        >
+                          @if (msg.role === 'assistant' && (msg.alternatives?.length ?? 0) > 1) {
+                            <button
+                              (click)="navigateAlternative($index, -1)"
+                              [disabled]="(msg.alternativeIndex ?? 0) === 0"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              title="Previous response"
+                            >
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                              </svg>
+                            </button>
+                            <span class="text-xs text-secondary-400 select-none px-0.5">{{ (msg.alternativeIndex ?? 0) + 1 }}/{{ msg.alternatives?.length }}</span>
+                            <button
+                              (click)="navigateAlternative($index, 1)"
+                              [disabled]="(msg.alternativeIndex ?? 0) === (msg.alternatives?.length ?? 1) - 1"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              title="Next response"
+                            >
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
+                          }
+                          @if (msg.role === 'assistant' && !isLoading()) {
+                            <button
+                              (click)="retryAssistantMessage($index)"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100"
+                              title="Retry response"
+                            >
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            </button>
+                          }
+                          @if (msg.role === 'user' && !isLoading()) {
+                            <button
+                              (click)="startEditUserMessage($index)"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100"
+                              title="Edit message"
+                            >
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                          }
+                          @if (!isLoading()) {
+                            <button
+                              (click)="deleteMessage($index)"
+                              class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                              title="Delete message"
+                            >
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          }
+                        </div>
+                      }
                     </div>
                     @if (msg.role === 'user') {
                       <div class="w-8 h-8 rounded-full bg-secondary-200 flex items-center justify-center flex-shrink-0">
@@ -416,6 +503,10 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   streamingSearches = signal<SearchEvent[]>([]);
   thinkingDone = signal(false);
 
+  // Edit state
+  editingMessageIndex = signal<number | null>(null);
+  editingContent = '';
+
   private clickOutsideListener: ((e: Event) => void) | null = null;
   private providerPollTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly PROVIDER_POLL_INTERVAL_MS = 10_000;
@@ -627,36 +718,276 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     this.currentChat.set({ ...chat, messages: updatedMessages });
     this.scrollToBottom();
 
-    this.isLoading.set(true);
+    // Generate title from first user message
+    let title = chat.title;
+    if (chat.title === 'New Chat' && updatedMessages.filter(m => m.role === 'user').length === 1) {
+      title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
+    }
 
-    // Reset streaming state
+    let result: StreamResult;
+    try {
+      result = await this.runStreamRequest(this.buildLlmMessages(updatedMessages));
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        this.errorMessage.set(err.message);
+      } else {
+        const error = err as { error?: { error?: string } };
+        this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
+      }
+      return;
+    }
+
+    const assistantMsg: ChatMessage = {
+      role: 'assistant',
+      content: result.content,
+      thinking: result.thinking || undefined,
+      searches: result.searches?.length ? result.searches : undefined,
+      timestamp: new Date().toISOString(),
+    };
+
+    const finalMessages = [...updatedMessages, assistantMsg];
+
+    try {
+      // Save to server
+      const updated = await this.llmService.updateChat(chat.id, {
+        messages: finalMessages,
+        title,
+        provider: provider.id,
+        model: provider.model,
+      });
+
+      this.currentChat.set(updated);
+      await this.loadChatList();
+    } catch {
+      this.errorMessage.set('Failed to save chat');
+    }
+  }
+
+  /** Retry the assistant message at `msgIndex`, keeping the old response as an alternative. */
+  async retryAssistantMessage(msgIndex: number): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat || this.isLoading()) return;
+
+    const msg = chat.messages[msgIndex];
+    if (!msg || msg.role !== 'assistant') return;
+
+    // Warn before discarding subsequent messages
+    const hasFollowing = msgIndex < chat.messages.length - 1;
+    if (hasFollowing && !confirm('Retrying this response will remove the messages that follow it. Continue?')) {
+      return;
+    }
+
+    this.errorMessage.set(null);
+
+    // Build context: everything before this assistant message
+    const contextMessages = chat.messages.slice(0, msgIndex);
+
+    let result: StreamResult;
+    try {
+      result = await this.runStreamRequest(this.buildLlmMessages(contextMessages));
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        this.errorMessage.set(err.message);
+      } else {
+        this.errorMessage.set('Failed to get response.');
+      }
+      return;
+    }
+
+    // Build the alternatives list: seed with the current response if not already tracked
+    const existingAlts: MessageAlternative[] = msg.alternatives?.length
+      ? msg.alternatives
+      : [{ content: msg.content, thinking: msg.thinking, searches: msg.searches }];
+    const newAlt: MessageAlternative = {
+      content: result.content,
+      thinking: result.thinking || undefined,
+      searches: result.searches?.length ? result.searches : undefined,
+    };
+    const alternatives = [...existingAlts, newAlt];
+    const newIndex = alternatives.length - 1;
+
+    const updatedMsg: ChatMessage = {
+      ...msg,
+      content: result.content,
+      thinking: result.thinking || undefined,
+      searches: result.searches?.length ? result.searches : undefined,
+      alternatives,
+      alternativeIndex: newIndex,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Replace the retried message and drop all subsequent messages (they depended on the old response)
+    const updatedMessages = [...chat.messages.slice(0, msgIndex), updatedMsg];
+
+    try {
+      const updated = await this.llmService.updateChat(chat.id, { messages: updatedMessages });
+      this.currentChat.set(updated);
+    } catch {
+      this.errorMessage.set('Failed to save updated chat');
+    }
+  }
+
+  /** Navigate between stored response alternatives for an assistant message. */
+  async navigateAlternative(msgIndex: number, direction: number): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat) return;
+
+    const msg = chat.messages[msgIndex];
+    if (!msg?.alternatives?.length) return;
+
+    const currentIndex = msg.alternativeIndex ?? 0;
+    const newIndex = Math.max(0, Math.min(msg.alternatives.length - 1, currentIndex + direction));
+    if (newIndex === currentIndex) return;
+
+    const alt = msg.alternatives[newIndex];
+    const updatedMsg: ChatMessage = {
+      ...msg,
+      content: alt.content,
+      thinking: alt.thinking,
+      searches: alt.searches,
+      alternativeIndex: newIndex,
+    };
+
+    const updatedMessages = [
+      ...chat.messages.slice(0, msgIndex),
+      updatedMsg,
+      ...chat.messages.slice(msgIndex + 1),
+    ];
+
+    try {
+      const updated = await this.llmService.updateChat(chat.id, { messages: updatedMessages });
+      this.currentChat.set(updated);
+    } catch {
+      this.errorMessage.set('Failed to save updated chat');
+    }
+  }
+
+  /** Delete a message. If deleting a user message, the immediately following assistant response is also removed. */
+  async deleteMessage(msgIndex: number): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat || this.isLoading()) return;
+
+    const msgs = [...chat.messages];
+    const msg = msgs[msgIndex];
+    if (!msg || msg.role === 'system') return;
+
+    this.errorMessage.set(null);
+
+    // When deleting a user message also remove the paired assistant response that follows it
+    if (msg.role === 'user' && msgIndex + 1 < msgs.length && msgs[msgIndex + 1].role === 'assistant') {
+      msgs.splice(msgIndex, 2);
+    } else {
+      msgs.splice(msgIndex, 1);
+    }
+
+    try {
+      const updated = await this.llmService.updateChat(chat.id, { messages: msgs });
+      this.currentChat.set(updated);
+    } catch {
+      this.errorMessage.set('Failed to delete message');
+    }
+  }
+
+  /** Enter inline-edit mode for the user message at `msgIndex`. */
+  startEditUserMessage(msgIndex: number): void {
+    const chat = this.currentChat();
+    if (!chat) return;
+    const msg = chat.messages[msgIndex];
+    if (!msg || msg.role !== 'user') return;
+    this.editingMessageIndex.set(msgIndex);
+    this.editingContent = msg.content;
+  }
+
+  /** Cancel inline editing without saving. */
+  cancelEdit(): void {
+    this.editingMessageIndex.set(null);
+    this.editingContent = '';
+  }
+
+  /** Save the edited user message and re-send from that point in the conversation. */
+  async saveUserEdit(msgIndex: number): Promise<void> {
+    const newContent = this.editingContent.trim();
+    const chat = this.currentChat();
+    if (!newContent || !chat || this.isLoading()) return;
+
+    this.errorMessage.set(null);
+    this.editingMessageIndex.set(null);
+    this.editingContent = '';
+
+    // Replace user message, discard all subsequent messages
+    const updatedUserMsg: ChatMessage = {
+      ...chat.messages[msgIndex],
+      content: newContent,
+      timestamp: new Date().toISOString(),
+    };
+
+    const messagesUpToEdit = [...chat.messages.slice(0, msgIndex), updatedUserMsg];
+
+    // Optimistic UI update
+    this.currentChat.set({ ...chat, messages: messagesUpToEdit });
+    this.scrollToBottom();
+
+    let result: StreamResult;
+    try {
+      result = await this.runStreamRequest(this.buildLlmMessages(messagesUpToEdit));
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        this.errorMessage.set(err.message);
+      } else {
+        this.errorMessage.set('Failed to get response.');
+      }
+      return;
+    }
+
+    const assistantMsg: ChatMessage = {
+      role: 'assistant',
+      content: result.content,
+      thinking: result.thinking || undefined,
+      searches: result.searches?.length ? result.searches : undefined,
+      timestamp: new Date().toISOString(),
+    };
+
+    const finalMessages = [...messagesUpToEdit, assistantMsg];
+
+    try {
+      const updated = await this.llmService.updateChat(chat.id, { messages: finalMessages });
+      this.currentChat.set(updated);
+    } catch {
+      this.errorMessage.set('Failed to save updated chat');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /** Prepend the system prompt and strip any stored system messages from the chat history. */
+  private buildLlmMessages(chatMessages: ChatMessage[]): ChatMessage[] {
+    const systemPrompt: ChatMessage = {
+      role: 'system',
+      content: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use markdown formatting like headings, lists, code blocks, and emphasis for readability.',
+    };
+    return [systemPrompt, ...chatMessages.filter(m => m.role !== 'system')];
+  }
+
+  /** Set up streaming state, call the LLM, and clean up when done. */
+  private async runStreamRequest(llmMessages: ChatMessage[]): Promise<StreamResult> {
+    const provider = this.selectedProvider();
+    if (!provider) throw new Error('No provider selected');
+
+    this.isLoading.set(true);
     this.streamingThinking.set('');
     this.streamingContent.set('');
     this.streamingSearches.set([]);
     this.thinkingDone.set(false);
 
+    const options: SendMessageOptions = {};
+    if (this.webSearchEnabled()) options.webSearch = true;
+    if (this.thinkEnabled()) options.think = true;
+    if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
+
     try {
-      // Generate title from first user message
-      let title = chat.title;
-      if (chat.title === 'New Chat' && updatedMessages.filter(m => m.role === 'user').length === 1) {
-        title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
-      }
-
-      // Build messages for LLM (include system prompt)
-      const systemPrompt: ChatMessage = {
-        role: 'system',
-        content: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use markdown formatting like headings, lists, code blocks, and emphasis for readability.',
-      };
-
-      const llmMessages = [systemPrompt, ...updatedMessages.filter(m => m.role !== 'system')];
-
-      // Send to LLM with streaming
-      const options: SendMessageOptions = {};
-      if (this.webSearchEnabled()) options.webSearch = true;
-      if (this.thinkEnabled()) options.think = true;
-      if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
-
-      const result = await this.llmService.sendMessageStream(
+      return await this.llmService.sendMessageStream(
         llmMessages,
         provider.id,
         provider.model || '',
@@ -693,34 +1024,6 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
           },
         }
       );
-
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        content: result.content,
-        thinking: result.thinking || undefined,
-        searches: result.searches?.length ? result.searches : undefined,
-        timestamp: new Date().toISOString(),
-      };
-
-      const finalMessages = [...updatedMessages, assistantMsg];
-
-      // Save to server
-      const updated = await this.llmService.updateChat(chat.id, {
-        messages: finalMessages,
-        title,
-        provider: provider.id,
-        model: provider.model,
-      });
-
-      this.currentChat.set(updated);
-      await this.loadChatList();
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        this.errorMessage.set(err.message);
-      } else {
-        const error = err as { error?: { error?: string } };
-        this.errorMessage.set(error?.error?.error || 'Failed to get response. Check your provider settings.');
-      }
     } finally {
       this.isLoading.set(false);
       this.streamingThinking.set('');
