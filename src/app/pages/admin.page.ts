@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { AdminService, AdminUserSummary } from '../services/admin.service';
+import { AdminService, AdminUserSummary, Universe, Character } from '../services/admin.service';
 
 @Component({
   selector: 'app-admin',
@@ -148,6 +148,183 @@ import { AdminService, AdminUserSummary } from '../services/admin.service';
                   </div>
                 }
               </div>
+
+              <!-- Universes & Characters Management -->
+              <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div class="space-y-1">
+                    <h2 class="text-xl font-semibold text-secondary-900">Universes &amp; Characters</h2>
+                    <p class="text-sm text-muted">
+                      Manage universes and the characters within them. Characters change how the AI behaves.
+                    </p>
+                  </div>
+                  <button
+                    (click)="toggleUniverseMenu()"
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
+                  >
+                    {{ universeMenuOpen() ? 'Hide universes' : 'Manage universes' }}
+                  </button>
+                </div>
+
+                @if (universeMenuOpen()) {
+                  <div class="space-y-4">
+                    <!-- Create Universe -->
+                    <div class="flex items-end gap-3">
+                      <div class="flex-1">
+                        <label for="newUniverseName" class="block text-sm font-medium text-secondary-800 mb-1">New universe</label>
+                        <input
+                          id="newUniverseName"
+                          type="text"
+                          [(ngModel)]="newUniverseName"
+                          placeholder="Universe name"
+                          class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                        />
+                      </div>
+                      <button
+                        (click)="onCreateUniverse()"
+                        [disabled]="!newUniverseName.trim()"
+                        class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                      >
+                        Create
+                      </button>
+                    </div>
+
+                    @if (isLoadingUniverses()) {
+                      <div class="text-sm text-muted">Loading universes...</div>
+                    } @else if (universes().length === 0) {
+                      <div class="text-sm text-muted">No universes created yet.</div>
+                    } @else {
+                      <div class="space-y-4">
+                        @for (universe of universes(); track universe.id) {
+                          <div class="border border-secondary-200 rounded-lg">
+                            <!-- Universe Header -->
+                            <div class="p-4 bg-secondary-50 rounded-t-lg flex items-center justify-between gap-3 flex-wrap">
+                              @if (editingUniverseId() === universe.id) {
+                                <div class="flex items-center gap-2 flex-1">
+                                  <input
+                                    type="text"
+                                    [(ngModel)]="editingUniverseName"
+                                    class="flex-1 px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                  />
+                                  <button
+                                    (click)="onSaveUniverse(universe.id)"
+                                    [disabled]="!editingUniverseName.trim()"
+                                    class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
+                                  >Save</button>
+                                  <button
+                                    (click)="editingUniverseId.set(null)"
+                                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
+                                  >Cancel</button>
+                                </div>
+                              } @else {
+                                <div class="flex items-center gap-2">
+                                  <span class="font-semibold text-secondary-900">{{ universe.name }}</span>
+                                  <span class="text-xs text-muted">({{ universe.characters.length }} character{{ universe.characters.length !== 1 ? 's' : '' }})</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                  <button
+                                    (click)="onEditUniverse(universe)"
+                                    class="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm transition-colors"
+                                  >Edit</button>
+                                  <button
+                                    (click)="onDeleteUniverse(universe)"
+                                    class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-sm transition-colors"
+                                  >Delete</button>
+                                </div>
+                              }
+                            </div>
+
+                            <!-- Characters List -->
+                            <div class="p-4 space-y-3">
+                              <!-- Add Character -->
+                              <div class="flex items-end gap-2">
+                                <div class="flex-1">
+                                  <input
+                                    type="text"
+                                    [(ngModel)]="newCharacterNames[universe.id]"
+                                    placeholder="Character name"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                  />
+                                </div>
+                                <div class="flex-1">
+                                  <input
+                                    type="text"
+                                    [(ngModel)]="newCharacterDescs[universe.id]"
+                                    placeholder="Description (hidden from users)"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                  />
+                                </div>
+                                <button
+                                  (click)="onCreateCharacter(universe.id)"
+                                  [disabled]="!newCharacterNames[universe.id]?.trim()"
+                                  class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                >Add</button>
+                              </div>
+
+                              @if (universe.characters.length === 0) {
+                                <div class="text-xs text-muted py-1">No characters yet.</div>
+                              } @else {
+                                <div class="divide-y divide-secondary-100 border border-secondary-100 rounded-lg">
+                                  @for (char of universe.characters; track char.id) {
+                                    <div class="p-3">
+                                      @if (editingCharacterId() === char.id) {
+                                        <div class="space-y-2">
+                                          <input
+                                            type="text"
+                                            [(ngModel)]="editingCharacterName"
+                                            placeholder="Character name"
+                                            class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                          />
+                                          <textarea
+                                            [(ngModel)]="editingCharacterDesc"
+                                            placeholder="Description (hidden from users)"
+                                            rows="3"
+                                            class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm resize-none"
+                                          ></textarea>
+                                          <div class="flex items-center gap-2">
+                                            <button
+                                              (click)="onSaveCharacter(universe.id, char.id)"
+                                              [disabled]="!editingCharacterName.trim()"
+                                              class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
+                                            >Save</button>
+                                            <button
+                                              (click)="editingCharacterId.set(null)"
+                                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
+                                            >Cancel</button>
+                                          </div>
+                                        </div>
+                                      } @else {
+                                        <div class="flex items-center justify-between gap-3 flex-wrap">
+                                          <div class="space-y-0.5">
+                                            <div class="font-medium text-sm text-secondary-900">{{ char.name }}</div>
+                                            @if (char.description) {
+                                              <div class="text-xs text-muted line-clamp-2">{{ char.description }}</div>
+                                            }
+                                          </div>
+                                          <div class="flex items-center gap-2">
+                                            <button
+                                              (click)="onEditCharacter(char)"
+                                              class="px-2 py-1 rounded border border-primary-200 text-primary-700 hover:bg-primary-50 text-xs transition-colors"
+                                            >Edit</button>
+                                            <button
+                                              (click)="onDeleteCharacter(universe.id, char)"
+                                              class="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 text-xs transition-colors"
+                                            >Delete</button>
+                                          </div>
+                                        </div>
+                                      }
+                                    </div>
+                                  }
+                                </div>
+                              }
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
             }
           </div>
 
@@ -188,6 +365,19 @@ export class AdminPageComponent {
   errorMessage = signal<string | null>(null);
   statusMessage = signal<string | null>(null);
   actionInProgress = signal<string | null>(null);
+
+  // Universe & Character state
+  universeMenuOpen = signal(false);
+  isLoadingUniverses = signal(false);
+  universes = signal<Universe[]>([]);
+  newUniverseName = '';
+  editingUniverseId = signal<string | null>(null);
+  editingUniverseName = '';
+  editingCharacterId = signal<string | null>(null);
+  editingCharacterName = '';
+  editingCharacterDesc = '';
+  newCharacterNames: Record<string, string> = {};
+  newCharacterDescs: Record<string, string> = {};
 
   constructor(
     private authService: AuthService,
@@ -283,5 +473,135 @@ export class AdminPageComponent {
     } finally {
       this.actionInProgress.set(null);
     }
+  }
+
+  // --- Universes ---
+
+  toggleUniverseMenu(): void {
+    const wasOpen = this.universeMenuOpen();
+    this.universeMenuOpen.set(!wasOpen);
+    if (!wasOpen && this.adminPasswordHash) {
+      this.loadUniverses(this.adminPasswordHash);
+    }
+  }
+
+  private async loadUniverses(adminHash: string): Promise<void> {
+    this.isLoadingUniverses.set(true);
+    try {
+      const response = await this.adminService.listUniverses(adminHash);
+      if (!response.success || !response.universes) {
+        this.errorMessage.set(response.error ?? 'Failed to load universes.');
+        this.universes.set([]);
+        return;
+      }
+      this.universes.set(response.universes);
+    } finally {
+      this.isLoadingUniverses.set(false);
+    }
+  }
+
+  async onCreateUniverse(): Promise<void> {
+    if (!this.adminPasswordHash || !this.newUniverseName.trim()) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    const response = await this.adminService.createUniverse(this.newUniverseName.trim(), this.adminPasswordHash);
+    if (!response.success) {
+      this.errorMessage.set(response.error ?? 'Failed to create universe.');
+      return;
+    }
+    this.statusMessage.set(`Universe "${this.newUniverseName.trim()}" created.`);
+    this.newUniverseName = '';
+    await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  onEditUniverse(universe: Universe): void {
+    this.editingUniverseId.set(universe.id);
+    this.editingUniverseName = universe.name;
+  }
+
+  async onSaveUniverse(universeId: string): Promise<void> {
+    if (!this.adminPasswordHash || !this.editingUniverseName.trim()) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    const response = await this.adminService.updateUniverse(universeId, this.editingUniverseName.trim(), this.adminPasswordHash);
+    if (!response.success) {
+      this.errorMessage.set(response.error ?? 'Failed to update universe.');
+      return;
+    }
+    this.statusMessage.set(`Universe updated to "${this.editingUniverseName.trim()}".`);
+    this.editingUniverseId.set(null);
+    await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  async onDeleteUniverse(universe: Universe): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    const confirmed = window.confirm(`Delete universe "${universe.name}" and all its characters? This action cannot be undone.`);
+    if (!confirmed) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    const response = await this.adminService.deleteUniverse(universe.id, this.adminPasswordHash);
+    if (!response.success) {
+      this.errorMessage.set(response.error ?? 'Failed to delete universe.');
+      return;
+    }
+    this.statusMessage.set(`Universe "${universe.name}" deleted.`);
+    await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  // --- Characters ---
+
+  async onCreateCharacter(universeId: string): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    const name = (this.newCharacterNames[universeId] || '').trim();
+    const description = (this.newCharacterDescs[universeId] || '').trim();
+    if (!name) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    const response = await this.adminService.createCharacter(universeId, name, description, this.adminPasswordHash);
+    if (!response.success) {
+      this.errorMessage.set(response.error ?? 'Failed to create character.');
+      return;
+    }
+    this.statusMessage.set(`Character "${name}" created.`);
+    this.newCharacterNames[universeId] = '';
+    this.newCharacterDescs[universeId] = '';
+    await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  onEditCharacter(character: Character): void {
+    this.editingCharacterId.set(character.id);
+    this.editingCharacterName = character.name;
+    this.editingCharacterDesc = character.description || '';
+  }
+
+  async onSaveCharacter(universeId: string, characterId: string): Promise<void> {
+    if (!this.adminPasswordHash || !this.editingCharacterName.trim()) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    const response = await this.adminService.updateCharacter(
+      universeId, characterId, this.editingCharacterName.trim(), this.editingCharacterDesc.trim(), this.adminPasswordHash
+    );
+    if (!response.success) {
+      this.errorMessage.set(response.error ?? 'Failed to update character.');
+      return;
+    }
+    this.statusMessage.set(`Character updated to "${this.editingCharacterName.trim()}".`);
+    this.editingCharacterId.set(null);
+    await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  async onDeleteCharacter(universeId: string, character: Character): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    const confirmed = window.confirm(`Delete character "${character.name}"? This action cannot be undone.`);
+    if (!confirmed) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    const response = await this.adminService.deleteCharacter(universeId, character.id, this.adminPasswordHash);
+    if (!response.success) {
+      this.errorMessage.set(response.error ?? 'Failed to delete character.');
+      return;
+    }
+    this.statusMessage.set(`Character "${character.name}" deleted.`);
+    await this.loadUniverses(this.adminPasswordHash);
   }
 }

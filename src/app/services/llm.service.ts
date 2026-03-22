@@ -41,6 +41,7 @@ export interface ProviderInfo {
 export interface SendMessageOptions {
   webSearch?: boolean;
   think?: boolean;
+  characterId?: string;
 }
 
 export interface ProviderKeyStatus {
@@ -66,6 +67,17 @@ export interface StreamResult {
   content: string;
   thinking: string;
   searches: SearchEvent[];
+}
+
+export interface UniverseCharacterSummary {
+  id: string;
+  name: string;
+}
+
+export interface UniverseSummary {
+  id: string;
+  name: string;
+  characters: UniverseCharacterSummary[];
 }
 
 @Injectable({
@@ -131,6 +143,17 @@ export class LlmService {
     return { available: res.available, model: res.model || '' };
   }
 
+  // --- Universes ---
+
+  async getUniverses(): Promise<UniverseSummary[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; universes: UniverseSummary[] }>(
+        `${environment.apiUrl}/api/universes`
+      )
+    );
+    return res.universes || [];
+  }
+
   // --- Chats ---
 
   async listChats(): Promise<ChatSummary[]> {
@@ -190,6 +213,7 @@ export class LlmService {
     const body: Record<string, unknown> = { messages, provider, model };
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
+    if (options?.characterId) body['characterId'] = options.characterId;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -292,6 +316,7 @@ export class LlmService {
     const body: Record<string, unknown> = { messages, provider, model };
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
+    if (options?.characterId) body['characterId'] = options.characterId;
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; message: ChatMessage }>(
         `${environment.apiUrl}/api/chat/send`,

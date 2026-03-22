@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { marked } from 'marked';
-import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult } from '../services/llm.service';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary } from '../services/llm.service';
 
 @Component({
   selector: 'app-general-assistant',
@@ -303,6 +303,56 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
                 </svg>
                 Think
               </button>
+
+              <!-- Character Selector -->
+              @if (universes().length > 0) {
+                <div class="relative" #characterDropdown>
+                  <button
+                    (click)="toggleCharacterDropdown($event)"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                    [ngClass]="selectedCharacter()
+                      ? 'border-purple-300 bg-purple-50 text-purple-700'
+                      : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    {{ selectedCharacter()?.name || 'Character' }}
+                    <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  @if (showCharacterDropdown()) {
+                    <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-64 overflow-y-auto">
+                      <button
+                        (click)="selectCharacter(null)"
+                        class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors"
+                        [ngClass]="!selectedCharacter() ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
+                      >
+                        <div class="font-medium">No character</div>
+                        <div class="text-xs text-secondary-400">Default assistant behavior</div>
+                      </button>
+                      @for (universe of universes(); track universe.id) {
+                        @if (universe.characters.length > 0) {
+                          <div class="px-4 py-1.5 text-xs font-semibold text-secondary-400 uppercase tracking-wider bg-secondary-50">
+                            {{ universe.name }}
+                          </div>
+                          @for (char of universe.characters; track char.id) {
+                            <button
+                              (click)="selectCharacter(char)"
+                              class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                              [ngClass]="selectedCharacter()?.id === char.id ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
+                            >
+                              <span class="font-medium">{{ char.name }}</span>
+                            </button>
+                          }
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              }
             </div>
 
             <!-- Text Input -->
@@ -338,6 +388,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Provide
 export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   @ViewChild('messagesContainer') messagesContainer!: ElementRef;
   @ViewChild('providerDropdown') providerDropdown!: ElementRef;
+  @ViewChild('characterDropdown') characterDropdown!: ElementRef;
 
   private llmService = inject(LlmService);
 
@@ -353,6 +404,11 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   userMessage = '';
   isLoading = signal(false);
   errorMessage = signal<string | null>(null);
+
+  // Character selection state
+  universes = signal<UniverseSummary[]>([]);
+  selectedCharacter = signal<UniverseCharacterSummary | null>(null);
+  showCharacterDropdown = signal(false);
 
   // Streaming state
   streamingThinking = signal('');
@@ -373,12 +429,17 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
           !this.providerDropdown.nativeElement.contains(e.target as Node)) {
         this.showProviderDropdown.set(false);
       }
+      if (this.showCharacterDropdown() && this.characterDropdown &&
+          !this.characterDropdown.nativeElement.contains(e.target as Node)) {
+        this.showCharacterDropdown.set(false);
+      }
     };
     document.addEventListener('click', this.clickOutsideListener);
 
     await Promise.all([
       this.loadProvidersWithRetry(),
       this.loadChatList(),
+      this.loadUniverses(),
     ]);
 
     // Poll for providers periodically if no local model was detected
@@ -502,6 +563,25 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     this.showProviderDropdown.set(false);
   }
 
+  async loadUniverses(): Promise<void> {
+    try {
+      const universes = await this.llmService.getUniverses();
+      this.universes.set(universes);
+    } catch {
+      // Silent failure – character selection is optional
+    }
+  }
+
+  toggleCharacterDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showCharacterDropdown.set(!this.showCharacterDropdown());
+  }
+
+  selectCharacter(character: UniverseCharacterSummary | null): void {
+    this.selectedCharacter.set(character);
+    this.showCharacterDropdown.set(false);
+  }
+
   toggleSidebar(): void {
     this.sidebarOpen.set(!this.sidebarOpen());
   }
@@ -574,6 +654,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       const options: SendMessageOptions = {};
       if (this.webSearchEnabled()) options.webSearch = true;
       if (this.thinkEnabled()) options.think = true;
+      if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
 
       const result = await this.llmService.sendMessageStream(
         llmMessages,

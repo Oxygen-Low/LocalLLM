@@ -10,10 +10,28 @@ export interface AdminUserSummary {
   passwordResetRequired?: boolean;
 }
 
+export interface Character {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface Universe {
+  id: string;
+  name: string;
+  characters: Character[];
+}
+
 interface AdminListResponse {
   success: boolean;
   error?: string;
   users?: AdminUserSummary[];
+}
+
+interface AdminUniversesResponse {
+  success: boolean;
+  error?: string;
+  universes?: Universe[];
 }
 
 @Injectable({
@@ -64,6 +82,118 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete account' };
+    }
+  }
+
+  // --- Universes ---
+
+  async listUniverses(adminPasswordHash: string): Promise<AdminUniversesResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AdminUniversesResponse>(`${environment.apiUrl}/api/admin/universes/list`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to load universes' };
+    }
+  }
+
+  async createUniverse(name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; universe?: Universe }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; universe?: Universe }>(`${environment.apiUrl}/api/admin/universes`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          name,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to create universe' };
+    }
+  }
+
+  async updateUniverse(universeId: string, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; universe?: Universe }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.put<{ success: boolean; error?: string; universe?: Universe }>(`${environment.apiUrl}/api/admin/universes/${universeId}`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          name,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update universe' };
+    }
+  }
+
+  async deleteUniverse(universeId: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<{ success: boolean; error?: string }>(`${environment.apiUrl}/api/admin/universes/${universeId}`, {
+          body: {
+            adminUsername: this.authService.username(),
+            adminPassword: adminPasswordHash,
+          },
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete universe' };
+    }
+  }
+
+  // --- Characters ---
+
+  async createCharacter(universeId: string, name: string, description: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; character?: Character }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; character?: Character }>(`${environment.apiUrl}/api/admin/universes/${universeId}/characters`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          name,
+          description,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to create character' };
+    }
+  }
+
+  async updateCharacter(universeId: string, characterId: string, name: string, description: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; character?: Character }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.put<{ success: boolean; error?: string; character?: Character }>(`${environment.apiUrl}/api/admin/universes/${universeId}/characters/${characterId}`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          name,
+          description,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update character' };
+    }
+  }
+
+  async deleteCharacter(universeId: string, characterId: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<{ success: boolean; error?: string }>(`${environment.apiUrl}/api/admin/universes/${universeId}/characters/${characterId}`, {
+          body: {
+            adminUsername: this.authService.username(),
+            adminPassword: adminPasswordHash,
+          },
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete character' };
     }
   }
 }
