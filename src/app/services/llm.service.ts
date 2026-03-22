@@ -45,6 +45,7 @@ export interface ProviderInfo {
   id: string;
   name: string;
   model: string | null;
+  models?: string[];
   available: boolean;
 }
 
@@ -151,6 +152,17 @@ export class LlmService {
       )
     );
     return { available: res.available, model: res.model || '' };
+  }
+
+  // --- Ollama ---
+
+  async getOllamaStatus(): Promise<{ available: boolean; models: string[] }> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; available: boolean; models?: string[] }>(
+        `${environment.apiUrl}/api/ollama/status`
+      )
+    );
+    return { available: res.available, models: res.models || [] };
   }
 
   // --- Universes ---
