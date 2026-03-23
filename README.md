@@ -14,7 +14,8 @@ If you want the ai to act like one of your favourite characters, just go create 
 ## Local Models
 Local Models are supported, and certain apps will be automatically detected if installed on the server:
 
-Kobold.cpp
+- [Kobold.cpp](https://github.com/LostRuins/koboldcpp)
+- [Ollama](https://ollama.com)
 
 ## Updating
 You can update with "git pull" (it will fail if you make changes to the code).
