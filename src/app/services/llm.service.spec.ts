@@ -242,6 +242,36 @@ describe('LlmService', () => {
     });
   });
 
+  describe('getOllamaStatus', () => {
+    it('should fetch ollama status with models', async () => {
+      const promise = service.getOllamaStatus();
+      const req = httpMock.expectOne('/api/ollama/status');
+      expect(req.request.method).toBe('GET');
+      req.flush({ success: true, available: true, models: ['llama3.2', 'gemma3'] });
+      const result = await promise;
+      expect(result.available).toBe(true);
+      expect(result.models).toEqual(['llama3.2', 'gemma3']);
+    });
+
+    it('should return empty models array when not available', async () => {
+      const promise = service.getOllamaStatus();
+      const req = httpMock.expectOne('/api/ollama/status');
+      req.flush({ success: true, available: false });
+      const result = await promise;
+      expect(result.available).toBe(false);
+      expect(result.models).toEqual([]);
+    });
+
+    it('should return empty models array when models is undefined', async () => {
+      const promise = service.getOllamaStatus();
+      const req = httpMock.expectOne('/api/ollama/status');
+      req.flush({ success: true, available: true });
+      const result = await promise;
+      expect(result.available).toBe(true);
+      expect(result.models).toEqual([]);
+    });
+  });
+
   describe('sendMessageStream', () => {
     // Helper to create a ReadableStream from SSE event strings
     function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
