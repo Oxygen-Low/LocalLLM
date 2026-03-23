@@ -1,9 +1,10 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { AppCardComponent, type AIApp } from '../components/app-card.component';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LanguageSelectorComponent } from '../components/language-selector.component';
 import { TranslationService } from '../services/translation.service';
+import { AdminService } from '../services/admin.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -43,17 +44,27 @@ import { TranslationService } from '../services/translation.service';
 
         <!-- Apps Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-          @for (app of apps; track app.id) {
-            <app-app-card [app]="app"></app-app-card>
+          @for (app of sortedApps(); track app.id) {
+            <app-app-card [app]="app" [disabled]="isAppDisabled(app)"></app-app-card>
           }
         </div>
+
+        @if (!riskyAppsEnabled() && hasRiskyApps) {
+          <p class="mt-6 text-sm text-muted text-center">
+            ⚠️ Risky apps are disabled by the administrator.
+          </p>
+        }
       </div>
     </div>
   `,
 })
-export class DashboardPageComponent {
+export class DashboardPageComponent implements OnInit {
   protected t = inject(TranslationService);
-  apps: AIApp[] = [
+  private adminService = inject(AdminService);
+
+  riskyAppsEnabled = signal<boolean>(true);
+
+  readonly allApps: AIApp[] = [
     {
       id: 'general-assistant',
       name: 'Chat',
@@ -62,5 +73,41 @@ export class DashboardPageComponent {
       category: 'Assistant',
       color: 'blue',
     },
+    {
+      id: 'coding-agent',
+      name: 'Coding Agent',
+      description: 'An AI-powered coding agent that can write, execute, and iterate on code directly on the server. Enables autonomous software development tasks.',
+      icon: '💻',
+      category: 'Agent',
+      color: 'purple',
+      risky: true,
+    },
   ];
+
+  sortedApps = signal<AIApp[]>([]);
+
+  get hasRiskyApps(): boolean {
+    return this.allApps.some(a => a.risky);
+  }
+
+  async ngOnInit(): Promise<void> {
+    // Initialize the sorted list with default settings before fetching
+    this.updateSortedApps();
+    const response = await this.adminService.getRiskyAppsEnabled();
+    if (response.success && typeof response.riskyAppsEnabled === 'boolean') {
+      this.riskyAppsEnabled.set(response.riskyAppsEnabled);
+      this.updateSortedApps();
+    }
+  }
+
+  isAppDisabled(app: AIApp): boolean {
+    return !!app.risky && !this.riskyAppsEnabled();
+  }
+
+  private updateSortedApps(): void {
+    const normal = this.allApps.filter(a => !a.risky);
+    const risky = this.allApps.filter(a => a.risky);
+    // Risky apps always go at the bottom (greyed out when disabled)
+    this.sortedApps.set([...normal, ...risky]);
+  }
 }

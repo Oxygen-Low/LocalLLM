@@ -51,6 +51,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/general-assistant.page').then(m => m.GeneralAssistantPageComponent),
         canActivate: [authGuard],
       },
+      {
+        path: 'app/coding-agent',
+        loadComponent: () => import('./pages/placeholder.page').then(m => m.PlaceholderPageComponent),
+        canActivate: [authGuard],
+      },
     ],
   },
   {

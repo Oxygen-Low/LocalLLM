@@ -34,6 +34,12 @@ interface AdminUniversesResponse {
   universes?: Universe[];
 }
 
+interface AppSettingsResponse {
+  success: boolean;
+  error?: string;
+  riskyAppsEnabled?: boolean;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -194,6 +200,34 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete character' };
+    }
+  }
+
+  // --- App Settings ---
+
+  async getRiskyAppsEnabled(): Promise<AppSettingsResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<AppSettingsResponse>(`${environment.apiUrl}/api/settings/apps`)
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to load app settings' };
+    }
+  }
+
+  async setRiskyAppsEnabled(enabled: boolean, adminPasswordHash: string): Promise<AppSettingsResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AppSettingsResponse>(`${environment.apiUrl}/api/admin/settings/risky-apps`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          enabled,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update app settings' };
     }
   }
 }

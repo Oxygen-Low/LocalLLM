@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { RouterModule } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { DashboardPageComponent } from './dashboard.page';
 import { TranslationService } from '../services/translation.service';
 import { AuthService } from '../services/auth.service';
@@ -9,6 +9,7 @@ import { SecurityLoggerService } from '../services/security-logger.service';
 
 describe('DashboardPageComponent', () => {
   let translationService: TranslationService;
+  let httpMock: HttpTestingController;
 
   beforeEach(async () => {
     localStorage.clear();
@@ -23,21 +24,30 @@ describe('DashboardPageComponent', () => {
     }).compileComponents();
 
     translationService = TestBed.inject(TranslationService);
+    httpMock = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => {
+    httpMock.verify();
     localStorage.clear();
   });
+
+  function flushAppSettings(riskyAppsEnabled = true): void {
+    const req = httpMock.expectOne('/api/settings/apps');
+    req.flush({ success: true, riskyAppsEnabled });
+  }
 
   it('should create the component', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
     expect(fixture.componentInstance).toBeTruthy();
   });
 
   it('should display translated dashboard title in English by default', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('h1')?.textContent?.trim()).toBe('AI Applications Hub');
@@ -48,6 +58,7 @@ describe('DashboardPageComponent', () => {
 
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('h1')?.textContent?.trim()).toBe('AI 애플리케이션 허브');
@@ -58,6 +69,7 @@ describe('DashboardPageComponent', () => {
 
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('h1')?.textContent?.trim()).toBe('AIアプリケーションハブ');
@@ -68,6 +80,7 @@ describe('DashboardPageComponent', () => {
 
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('h1')?.textContent?.trim()).toBe('Центр ИИ-приложений');
@@ -76,6 +89,7 @@ describe('DashboardPageComponent', () => {
   it('should display translated badge text', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
 
     const compiled = fixture.nativeElement as HTMLElement;
     const badge = compiled.querySelector('.bg-primary-100');
@@ -86,18 +100,48 @@ describe('DashboardPageComponent', () => {
     expect(badge?.textContent?.trim()).toContain('대시보드');
   });
 
-  it('should display the Chat app card', () => {
+  it('should display all app cards (Chat and Coding Agent)', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
+    fixture.detectChanges();
+    flushAppSettings();
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
     const appCards = compiled.querySelectorAll('app-app-card');
-    expect(appCards.length).toBe(1);
+    expect(appCards.length).toBe(2);
+  });
+
+  it('should disable coding agent card when risky apps are disabled', async () => {
+    const fixture = TestBed.createComponent(DashboardPageComponent);
+    fixture.detectChanges();
+    flushAppSettings(false);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const instance = fixture.componentInstance;
+    expect(instance.riskyAppsEnabled()).toBe(false);
+    const codingAgent = instance.allApps.find(a => a.id === 'coding-agent');
+    expect(codingAgent?.risky).toBe(true);
+    expect(instance.isAppDisabled(codingAgent!)).toBe(true);
+  });
+
+  it('should not disable coding agent card when risky apps are enabled', async () => {
+    const fixture = TestBed.createComponent(DashboardPageComponent);
+    fixture.detectChanges();
+    flushAppSettings(true);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const instance = fixture.componentInstance;
+    expect(instance.riskyAppsEnabled()).toBe(true);
+    const codingAgent = instance.allApps.find(a => a.id === 'coding-agent');
+    expect(instance.isAppDisabled(codingAgent!)).toBe(false);
   });
 
   it('should not display search input or filter buttons', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
+    flushAppSettings();
 
     const compiled = fixture.nativeElement as HTMLElement;
     const input = compiled.querySelector('input[type="text"]');
