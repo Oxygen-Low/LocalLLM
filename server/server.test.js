@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -674,6 +674,120 @@ describe('Universes & Characters admin endpoints', { concurrency: false }, () =>
       adminPassword: adminHash(),
     });
     assert.equal(res.status, 404);
+  });
+});
+
+describe('App Settings endpoints', { concurrency: false }, () => {
+  let sessionToken;
+
+  before(async () => {
+    writeUsers(readUsers().filter((u) => u.username !== 'admin'));
+    adminPassword = await ensureAdminAccount();
+    // Reset settings to defaults
+    writeSettings({ riskyAppsEnabled: true });
+
+    // Reset auth rate limit to avoid contention with other tests
+    await authLimiter.resetKey('127.0.0.1');
+
+    // Create a session to test authenticated GET (user may already exist)
+    await request(server, 'POST', '/api/auth/signup', {
+      username: 'settingsuser',
+      password: sha256Hex('TestPass1!'),
+    });
+    const login = await request(server, 'POST', '/api/auth/login', {
+      username: 'settingsuser',
+      password: sha256Hex('TestPass1!'),
+    });
+    sessionToken = login.body.token;
+  });
+
+  after(() => {
+    writeUsers(readUsers().filter((u) => u.username !== 'settingsuser'));
+    writeSettings({ riskyAppsEnabled: true });
+  });
+
+  const adminHash = () => sha256Hex(adminPassword);
+
+  describe('GET /api/settings/apps', () => {
+    it('requires authentication', async () => {
+      const res = await request(server, 'GET', '/api/settings/apps');
+      assert.equal(res.status, 401);
+    });
+
+    it('returns riskyAppsEnabled when authenticated', async () => {
+      const res = await request(server, 'GET', '/api/settings/apps', null, sessionToken);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.success, true);
+      assert.equal(typeof res.body.riskyAppsEnabled, 'boolean');
+    });
+
+    it('returns true by default', async () => {
+      writeSettings({ riskyAppsEnabled: true });
+      const res = await request(server, 'GET', '/api/settings/apps', null, sessionToken);
+      assert.equal(res.body.riskyAppsEnabled, true);
+    });
+  });
+
+  describe('POST /api/admin/settings/risky-apps', () => {
+    it('rejects without admin credentials', async () => {
+      const res = await request(server, 'POST', '/api/admin/settings/risky-apps', { enabled: false });
+      assert.equal(res.status, 403);
+    });
+
+    it('rejects when enabled is not a boolean', async () => {
+      const res = await request(server, 'POST', '/api/admin/settings/risky-apps', {
+        adminUsername: 'admin',
+        adminPassword: adminHash(),
+        enabled: 'yes',
+      });
+      assert.equal(res.status, 400);
+      assert.equal(res.body.success, false);
+    });
+
+    it('can disable risky apps', async () => {
+      const res = await request(server, 'POST', '/api/admin/settings/risky-apps', {
+        adminUsername: 'admin',
+        adminPassword: adminHash(),
+        enabled: false,
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.success, true);
+      assert.equal(res.body.riskyAppsEnabled, false);
+
+      const settings = readSettings();
+      assert.equal(settings.riskyAppsEnabled, false);
+    });
+
+    it('can re-enable risky apps', async () => {
+      const res = await request(server, 'POST', '/api/admin/settings/risky-apps', {
+        adminUsername: 'admin',
+        adminPassword: adminHash(),
+        enabled: true,
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.success, true);
+      assert.equal(res.body.riskyAppsEnabled, true);
+
+      const settings = readSettings();
+      assert.equal(settings.riskyAppsEnabled, true);
+    });
+
+    it('change is reflected in GET /api/settings/apps', async () => {
+      await request(server, 'POST', '/api/admin/settings/risky-apps', {
+        adminUsername: 'admin',
+        adminPassword: adminHash(),
+        enabled: false,
+      });
+      const res = await request(server, 'GET', '/api/settings/apps', null, sessionToken);
+      assert.equal(res.body.riskyAppsEnabled, false);
+
+      // restore
+      await request(server, 'POST', '/api/admin/settings/risky-apps', {
+        adminUsername: 'admin',
+        adminPassword: adminHash(),
+        enabled: true,
+      });
+    });
   });
 });
 

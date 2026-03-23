@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const UNIVERSES_FILE = path.join(DATA_DIR, 'universes.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PBKDF2_ITERATIONS = 100000;
@@ -624,6 +625,9 @@ if (!fs.existsSync(USERS_FILE)) {
 if (!fs.existsSync(UNIVERSES_FILE)) {
   fs.writeFileSync(UNIVERSES_FILE, JSON.stringify([]), 'utf-8');
 }
+if (!fs.existsSync(SETTINGS_FILE)) {
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ riskyAppsEnabled: true }), 'utf-8');
+}
 
 // In-memory users cache – loaded from disk once at startup, kept in sync on every write
 let usersCache = null;
@@ -667,6 +671,34 @@ function readUniverses() {
 function writeUniverses(universes) {
   universesCache = universes;
   fs.writeFileSync(UNIVERSES_FILE, JSON.stringify(universesCache, null, 2), 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// App Settings – in-memory cache with disk persistence
+// ---------------------------------------------------------------------------
+let settingsCache = null;
+
+const DEFAULT_SETTINGS = { riskyAppsEnabled: true };
+
+function loadSettingsFromDisk() {
+  try {
+    const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+    const parsed = JSON.parse(data);
+    settingsCache = { ...DEFAULT_SETTINGS, ...parsed };
+  } catch {
+    settingsCache = { ...DEFAULT_SETTINGS };
+  }
+}
+
+loadSettingsFromDisk();
+
+function readSettings() {
+  return settingsCache;
+}
+
+function writeSettings(settings) {
+  settingsCache = { ...DEFAULT_SETTINGS, ...settings };
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsCache, null, 2), 'utf-8');
 }
 
 const ADMIN_USERNAME = 'admin';
@@ -795,6 +827,9 @@ function saveAllData() {
   }
   if (universesCache !== null) {
     fs.writeFileSync(UNIVERSES_FILE, JSON.stringify(universesCache, null, 2), 'utf-8');
+  }
+  if (settingsCache !== null) {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsCache, null, 2), 'utf-8');
   }
 }
 
@@ -1561,6 +1596,45 @@ app.delete('/api/admin/universes/:universeId/characters/:characterId', async (re
     return res.json({ success: true });
   } catch (err) {
     console.error('Admin delete character error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// App Settings endpoints
+// ---------------------------------------------------------------------------
+
+// GET /api/settings/apps – Returns current app settings (requires valid session)
+app.get('/api/settings/apps', requireSession, (req, res) => {
+  try {
+    const settings = readSettings();
+    return res.json({ success: true, riskyAppsEnabled: settings.riskyAppsEnabled });
+  } catch (err) {
+    console.error('Get app settings error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/settings/risky-apps – Enable or disable risky apps (admin only)
+app.post('/api/admin/settings/risky-apps', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, enabled } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin risky-apps settings attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'enabled must be a boolean' });
+    }
+
+    const settings = readSettings();
+    writeSettings({ ...settings, riskyAppsEnabled: enabled });
+
+    auditLog({ event: 'ADMIN_SET_RISKY_APPS', message: `Admin set riskyAppsEnabled to ${enabled}`, username: adminUsername, req });
+    return res.json({ success: true, riskyAppsEnabled: enabled });
+  } catch (err) {
+    console.error('Admin set risky apps error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -2659,4 +2733,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream };

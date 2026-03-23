@@ -9,6 +9,7 @@ export interface AIApp {
   icon: string;
   category: string;
   color: 'blue' | 'purple' | 'orange' | 'green' | 'pink' | 'cyan';
+  risky?: boolean;
 }
 
 @Component({
@@ -16,16 +17,23 @@ export interface AIApp {
   standalone: true,
   imports: [CommonModule, RouterLink],
   template: `
-    <div class="card p-6 sm:p-8 flex flex-col h-full group">
+    <div class="card p-6 sm:p-8 flex flex-col h-full group" [class.opacity-50]="disabled()" [class.grayscale]="disabled()">
       <!-- Icon -->
       <div [ngClass]="getColorClasses(app().color)" class="w-14 h-14 rounded-xl flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">
         {{ app().icon }}
       </div>
 
-      <!-- Category -->
-      <span class="text-xs font-semibold text-primary-600 uppercase tracking-wider mb-2">
-        {{ app().category }}
-      </span>
+      <!-- Category + Risky badge -->
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs font-semibold text-primary-600 uppercase tracking-wider">
+          {{ app().category }}
+        </span>
+        @if (app().risky) {
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
+            ⚠️ Risky
+          </span>
+        }
+      </div>
 
       <!-- Name -->
       <h3 class="text-xl font-bold text-secondary-900 mb-3 group-hover:text-primary-600 transition-colors">
@@ -37,18 +45,31 @@ export interface AIApp {
         {{ app().description }}
       </p>
 
-      <!-- Button -->
-      <button
-        [routerLink]="['/app', app().id]"
-        class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
-      >
-        Launch
-      </button>
+      @if (disabled()) {
+        <!-- Disabled state: no navigation, show notice -->
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          class="w-full px-4 py-2 rounded-lg border border-secondary-200 text-secondary-400 font-medium text-center text-sm cursor-not-allowed select-none"
+        >
+          Disabled by admin
+        </button>
+      } @else {
+        <!-- Button -->
+        <button
+          [routerLink]="['/app', app().id]"
+          class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
+        >
+          Launch
+        </button>
+      }
     </div>
   `,
 })
 export class AppCardComponent {
   readonly app = input.required<AIApp>();
+  readonly disabled = input<boolean>(false);
 
   getColorClasses(color: string): string {
     const colors: Record<string, string> = {

@@ -160,4 +160,66 @@ describe('AdminService', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  // --- App Settings methods ---
+
+  describe('getRiskyAppsEnabled', () => {
+    it('should GET /api/settings/apps and return riskyAppsEnabled', async () => {
+      const promise = service.getRiskyAppsEnabled();
+      const req = httpMock.expectOne('/api/settings/apps');
+      expect(req.request.method).toBe('GET');
+      req.flush({ success: true, riskyAppsEnabled: true });
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.riskyAppsEnabled).toBe(true);
+    });
+
+    it('should return error on failure', async () => {
+      const promise = service.getRiskyAppsEnabled();
+      const req = httpMock.expectOne('/api/settings/apps');
+      req.flush({ error: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+      const result = await promise;
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('setRiskyAppsEnabled', () => {
+    it('should POST to /api/admin/settings/risky-apps to disable', async () => {
+      const promise = service.setRiskyAppsEnabled(false, 'hash123');
+      const req = httpMock.expectOne('/api/admin/settings/risky-apps');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({
+        adminUsername: 'admin',
+        adminPassword: 'hash123',
+        enabled: false,
+      });
+      req.flush({ success: true, riskyAppsEnabled: false });
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.riskyAppsEnabled).toBe(false);
+    });
+
+    it('should POST to /api/admin/settings/risky-apps to enable', async () => {
+      const promise = service.setRiskyAppsEnabled(true, 'hash123');
+      const req = httpMock.expectOne('/api/admin/settings/risky-apps');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({
+        adminUsername: 'admin',
+        adminPassword: 'hash123',
+        enabled: true,
+      });
+      req.flush({ success: true, riskyAppsEnabled: true });
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.riskyAppsEnabled).toBe(true);
+    });
+
+    it('should return error on failure', async () => {
+      const promise = service.setRiskyAppsEnabled(false, 'badhash');
+      const req = httpMock.expectOne('/api/admin/settings/risky-apps');
+      req.flush({ error: 'Unauthorized' }, { status: 403, statusText: 'Forbidden' });
+      const result = await promise;
+      expect(result.success).toBe(false);
+    });
+  });
 });

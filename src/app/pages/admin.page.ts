@@ -328,6 +328,39 @@ import { AdminService, AdminUserSummary, Universe, Character } from '../services
             }
           </div>
 
+          @if (isUnlocked()) {
+            <!-- App Settings -->
+            <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
+              <div class="space-y-1">
+                <h2 class="text-xl font-semibold text-secondary-900">App Settings</h2>
+                <p class="text-sm text-muted">
+                  Control access to risky apps that run code on the server.
+                </p>
+              </div>
+
+              <div class="flex items-center justify-between gap-4 p-4 rounded-lg border border-secondary-200 bg-secondary-50">
+                <div class="space-y-1">
+                  <div class="font-medium text-secondary-900 flex items-center gap-2">
+                    <span>⚠️</span>
+                    Risky Apps
+                  </div>
+                  <p class="text-sm text-muted">
+                    Apps that execute code on the server (e.g. Coding Agent). When disabled, these apps are greyed out for all users.
+                  </p>
+                </div>
+                <button
+                  (click)="onToggleRiskyApps()"
+                  [disabled]="isTogglingRiskyApps()"
+                  [class]="riskyAppsEnabled()
+                    ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                    : 'px-4 py-2 rounded-lg bg-green-100 border border-green-200 text-green-700 hover:bg-green-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed'"
+                >
+                  {{ isTogglingRiskyApps() ? 'Updating...' : (riskyAppsEnabled() ? 'Disable risky apps' : 'Enable risky apps') }}
+                </button>
+              </div>
+            </div>
+          }
+
           <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
             <h3 class="text-lg font-semibold text-secondary-900">Security checklist</h3>
             <ul class="space-y-3 text-sm text-secondary-800">
@@ -379,6 +412,10 @@ export class AdminPageComponent {
   newCharacterNames: Record<string, string> = {};
   newCharacterDescs: Record<string, string> = {};
 
+  // App Settings state
+  riskyAppsEnabled = signal<boolean>(true);
+  isTogglingRiskyApps = signal(false);
+
   constructor(
     private authService: AuthService,
     private adminService: AdminService
@@ -398,6 +435,7 @@ export class AdminPageComponent {
       this.adminPasswordHash = hashed;
       this.adminPassword = '';
       await this.loadUsers(hashed);
+      await this.loadAppSettings();
       this.isUnlocked.set(true);
       this.statusMessage.set('Admin verified. Account controls unlocked.');
     } catch {
@@ -603,5 +641,33 @@ export class AdminPageComponent {
     }
     this.statusMessage.set(`Character "${character.name}" deleted.`);
     await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  // --- App Settings ---
+
+  private async loadAppSettings(): Promise<void> {
+    const response = await this.adminService.getRiskyAppsEnabled();
+    if (response.success && typeof response.riskyAppsEnabled === 'boolean') {
+      this.riskyAppsEnabled.set(response.riskyAppsEnabled);
+    }
+  }
+
+  async onToggleRiskyApps(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isTogglingRiskyApps.set(true);
+    try {
+      const newValue = !this.riskyAppsEnabled();
+      const response = await this.adminService.setRiskyAppsEnabled(newValue, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to update app settings.');
+        return;
+      }
+      this.riskyAppsEnabled.set(newValue);
+      this.statusMessage.set(`Risky apps ${newValue ? 'enabled' : 'disabled'}.`);
+    } finally {
+      this.isTogglingRiskyApps.set(false);
+    }
   }
 }

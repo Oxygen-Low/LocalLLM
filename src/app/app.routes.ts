@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './guards/auth.guard';
 import { adminGuard } from './guards/admin.guard';
+import { riskyAppsGuard } from './guards/risky-apps.guard';
 
 export const routes: Routes = [
   {
@@ -50,6 +51,11 @@ export const routes: Routes = [
         path: 'app/general-assistant',
         loadComponent: () => import('./pages/general-assistant.page').then(m => m.GeneralAssistantPageComponent),
         canActivate: [authGuard],
+      },
+      {
+        path: 'app/coding-agent',
+        loadComponent: () => import('./pages/placeholder.page').then(m => m.PlaceholderPageComponent),
+        canActivate: [authGuard, riskyAppsGuard],
       },
     ],
   },
