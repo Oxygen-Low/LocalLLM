@@ -51,7 +51,7 @@ import { AdminService } from '../services/admin.service';
 
         @if (!riskyAppsEnabled() && hasRiskyApps) {
           <p class="mt-6 text-sm text-muted text-center">
-            ⚠️ Risky apps are disabled by the administrator.
+            ⚠️ {{ t.translate('dashboard.riskyAppsDisabled') }}
           </p>
         }
       </div>
@@ -62,7 +62,7 @@ export class DashboardPageComponent implements OnInit {
   protected t = inject(TranslationService);
   private adminService = inject(AdminService);
 
-  riskyAppsEnabled = signal<boolean>(true);
+  riskyAppsEnabled = signal<boolean>(false);
 
   readonly allApps: AIApp[] = [
     {

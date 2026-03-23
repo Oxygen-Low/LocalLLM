@@ -235,6 +235,12 @@ const translations: TranslationDictionary = {
     ja: '検索条件やフィルターを変更してみてください',
     ru: 'Попробуйте изменить поиск или фильтры',
   },
+  'dashboard.riskyAppsDisabled': {
+    en: 'Risky apps are disabled by the administrator.',
+    ko: '위험한 앱이 관리자에 의해 비활성화되었습니다.',
+    ja: '危険なアプリは管理者によって無効化されています。',
+    ru: 'Опасные приложения отключены администратором.',
+  },
 
   // Docs navigation
   'docs.nav.getting-started': {

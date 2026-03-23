@@ -138,6 +138,31 @@ describe('DashboardPageComponent', () => {
     expect(instance.isAppDisabled(codingAgent!)).toBe(false);
   });
 
+  it('should start with risky apps disabled (fail-closed) before settings load', () => {
+    const fixture = TestBed.createComponent(DashboardPageComponent);
+    fixture.detectChanges();
+    // Do NOT flush settings — simulates network delay or failure
+    const instance = fixture.componentInstance;
+    expect(instance.riskyAppsEnabled()).toBe(false);
+    const codingAgent = instance.allApps.find(a => a.id === 'coding-agent');
+    expect(instance.isAppDisabled(codingAgent!)).toBe(true);
+    // Now flush to prevent afterEach httpMock.verify() from failing
+    flushAppSettings();
+  });
+
+  it('should show localized "risky apps disabled" notice when disabled', async () => {
+    const fixture = TestBed.createComponent(DashboardPageComponent);
+    fixture.detectChanges();
+    flushAppSettings(false);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const notice = compiled.querySelector('p.mt-6.text-center');
+    const expectedText = translationService.translate('dashboard.riskyAppsDisabled');
+    expect(notice?.textContent?.trim()).toContain(expectedText);
+  });
+
   it('should not display search input or filter buttons', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
