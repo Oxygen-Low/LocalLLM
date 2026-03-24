@@ -16,6 +16,16 @@ export interface GitHubRepo {
   cloneUrl: string;
 }
 
+export interface LocalRepoInfo {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'archived';
+  defaultBranch: string;
+  createdAt: string;
+  lastActivity: number;
+}
+
 export interface ContainerInfo {
   id: string;
   dockerId: string;
@@ -26,6 +36,7 @@ export interface ContainerInfo {
   status: 'running' | 'stopped' | 'creating';
   createdAt: string;
   lastActivity: number;
+  localRepoId?: string;
 }
 
 export interface FileEntry {
@@ -79,6 +90,17 @@ export class CodingAgentService {
     return res.repos || [];
   }
 
+  // --- Local.LLM Repositories ---
+
+  async getLocalRepos(): Promise<LocalRepoInfo[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; repos: LocalRepoInfo[] }>(
+        `${environment.apiUrl}/api/local-repositories`
+      )
+    );
+    return res.repos || [];
+  }
+
   // --- Docker ---
 
   async getDockerStatus(): Promise<{ available: boolean }> {
@@ -97,6 +119,17 @@ export class CodingAgentService {
       this.http.post<{ success: boolean; container: ContainerInfo }>(
         `${environment.apiUrl}/api/coding-agent/containers`,
         { repoFullName, cloneUrl, branch, mode }
+      )
+    );
+    return res.container;
+  }
+
+  /** Create a container for a Local.LLM repository (bare repo mounted as volume). */
+  async createLocalRepoContainer(localRepoId: string): Promise<ContainerInfo> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; container: ContainerInfo }>(
+        `${environment.apiUrl}/api/coding-agent/containers`,
+        { localRepoId }
       )
     );
     return res.container;

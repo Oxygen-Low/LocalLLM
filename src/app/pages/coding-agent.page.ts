@@ -1,8 +1,8 @@
 import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { CodingAgentService, type GitHubRepo, type ContainerInfo, type FileEntry } from '../services/coding-agent.service';
+import { RouterLink, ActivatedRoute } from '@angular/router';
+import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type ContainerInfo, type FileEntry } from '../services/coding-agent.service';
 import { LlmService, type ProviderInfo } from '../services/llm.service';
 
 type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-running' | 'manual-workspace';
@@ -102,6 +102,51 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
               }
             </div>
 
+            <!-- Local.LLM Repositories section -->
+            <div class="mb-6">
+              <h3 class="font-medium text-secondary-700 mb-3 flex items-center gap-2">
+                <span>📦</span> Local.LLM Repositories
+              </h3>
+              @if (isLoadingLocalRepos()) {
+                <div class="flex items-center gap-2 text-sm text-muted py-2">
+                  <div class="w-4 h-4 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
+                  Loading local repositories…
+                </div>
+              } @else if (localRepos().length === 0) {
+                <div class="p-3 rounded-lg bg-secondary-50 border border-secondary-200 text-sm text-muted">
+                  No active Local.LLM repositories. <a routerLink="/app/repositories" class="text-primary-600 hover:underline">Create one in Repositories →</a>
+                </div>
+              } @else {
+                <div class="space-y-2">
+                  @for (repo of localRepos(); track repo.id) {
+                    <button
+                      (click)="selectLocalRepo(repo)"
+                      class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
+                      [ngClass]="selectedLocalRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
+                    >
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-secondary-900 truncate">{{ repo.name }}</span>
+                            <span class="flex-shrink-0 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Local</span>
+                          </div>
+                          @if (repo.description) {
+                            <p class="text-sm text-muted mt-1 truncate">{{ repo.description }}</p>
+                          }
+                          <p class="text-xs text-muted mt-1">Branch: {{ repo.defaultBranch }}</p>
+                        </div>
+                        @if (selectedLocalRepo()?.id === repo.id) {
+                          <svg class="w-5 h-5 text-primary-600 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                          </svg>
+                        }
+                      </div>
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+
             <!-- GitHub repos section -->
             @if (githubConnected()) {
               <div class="mb-2">
@@ -174,10 +219,10 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
             }
 
             <!-- Continue button -->
-            @if (selectedRepo()) {
+            @if (selectedRepo() || selectedLocalRepo()) {
               <div class="pt-4 border-t border-secondary-200 mt-4">
                 <button (click)="goToStep('select-mode')" class="btn-primary w-full sm:w-auto">
-                  Continue with {{ selectedRepo()?.name }}
+                  Continue with {{ selectedLocalRepo()?.name || selectedRepo()?.name }}
                 </button>
               </div>
             }
@@ -196,7 +241,7 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
               </button>
 
               <h1 class="text-2xl font-bold text-secondary-900 mb-2">Choose Mode</h1>
-              <p class="text-sm text-muted mb-8">Select how you want to work on <strong>{{ selectedRepo()?.fullName }}</strong></p>
+              <p class="text-sm text-muted mb-8">Select how you want to work on <strong>{{ selectedLocalRepo()?.name || selectedRepo()?.fullName }}</strong></p>
 
               @if (errorMessage()) {
                 <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -579,6 +624,7 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
 export class CodingAgentPageComponent implements OnInit, OnDestroy {
   private codingAgentService = inject(CodingAgentService);
   private llmService = inject(LlmService);
+  private route = inject(ActivatedRoute);
 
   // Wizard state
   currentStep = signal<WizardStep>('check-github');
@@ -590,12 +636,17 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   githubUsername = signal<string | null>(null);
   dockerAvailable = signal(false);
 
-  // Repository selection
+  // Repository selection (GitHub)
   repos = signal<GitHubRepo[]>([]);
   isLoadingRepos = signal(false);
   repoSearch = '';
   selectedRepo = signal<GitHubRepo | null>(null);
   private repoSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Repository selection (Local.LLM)
+  localRepos = signal<LocalRepoInfo[]>([]);
+  isLoadingLocalRepos = signal(false);
+  selectedLocalRepo = signal<LocalRepoInfo | null>(null);
 
   // Custom URL entry
   customRepoUrl = '';
@@ -676,8 +727,9 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.errorMessage.set(null);
     this.customUrlError.set(null);
 
-    if (step === 'select-repo' && this.githubConnected()) {
-      this.loadRepos();
+    if (step === 'select-repo') {
+      if (this.githubConnected()) this.loadRepos();
+      this.loadLocalRepos();
     }
   }
 
@@ -699,6 +751,24 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  async loadLocalRepos(): Promise<void> {
+    this.isLoadingLocalRepos.set(true);
+    try {
+      const repos = await this.codingAgentService.getLocalRepos();
+      this.localRepos.set(repos);
+      // If a localRepoId was passed via query param, auto-select it now that repos are loaded
+      const localRepoId = this.route.snapshot.queryParamMap.get('localRepoId');
+      if (localRepoId) {
+        const match = repos.find(r => r.id === localRepoId);
+        if (match) this.selectLocalRepo(match);
+      }
+    } catch {
+      // Local repos are optional; don't show an error if unavailable
+    } finally {
+      this.isLoadingLocalRepos.set(false);
+    }
+  }
+
   onRepoSearchChange(): void {
     if (this.repoSearchTimeout) clearTimeout(this.repoSearchTimeout);
     this.repoSearchTimeout = setTimeout(() => this.loadRepos(), 300);
@@ -706,6 +776,13 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
   selectRepo(repo: GitHubRepo): void {
     this.selectedRepo.set(repo);
+    this.selectedLocalRepo.set(null);
+    this.customUrlError.set(null);
+  }
+
+  selectLocalRepo(repo: LocalRepoInfo): void {
+    this.selectedLocalRepo.set(repo);
+    this.selectedRepo.set(null);
     this.customUrlError.set(null);
   }
 
@@ -748,6 +825,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       htmlUrl: url.replace(/\.git$/, ''),
       cloneUrl: url,
     });
+    this.selectedLocalRepo.set(null);
   }
 
   // --- Mode Selection ---
@@ -757,6 +835,14 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.errorMessage.set(null);
 
     try {
+      const localRepo = this.selectedLocalRepo();
+      if (localRepo) {
+        const container = await this.codingAgentService.createLocalRepoContainer(localRepo.id);
+        this.activeContainer.set(container);
+        this.goToStep('background-running');
+        return;
+      }
+
       const repo = this.selectedRepo();
       if (!repo) return;
 
@@ -783,12 +869,17 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.errorMessage.set(null);
 
     try {
-      const repo = this.selectedRepo();
-      if (!repo) return;
-
-      const container = await this.codingAgentService.createContainer(
-        repo.fullName, repo.cloneUrl, 'manual', repo.defaultBranch
-      );
+      let container;
+      const localRepo = this.selectedLocalRepo();
+      if (localRepo) {
+        container = await this.codingAgentService.createLocalRepoContainer(localRepo.id);
+      } else {
+        const repo = this.selectedRepo();
+        if (!repo) return;
+        container = await this.codingAgentService.createContainer(
+          repo.fullName, repo.cloneUrl, 'manual', repo.defaultBranch
+        );
+      }
       this.activeContainer.set(container);
 
       // Poll until files are available (clone complete) or timeout after 30s

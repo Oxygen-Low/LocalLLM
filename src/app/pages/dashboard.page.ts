@@ -82,6 +82,15 @@ export class DashboardPageComponent implements OnInit {
       color: 'purple',
       risky: true,
     },
+    {
+      id: 'repositories',
+      name: 'Repositories',
+      description: 'Manage Local.LLM repositories hosted on the server. Repositories auto-archive after 1 hour of inactivity, support git cloning via auth keys, and can be synced with GitHub.',
+      icon: '📦',
+      category: 'Storage',
+      color: 'green',
+      risky: true,
+    },
   ];
 
   sortedApps = signal<AIApp[]>([]);
