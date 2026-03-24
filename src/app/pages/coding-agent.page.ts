@@ -598,7 +598,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
   // Manual mode - AI Chat
   chatMessages = signal<Array<{ role: 'user' | 'assistant'; content: string }>>([
-    { role: 'assistant', content: 'Hi! I\'m your AI coding assistant. I can help you edit code, run commands, and debug issues. What would you like to work on?' },
+    { role: 'assistant', content: 'Hi! I\u0027m your AI coding assistant. I can help you edit code, run commands, and debug issues. What would you like to work on?' },
   ]);
   chatInput = '';
   isAiResponding = signal(false);
@@ -704,9 +704,24 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       );
       this.activeContainer.set(container);
 
-      // Wait a moment for clone to complete, then load files
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      await this.loadFiles();
+      // Poll until files are available (clone complete) or timeout after 30s
+      let filesLoaded = false;
+      for (let i = 0; i < 10 && !filesLoaded; i++) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        try {
+          const files = await this.codingAgentService.listFiles(container.id);
+          if (files.length > 0) {
+            filesLoaded = true;
+            this.currentFiles.set(files);
+          }
+        } catch {
+          // Container may not be ready yet, retry
+        }
+      }
+
+      if (!filesLoaded) {
+        await this.loadFiles();
+      }
 
       this.goToStep('manual-workspace');
     } catch (err: unknown) {
@@ -748,15 +763,17 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       // Step 4: Commit changes
       this.appendTaskLog('> Staging and committing changes...\n');
       await this.codingAgentService.execInContainer(container.id, 'git add -A');
+      // Sanitize task description for use in git commit message (strip shell metacharacters)
+      const safeDescription = this.taskDescription.slice(0, 72).replace(/["`$\\]/g, '');
       const commitResult = await this.codingAgentService.execInContainer(
         container.id,
-        `git commit -m "AI Coding Agent: ${this.taskDescription.slice(0, 72)}" --allow-empty`
+        `git commit -m "AI Coding Agent: ${safeDescription}" --allow-empty`
       );
       this.appendTaskLog(commitResult.output + '\n');
 
       // Step 5: Push and create PR
       this.appendTaskLog('> Pushing branch and creating pull request...\n');
-      const pushResult = await this.codingAgentService.execInContainer(container.id, 'git push origin ai-coding-agent-task 2>&1 || echo "Push completed (or branch exists)"');
+      const pushResult = await this.codingAgentService.execInContainer(container.id, 'git push origin ai-coding-agent-task 2>&1');
       this.appendTaskLog(pushResult.output + '\n');
 
       this.appendTaskLog('\n✓ Task completed successfully!\n');

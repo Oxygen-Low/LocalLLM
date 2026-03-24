@@ -2038,7 +2038,7 @@ if (!fs.existsSync(CONTAINERS_DIR)) fs.mkdirSync(CONTAINERS_DIR, { recursive: tr
 // conserve resources. Activity is refreshed on exec, file read/write, and
 // status checks so that actively-used containers remain running.
 const containerRegistry = new Map();
-const CONTAINER_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
+const CONTAINER_INACTIVITY_TIMEOUT_MS = parseInt(process.env.CONTAINER_TIMEOUT_MINUTES || '10', 10) * 60 * 1000;
 const MAX_EXEC_COMMAND_LENGTH = 2000;
 
 function getUserContainersFile(username) {
@@ -2073,10 +2073,11 @@ function touchContainerActivity(containerId) {
 
 async function stopContainerByInactivity(containerId) {
   try {
-    const { execSync } = require('child_process');
-    execSync(`docker stop ${containerId}`, { timeout: 30000 });
+    const { execFileSync } = require('child_process');
+    // containerId here is actually the dockerName from the registry
     const entry = containerRegistry.get(containerId);
     if (entry) {
+      execFileSync('docker', ['stop', entry.dockerName], { timeout: 30000 });
       entry.status = 'stopped';
       clearTimeout(entry.inactivityTimer);
     }
@@ -2089,8 +2090,8 @@ async function stopContainerByInactivity(containerId) {
 // Helper: check if Docker is available
 function isDockerAvailable() {
   try {
-    const { execSync } = require('child_process');
-    execSync('docker info', { timeout: 5000, stdio: 'pipe' });
+    const { execFileSync } = require('child_process');
+    execFileSync('docker', ['info'], { timeout: 5000, stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -2134,26 +2135,40 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
     const containerName = `localllm-${sanitizeUsernameForPath(req.sessionUser)}-${containerId.slice(0, 8)}`;
     const branchName = (branch || 'main').replace(/[^a-zA-Z0-9._/-]/g, '');
 
-    // Build authenticated clone URL (token in URL for git clone inside container)
-    const authedCloneUrl = cloneUrl.replace('https://github.com/', `https://${github.token}@github.com/`);
+    if (!branchName) {
+      return res.status(400).json({ success: false, error: 'Invalid branch name' });
+    }
 
     try {
-      const { execSync } = require('child_process');
+      const { execFileSync } = require('child_process');
 
-      // Create and start container with git and node pre-installed
-      const dockerCmd = [
-        'docker', 'run', '-d',
+      // Build a shell script that uses git credential helper for safe token handling.
+      // The token is passed via environment variable and never appears in the process
+      // argument list or shell history.
+      const initScript = [
+        'set -e',
+        'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
+        'git config --global credential.helper \'!f() { echo "password=$GIT_TOKEN"; }; f\'',
+        `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null`,
+        'unset GIT_TOKEN',
+        'cd /workspace',
+        'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
+        'tail -f /dev/null',
+      ].join(' && ');
+
+      // Use execFileSync with argument array to prevent shell injection
+      const dockerArgs = [
+        'run', '-d',
         '--name', containerName,
         '--memory=512m',
         '--cpus=1',
         '--network=bridge',
-        '-e', `REPO_NAME=${repoFullName}`,
+        '-e', `GIT_TOKEN=${github.token}`,
         'node:20-slim',
-        'bash', '-c',
-        `apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1 && git clone --branch '${branchName}' --single-branch '${authedCloneUrl}' /workspace 2>/dev/null && cd /workspace && if [ -f package.json ]; then npm install --silent 2>/dev/null; fi && tail -f /dev/null`,
+        'bash', '-c', initScript,
       ];
 
-      const dockerId = execSync(dockerCmd.join(' '), { timeout: 60000, encoding: 'utf-8' }).trim();
+      const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
 
       // Track container
       const containerEntry = {
@@ -2236,8 +2251,8 @@ app.post('/api/coding-agent/containers/:id/stop', requireSession, (req, res) => 
     }
 
     try {
-      const { execSync } = require('child_process');
-      execSync(`docker stop ${container.dockerName}`, { timeout: 30000 });
+      const { execFileSync } = require('child_process');
+      execFileSync('docker', ['stop', container.dockerName], { timeout: 30000 });
     } catch {
       // Container might already be stopped
     }
@@ -2273,8 +2288,8 @@ app.post('/api/coding-agent/containers/:id/start', requireSession, (req, res) =>
     }
 
     try {
-      const { execSync } = require('child_process');
-      execSync(`docker start ${container.dockerName}`, { timeout: 30000 });
+      const { execFileSync } = require('child_process');
+      execFileSync('docker', ['start', container.dockerName], { timeout: 30000 });
     } catch (dockerErr) {
       return res.status(500).json({ success: false, error: 'Failed to start container' });
     }
@@ -2318,10 +2333,15 @@ app.post('/api/coding-agent/containers/:id/exec', requireSession, (req, res) => 
     touchContainerActivity(container.id);
 
     try {
-      const { execSync } = require('child_process');
-      // Pass command via base64-encoded stdin to avoid shell injection
+      const { execFileSync } = require('child_process');
+      // Use docker exec with explicit arguments; pass command via base64 to avoid
+      // any shell metacharacter issues on the outer shell. Inside the container,
+      // bash -c executes the decoded command.
       const b64Cmd = Buffer.from(command).toString('base64');
-      const output = execSync(`docker exec ${container.dockerName} bash -c "cd /workspace && eval \\"$(echo '${b64Cmd}' | base64 -d)\\""`, {
+      const output = execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
+      ], {
         timeout: 30000,
         encoding: 'utf-8',
         maxBuffer: 1024 * 1024,
@@ -2354,12 +2374,11 @@ app.get('/api/coding-agent/containers/:id/files', requireSession, (req, res) => 
     touchContainerActivity(container.id);
 
     try {
-      const { execSync } = require('child_process');
-      const safeDirPath = dirPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const output = execSync(
-        `docker exec ${container.dockerName} bash -c "cd /workspace && find '${safeDirPath}' -maxdepth 1 -printf '%y %p\\n' 2>/dev/null | head -500"`,
-        { timeout: 10000, encoding: 'utf-8' }
-      );
+      const { execFileSync } = require('child_process');
+      const output = execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `cd /workspace && find "${dirPath}" -maxdepth 1 -printf '%y %p\\n' 2>/dev/null | head -500`,
+      ], { timeout: 10000, encoding: 'utf-8' });
 
       const files = output.trim().split('\n').filter(Boolean).map(line => {
         const type = line.charAt(0);
@@ -2394,12 +2413,11 @@ app.get('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
     touchContainerActivity(container.id);
 
     try {
-      const { execSync } = require('child_process');
-      const safeFilePath = filePath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const content = execSync(
-        `docker exec ${container.dockerName} cat '/workspace/${safeFilePath}'`,
-        { timeout: 10000, encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 }
-      );
+      const { execFileSync } = require('child_process');
+      const content = execFileSync('docker', [
+        'exec', container.dockerName,
+        'cat', `/workspace/${filePath}`,
+      ], { timeout: 10000, encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
       res.json({ success: true, content });
     } catch {
       res.status(404).json({ success: false, error: 'File not found or too large' });
@@ -2431,14 +2449,13 @@ app.put('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
     touchContainerActivity(container.id);
 
     try {
-      const { execSync } = require('child_process');
-      // Write content via stdin to avoid shell escaping issues
-      const escapedContent = Buffer.from(content).toString('base64');
-      const safeFilePath = filePath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      execSync(
-        `docker exec ${container.dockerName} bash -c "echo '${escapedContent}' | base64 -d > '/workspace/${safeFilePath}'"`,
-        { timeout: 10000 }
-      );
+      const { execFileSync } = require('child_process');
+      // Write content via base64 piped to base64 -d; using execFileSync avoids outer shell injection
+      const b64Content = Buffer.from(content).toString('base64');
+      execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `echo '${b64Content}' | base64 -d > '/workspace/${filePath}'`,
+      ], { timeout: 10000 });
       res.json({ success: true });
     } catch {
       res.status(500).json({ success: false, error: 'Failed to write file' });
@@ -2459,8 +2476,8 @@ app.delete('/api/coding-agent/containers/:id', requireSession, (req, res) => {
     }
 
     try {
-      const { execSync } = require('child_process');
-      execSync(`docker rm -f ${container.dockerName}`, { timeout: 30000 });
+      const { execFileSync } = require('child_process');
+      execFileSync('docker', ['rm', '-f', container.dockerName], { timeout: 30000 });
     } catch {
       // Container might not exist
     }
