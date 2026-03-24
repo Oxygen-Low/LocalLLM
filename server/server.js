@@ -848,6 +848,11 @@ function setupGracefulShutdown(server) {
       clearInterval(staleContainerCleanupTimer);
     }
 
+    // Clear all repo inactivity timers
+    for (const entry of repoRegistry.values()) {
+      clearTimeout(entry.archiveTimer);
+    }
+
     // Persist data first to guarantee nothing is lost
     saveAllData();
 
@@ -1239,6 +1244,9 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     // Clean up all Docker containers owned by this user
     deleteAllUserContainers(normalizedUsername);
+
+    // Clean up all Local.LLM repositories owned by this user
+    deleteAllUserRepos(normalizedUsername);
 
     auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: normalizedUsername, req });
 
@@ -2078,6 +2086,10 @@ function touchContainerActivity(containerId) {
     clearTimeout(entry.inactivityTimer);
     entry.lastActivity = Date.now();
     entry.inactivityTimer = setTimeout(() => stopContainerByInactivity(containerId), CONTAINER_INACTIVITY_TIMEOUT_MS);
+    // Also refresh the linked repo's inactivity timer if present
+    if (entry.localRepoId) {
+      touchRepoActivity(entry.localRepoId);
+    }
   }
 }
 
@@ -2206,7 +2218,92 @@ app.get('/api/coding-agent/docker/status', requireSession, (req, res) => {
 // POST /api/coding-agent/containers - Create and start a container for a repo
 app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
   try {
-    const { repoFullName, cloneUrl, branch, mode } = req.body;
+    const { repoFullName, cloneUrl, branch, mode, localRepoId } = req.body;
+
+    // When localRepoId is provided, mount the local bare repo inside the container
+    if (localRepoId) {
+      // Validate that the repo exists and belongs to the user
+      const repos = readUserRepos(req.sessionUser);
+      const localRepo = repos.find(r => r.id === localRepoId && r.status === 'active');
+      if (!localRepo) {
+        return res.status(404).json({ success: false, error: 'Local repository not found or not active' });
+      }
+
+      if (!isDockerAvailable()) {
+        return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
+      }
+
+      let bareDir;
+      try { bareDir = getUserRepoBareDir(req.sessionUser, localRepoId); }
+      catch { return res.status(400).json({ success: false, error: 'Invalid local repo ID' }); }
+
+      const containerId = crypto.randomUUID();
+      const containerName = `localllm-${sanitizeUsernameForPath(req.sessionUser)}-${containerId.slice(0, 8)}`;
+
+      const initScript = [
+        'set -e',
+        'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
+        'git config --global user.email "localllm@local"',
+        'git config --global user.name "LocalLLM"',
+        'git clone /bare-repo.git /workspace || true',
+        'cd /workspace',
+        'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
+        'tail -f /dev/null',
+      ].join(' && ');
+
+      try {
+        const { execFileSync } = require('child_process');
+        const dockerArgs = [
+          'run', '-d',
+          '--name', containerName,
+          '--memory=512m',
+          '--cpus=1',
+          '--network=bridge',
+          '-v', `${bareDir}:/bare-repo.git:rw`,
+          'node:20-slim',
+          'bash', '-c', initScript,
+        ];
+
+        const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+
+        const containerEntry = {
+          id: containerId,
+          dockerId: dockerId.slice(0, 12),
+          dockerName: containerName,
+          repoFullName: localRepo.name,
+          branch: localRepo.defaultBranch || 'main',
+          mode: mode || 'manual',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastActivity: Date.now(),
+          localRepoId,
+        };
+
+        containerRegistry.set(containerId, {
+          ...containerEntry,
+          inactivityTimer: setTimeout(() => stopContainerByInactivity(containerId), CONTAINER_INACTIVITY_TIMEOUT_MS),
+        });
+
+        const containers = readUserContainers(req.sessionUser);
+        containers.push(containerEntry);
+        writeUserContainers(req.sessionUser, containers);
+
+        // Link container back to the local repo
+        const repoIdx = repos.findIndex(r => r.id === localRepoId);
+        if (repoIdx !== -1) {
+          repos[repoIdx].containerId = containerId;
+          repos[repoIdx].containerName = containerName;
+          writeUserRepos(req.sessionUser, repos);
+        }
+
+        auditLog({ event: 'CONTAINER_CREATED', message: `Container created for local repo "${localRepo.name}"`, username: req.sessionUser, req });
+        res.json({ success: true, container: containerEntry });
+      } catch (dockerErr) {
+        console.error('Docker create error (local repo):', dockerErr.message);
+        res.status(500).json({ success: false, error: 'Failed to create container' });
+      }
+      return;
+    }
 
     if (!repoFullName || !cloneUrl || !mode) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -2598,6 +2695,751 @@ app.delete('/api/coding-agent/containers/:id', requireSession, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Remove container error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Local.LLM Repository Management
+// ---------------------------------------------------------------------------
+
+const REPOS_DIR = path.join(DATA_DIR, 'repositories');
+if (!fs.existsSync(REPOS_DIR)) fs.mkdirSync(REPOS_DIR, { recursive: true });
+
+// Per-repository max size (1 GB) and per-user total max (10 GB)
+const REPO_MAX_SIZE_BYTES = parseInt(process.env.REPO_MAX_SIZE_BYTES || String(1073741824), 10);
+const USER_MAX_STORAGE_BYTES = parseInt(process.env.USER_MAX_STORAGE_BYTES || String(10737418240), 10);
+
+// After 60 minutes of no git activity the repo is automatically archived
+const REPO_INACTIVITY_MS = parseInt(process.env.REPO_INACTIVITY_MINUTES || '60', 10) * 60 * 1000;
+
+// Valid repo name: letters, digits, hyphens, underscores, dots; 1–100 chars
+const REPO_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,98}[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+
+// In-memory registry: repoId -> { archiveTimer, lastActivity, username }
+const repoRegistry = new Map();
+
+function getUserReposDir(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  const dir = path.join(REPOS_DIR, safe);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return ensureWithinDir(REPOS_DIR, dir);
+}
+
+function getUserReposMetaFile(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  return ensureWithinDir(REPOS_DIR, path.join(REPOS_DIR, `${safe}.json`));
+}
+
+function readUserRepos(username) {
+  const file = getUserReposMetaFile(username);
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch { return []; }
+}
+
+function writeUserRepos(username, repos) {
+  const file = getUserReposMetaFile(username);
+  fs.writeFileSync(file, JSON.stringify(repos, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+function getUserRepoBareDir(username, repoId) {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(repoId)) {
+    throw new Error('Invalid repo ID');
+  }
+  const userDir = getUserReposDir(username);
+  return ensureWithinDir(userDir, path.join(userDir, `${repoId}.git`));
+}
+
+function getUserRepoArchivePath(username, repoId) {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(repoId)) {
+    throw new Error('Invalid repo ID');
+  }
+  const userDir = getUserReposDir(username);
+  return ensureWithinDir(userDir, path.join(userDir, `${repoId}.tar.gz`));
+}
+
+function getUserStorageBytes(username) {
+  try {
+    const { execFileSync } = require('child_process');
+    const userDir = path.join(REPOS_DIR, path.basename(sanitizeUsernameForPath(username)));
+    if (!fs.existsSync(userDir)) return 0;
+    const out = execFileSync('du', ['-sb', userDir], { encoding: 'utf-8', timeout: 15000 });
+    return parseInt(out.split('\t')[0], 10) || 0;
+  } catch { return 0; }
+}
+
+function getRepoBytesOnDisk(username, repoId) {
+  try {
+    const { execFileSync } = require('child_process');
+    let target;
+    try { target = getUserRepoBareDir(username, repoId); } catch { return 0; }
+    if (!fs.existsSync(target)) {
+      try { target = getUserRepoArchivePath(username, repoId); } catch { return 0; }
+    }
+    if (!fs.existsSync(target)) return 0;
+    const out = execFileSync('du', ['-sb', target], { encoding: 'utf-8', timeout: 10000 });
+    return parseInt(out.split('\t')[0], 10) || 0;
+  } catch { return 0; }
+}
+
+function isGitAvailable() {
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync('git', ['--version'], { timeout: 5000, stdio: 'pipe' });
+    return true;
+  } catch { return false; }
+}
+
+// ---------------------------------------------------------------------------
+// Repository inactivity timer
+// ---------------------------------------------------------------------------
+
+function touchRepoActivity(repoId) {
+  const entry = repoRegistry.get(repoId);
+  if (entry) {
+    clearTimeout(entry.archiveTimer);
+    entry.lastActivity = Date.now();
+    entry.archiveTimer = setTimeout(() => archiveRepoByInactivity(repoId), REPO_INACTIVITY_MS);
+  }
+}
+
+function registerRepoInMemory(username, repoId) {
+  const existing = repoRegistry.get(repoId);
+  if (existing) clearTimeout(existing.archiveTimer);
+  repoRegistry.set(repoId, {
+    username,
+    lastActivity: Date.now(),
+    archiveTimer: setTimeout(() => archiveRepoByInactivity(repoId), REPO_INACTIVITY_MS),
+  });
+}
+
+async function archiveRepoByInactivity(repoId) {
+  console.log(`Archiving repo ${repoId} due to inactivity`);
+  const entry = repoRegistry.get(repoId);
+  if (!entry) return;
+  try { await performArchiveRepo(entry.username, repoId); }
+  catch (err) { console.error(`Failed to archive repo ${repoId}:`, err.message); }
+}
+
+// Load active repos into memory at startup
+function loadReposIntoRegistry() {
+  try {
+    const files = fs.readdirSync(REPOS_DIR).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const repos = JSON.parse(fs.readFileSync(path.join(REPOS_DIR, file), 'utf-8'));
+        if (!Array.isArray(repos)) continue;
+        for (const repo of repos) {
+          if (repo.status === 'active' && repo.id && repo.username) {
+            registerRepoInMemory(repo.username, repo.id);
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+}
+loadReposIntoRegistry();
+
+// ---------------------------------------------------------------------------
+// Archive / unarchive operations
+// ---------------------------------------------------------------------------
+
+async function performArchiveRepo(username, repoId) {
+  const repos = readUserRepos(username);
+  const repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'active');
+  if (repoIdx === -1) return;
+  const repo = repos[repoIdx];
+  const { execFileSync } = require('child_process');
+
+  // Handle linked container: commit uncommitted changes then delete it
+  if (repo.containerId) {
+    const containerEntry = containerRegistry.get(repo.containerId);
+    const containerName = containerEntry?.dockerName || repo.containerName;
+    if (containerName) {
+      try {
+        let containerExists = false;
+        try {
+          execFileSync('docker', ['inspect', '--format', '{{.Name}}', containerName], { timeout: 10000, stdio: 'pipe' });
+          containerExists = true;
+        } catch {}
+
+        if (containerExists) {
+          let wasRunning = false;
+          try {
+            const stateOut = execFileSync('docker', ['inspect', '--format', '{{.State.Running}}', containerName], { timeout: 10000, encoding: 'utf-8' });
+            wasRunning = stateOut.trim() === 'true';
+          } catch {}
+
+          if (!wasRunning) {
+            try { execFileSync('docker', ['start', containerName], { timeout: 30000 }); } catch {}
+          }
+
+          let hasUncommitted = false;
+          try {
+            const statusOut = execFileSync('docker', ['exec', containerName,
+              'bash', '-c', 'cd /workspace && git status --porcelain 2>/dev/null'],
+              { timeout: 15000, encoding: 'utf-8' });
+            hasUncommitted = statusOut.trim().length > 0;
+          } catch {}
+
+          if (hasUncommitted) {
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            const branchName = `localllm-auto-save-${ts}`;
+            try {
+              execFileSync('docker', ['exec', containerName, 'bash', '-c',
+                `cd /workspace && git add -A && git checkout -b "${branchName}" && git -c user.email="localllm@local" -c user.name="LocalLLM" commit -m "Auto-save before archive"`],
+                { timeout: 60000, encoding: 'utf-8' });
+            } catch (commitErr) {
+              console.error(`Auto-commit error for repo ${repoId}:`, commitErr.message);
+            }
+          }
+          try { execFileSync('docker', ['rm', '-f', containerName], { timeout: 30000 }); } catch {}
+        }
+      } catch (err) {
+        console.error(`Archive container cleanup error for ${repoId}:`, err.message);
+      }
+      if (containerEntry) {
+        clearTimeout(containerEntry.inactivityTimer);
+        containerRegistry.delete(repo.containerId);
+      }
+    }
+    const userContainers = readUserContainers(username);
+    writeUserContainers(username, userContainers.filter(c => c.id !== repo.containerId));
+  }
+
+  // Compress bare repo to tar.gz
+  const bareDir = getUserRepoBareDir(username, repoId);
+  const archivePath = getUserRepoArchivePath(username, repoId);
+  if (fs.existsSync(bareDir)) {
+    const userDir = getUserReposDir(username);
+    execFileSync('tar', ['-czf', archivePath, '-C', userDir, `${repoId}.git`], { timeout: 180000 });
+    fs.rmSync(bareDir, { recursive: true, force: true });
+  }
+
+  repos[repoIdx] = { ...repo, status: 'archived', archivedAt: new Date().toISOString(), containerId: null, containerName: null };
+  writeUserRepos(username, repos);
+
+  const entry = repoRegistry.get(repoId);
+  if (entry) { clearTimeout(entry.archiveTimer); repoRegistry.delete(repoId); }
+  auditLog({ event: 'REPO_ARCHIVED', message: `Repository "${repo.name}" archived`, username });
+}
+
+function performUnarchiveRepo(username, repoId) {
+  const repos = readUserRepos(username);
+  const repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'archived');
+  if (repoIdx === -1) throw new Error('Repository not found or not archived');
+  const repo = repos[repoIdx];
+  const { execFileSync } = require('child_process');
+  const archivePath = getUserRepoArchivePath(username, repoId);
+  if (!fs.existsSync(archivePath)) throw new Error('Archive file not found');
+  const userDir = getUserReposDir(username);
+  execFileSync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
+  fs.unlinkSync(archivePath);
+  repos[repoIdx] = { ...repo, status: 'active', archivedAt: null };
+  writeUserRepos(username, repos);
+  registerRepoInMemory(username, repoId);
+  auditLog({ event: 'REPO_UNARCHIVED', message: `Repository "${repo.name}" unarchived`, username });
+}
+
+function deleteAllUserRepos(username) {
+  try {
+    const repos = readUserRepos(username);
+    for (const repo of repos) {
+      const entry = repoRegistry.get(repo.id);
+      if (entry) { clearTimeout(entry.archiveTimer); repoRegistry.delete(repo.id); }
+    }
+    const userDir = path.join(REPOS_DIR, path.basename(sanitizeUsernameForPath(username)));
+    if (fs.existsSync(userDir)) fs.rmSync(userDir, { recursive: true, force: true });
+    const metaFile = getUserReposMetaFile(username);
+    if (fs.existsSync(metaFile)) fs.unlinkSync(metaFile);
+  } catch (err) {
+    console.error(`deleteAllUserRepos error for ${username}:`, err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Git HTTP Smart Protocol (git http-backend CGI)
+// ---------------------------------------------------------------------------
+
+function authenticateGitRequest(req, repoId) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return { ok: false, status: 401, error: 'Authentication required', wwwAuthenticate: 'Basic realm="LocalLLM Git"' };
+  }
+
+  if (authHeader.startsWith('Bearer ')) {
+    const session = validateSession(authHeader.slice(7));
+    if (!session) return { ok: false, status: 401, error: 'Invalid or expired session', wwwAuthenticate: 'Basic realm="LocalLLM Git"' };
+    const repos = readUserRepos(session.username);
+    const repo = repos.find(r => r.id === repoId);
+    if (!repo) return { ok: false, status: 404, error: 'Repository not found' };
+    return { ok: true, username: session.username, repo };
+  }
+
+  if (authHeader.startsWith('Basic ')) {
+    const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
+    const colonIdx = decoded.indexOf(':');
+    const providedKey = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : decoded;
+    // Scan metadata files to find the repo with a matching auth key
+    try {
+      const files = fs.readdirSync(REPOS_DIR).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        try {
+          const repos = JSON.parse(fs.readFileSync(path.join(REPOS_DIR, file), 'utf-8'));
+          if (!Array.isArray(repos)) continue;
+          const repo = repos.find(r => r.id === repoId);
+          if (repo && repo.authKey && timingSafeCompare(repo.authKey, providedKey)) {
+            return { ok: true, username: repo.username, repo };
+          }
+        } catch {}
+      }
+    } catch {}
+    return { ok: false, status: 401, error: 'Invalid credentials', wwwAuthenticate: 'Basic realm="LocalLLM Git"' };
+  }
+
+  return { ok: false, status: 401, error: 'Invalid authorization format', wwwAuthenticate: 'Basic realm="LocalLLM Git"' };
+}
+
+function handleGitHttpBackend(req, res, repoId, gitPathSuffix) {
+  const auth = authenticateGitRequest(req, repoId);
+  if (!auth.ok) {
+    if (auth.wwwAuthenticate) res.setHeader('WWW-Authenticate', auth.wwwAuthenticate);
+    return res.status(auth.status).json({ error: auth.error });
+  }
+
+  const { username, repo } = auth;
+  if (repo.status !== 'active') {
+    return res.status(409).json({ error: 'Repository is archived. Unarchive it first.' });
+  }
+
+  let bareDir;
+  try { bareDir = getUserRepoBareDir(username, repoId); }
+  catch { return res.status(404).json({ error: 'Repository not found' }); }
+  if (!fs.existsSync(bareDir)) return res.status(404).json({ error: 'Repository directory not found' });
+
+  touchRepoActivity(repoId);
+
+  const { spawn } = require('child_process');
+  const userDir = getUserReposDir(username);
+  const pathInfo = `/${repoId}.git/${gitPathSuffix}`;
+  const rawUrl = req.url || '';
+  const qIdx = rawUrl.indexOf('?');
+  const queryString = qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '';
+
+  const env = {
+    ...process.env,
+    GIT_PROJECT_ROOT: userDir,
+    GIT_HTTP_EXPORT_ALL: '1',
+    PATH_INFO: pathInfo,
+    REQUEST_METHOD: req.method,
+    QUERY_STRING: queryString,
+    CONTENT_TYPE: req.headers['content-type'] || '',
+    CONTENT_LENGTH: req.headers['content-length'] || '0',
+    REMOTE_ADDR: req.ip || '',
+    SERVER_NAME: req.hostname || 'localhost',
+    SERVER_PORT: String(req.socket?.localPort || 3000),
+    SERVER_PROTOCOL: 'HTTP/1.1',
+    GIT_HTTP_MAX_REQUEST_BUFFER: '100m',
+  };
+  if (req.headers['git-protocol']) env.GIT_PROTOCOL = req.headers['git-protocol'];
+
+  const gitProc = spawn('git', ['http-backend'], { env });
+  req.pipe(gitProc.stdin);
+
+  let headersDone = false;
+  let buf = Buffer.alloc(0);
+
+  gitProc.stdout.on('data', (chunk) => {
+    if (headersDone) { res.write(chunk); return; }
+    buf = Buffer.concat([buf, chunk]);
+    // git http-backend uses \r\n\r\n or \n\n to separate headers from body
+    let sepIdx = buf.indexOf('\r\n\r\n');
+    let sepLen = 4;
+    if (sepIdx < 0) { sepIdx = buf.indexOf('\n\n'); sepLen = 2; }
+    if (sepIdx < 0) return;
+
+    const headerStr = buf.slice(0, sepIdx).toString('utf-8');
+    let statusCode = 200;
+    for (const line of headerStr.split(/\r?\n/)) {
+      const ci = line.indexOf(':');
+      if (ci < 0) continue;
+      const hName = line.slice(0, ci).trim().toLowerCase();
+      const hVal = line.slice(ci + 1).trim();
+      if (hName === 'status') { statusCode = parseInt(hVal.split(' ')[0], 10); }
+      else { res.setHeader(hName, hVal); }
+    }
+    res.status(statusCode);
+    headersDone = true;
+    const body = buf.slice(sepIdx + sepLen);
+    if (body.length > 0) res.write(body);
+  });
+
+  gitProc.stdout.on('end', () => res.end());
+  gitProc.stderr.on('data', (d) => console.error('git http-backend:', d.toString().trim()));
+  gitProc.on('error', (err) => {
+    console.error('git http-backend spawn error:', err.message);
+    if (!res.headersSent) res.status(503).json({ error: 'Git service unavailable' });
+    else res.end();
+  });
+}
+
+// Git Smart HTTP endpoints
+app.get('/api/repositories/:id/git/info/refs', (req, res) => {
+  handleGitHttpBackend(req, res, req.params.id, 'info/refs');
+});
+app.post('/api/repositories/:id/git/git-upload-pack', (req, res) => {
+  handleGitHttpBackend(req, res, req.params.id, 'git-upload-pack');
+});
+app.post('/api/repositories/:id/git/git-receive-pack', (req, res) => {
+  handleGitHttpBackend(req, res, req.params.id, 'git-receive-pack');
+});
+
+// ---------------------------------------------------------------------------
+// Repository CRUD & lifecycle endpoints
+// ---------------------------------------------------------------------------
+
+// POST /api/repositories – Create a new Local.LLM bare git repository
+app.post('/api/repositories', requireSession, async (req, res) => {
+  try {
+    const { name, description, initReadme } = req.body;
+    if (!name || typeof name !== 'string' || !REPO_NAME_REGEX.test(name)) {
+      return res.status(400).json({ success: false, error: 'Invalid repository name. Use letters, digits, hyphens, underscores, or dots (1–100 chars).' });
+    }
+    if (!isGitAvailable()) {
+      return res.status(503).json({ success: false, error: 'Git is not available on this server' });
+    }
+    const currentStorage = getUserStorageBytes(req.sessionUser);
+    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
+      return res.status(409).json({ success: false, error: `Storage quota exceeded (max ${Math.round(USER_MAX_STORAGE_BYTES / 1073741824)} GB per user)` });
+    }
+    const repos = readUserRepos(req.sessionUser);
+    if (repos.some(r => r.name === name && r.status !== 'archived')) {
+      return res.status(409).json({ success: false, error: 'A repository with this name already exists' });
+    }
+
+    const repoId = crypto.randomUUID();
+    const authKey = crypto.randomBytes(32).toString('base64url');
+    const { execFileSync } = require('child_process');
+
+    try {
+      const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
+      fs.mkdirSync(bareDir, { recursive: true });
+      execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
+
+      if (initReadme) {
+        const os = require('os');
+        const tmpDir = path.join(os.tmpdir(), `localllm-init-${repoId}`);
+        try {
+          execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
+          fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description || ''}\n`);
+          execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
+          execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
+          execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
+          execFileSync('git', ['-C', tmpDir, 'commit', '-m', 'Initial commit'], { timeout: 10000 });
+          execFileSync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
+        } finally {
+          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+        }
+      }
+    } catch (gitErr) {
+      try { const bd = getUserRepoBareDir(req.sessionUser, repoId); fs.rmSync(bd, { recursive: true, force: true }); } catch {}
+      console.error('Git init error:', gitErr.message);
+      return res.status(500).json({ success: false, error: 'Failed to initialize repository' });
+    }
+
+    const repoEntry = {
+      id: repoId, name, description: description || '', status: 'active',
+      authKey, username: req.sessionUser, defaultBranch: 'main',
+      createdAt: new Date().toISOString(), lastActivity: Date.now(),
+      archivedAt: null, containerId: null, containerName: null,
+    };
+    repos.push(repoEntry);
+    writeUserRepos(req.sessionUser, repos);
+    registerRepoInMemory(req.sessionUser, repoId);
+    auditLog({ event: 'REPO_CREATED', message: `Repository "${name}" created`, username: req.sessionUser, req });
+    res.json({ success: true, repo: repoEntry });
+  } catch (err) {
+    console.error('Create repo error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/repositories – List user's repositories
+app.get('/api/repositories', requireSession, (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    const storageUsed = getUserStorageBytes(req.sessionUser);
+    // Omit authKey from list response; clients call GET /:id for the key
+    const sanitized = repos.map(({ authKey, ...r }) => r);
+    res.json({ success: true, repos: sanitized, storageUsed, storageMax: USER_MAX_STORAGE_BYTES });
+  } catch (err) {
+    console.error('List repos error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/repositories/:id – Get single repo details (includes authKey for owner)
+app.get('/api/repositories/:id', requireSession, (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    const repo = repos.find(r => r.id === req.params.id);
+    if (!repo) return res.status(404).json({ success: false, error: 'Repository not found' });
+    touchRepoActivity(repo.id);
+    const size = getRepoBytesOnDisk(req.sessionUser, repo.id);
+    res.json({ success: true, repo: { ...repo, size } });
+  } catch (err) {
+    console.error('Get repo error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/repositories/:id – Delete a repository and any linked container
+app.delete('/api/repositories/:id', requireSession, (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    const repoIdx = repos.findIndex(r => r.id === req.params.id);
+    if (repoIdx === -1) return res.status(404).json({ success: false, error: 'Repository not found' });
+    const repo = repos[repoIdx];
+    const { execFileSync } = require('child_process');
+
+    if (repo.containerId) {
+      const containerEntry = containerRegistry.get(repo.containerId);
+      const containerName = containerEntry?.dockerName || repo.containerName;
+      if (containerName) { try { execFileSync('docker', ['rm', '-f', containerName], { timeout: 30000 }); } catch {} }
+      if (containerEntry) { clearTimeout(containerEntry.inactivityTimer); containerRegistry.delete(repo.containerId); }
+      const userContainers = readUserContainers(req.sessionUser);
+      writeUserContainers(req.sessionUser, userContainers.filter(c => c.id !== repo.containerId));
+    }
+
+    if (repo.status === 'active') {
+      try { const bd = getUserRepoBareDir(req.sessionUser, repo.id); if (fs.existsSync(bd)) fs.rmSync(bd, { recursive: true, force: true }); } catch {}
+    } else {
+      try { const ap = getUserRepoArchivePath(req.sessionUser, repo.id); if (fs.existsSync(ap)) fs.unlinkSync(ap); } catch {}
+    }
+
+    const regEntry = repoRegistry.get(repo.id);
+    if (regEntry) { clearTimeout(regEntry.archiveTimer); repoRegistry.delete(repo.id); }
+
+    repos.splice(repoIdx, 1);
+    writeUserRepos(req.sessionUser, repos);
+    auditLog({ event: 'REPO_DELETED', message: `Repository "${repo.name}" deleted`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete repo error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/repositories/:id/archive – Manually archive
+app.post('/api/repositories/:id/archive', requireSession, async (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    const repo = repos.find(r => r.id === req.params.id && r.status === 'active');
+    if (!repo) return res.status(404).json({ success: false, error: 'Active repository not found' });
+    await performArchiveRepo(req.sessionUser, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Archive repo error:', err);
+    res.status(500).json({ success: false, error: 'Failed to archive repository' });
+  }
+});
+
+// POST /api/repositories/:id/unarchive – Restore from archive
+app.post('/api/repositories/:id/unarchive', requireSession, (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    if (!repos.find(r => r.id === req.params.id && r.status === 'archived')) {
+      return res.status(404).json({ success: false, error: 'Archived repository not found' });
+    }
+    const currentStorage = getUserStorageBytes(req.sessionUser);
+    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
+      return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
+    }
+    performUnarchiveRepo(req.sessionUser, req.params.id);
+    auditLog({ event: 'REPO_UNARCHIVED', message: `Repository "${repos.find(r => r.id === req.params.id)?.name ?? req.params.id}" unarchived`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Unarchive repo error:', err);
+    res.status(500).json({ success: false, error: 'Failed to unarchive repository' });
+  }
+});
+
+// POST /api/repositories/:id/regenerate-key – Generate a new auth key
+app.post('/api/repositories/:id/regenerate-key', requireSession, (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    const repoIdx = repos.findIndex(r => r.id === req.params.id);
+    if (repoIdx === -1) return res.status(404).json({ success: false, error: 'Repository not found' });
+    const newKey = crypto.randomBytes(32).toString('base64url');
+    repos[repoIdx].authKey = newKey;
+    writeUserRepos(req.sessionUser, repos);
+    auditLog({ event: 'REPO_KEY_REGENERATED', message: `Auth key regenerated for "${repos[repoIdx].name}"`, username: req.sessionUser, req });
+    res.json({ success: true, authKey: newKey });
+  } catch (err) {
+    console.error('Regenerate key error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/repositories/import-github – Clone a GitHub repo as a Local.LLM repository
+app.post('/api/repositories/import-github', requireSession, async (req, res) => {
+  try {
+    const { cloneUrl, name, description } = req.body;
+    if (!cloneUrl || typeof cloneUrl !== 'string') {
+      return res.status(400).json({ success: false, error: 'Clone URL is required' });
+    }
+    if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?\/[\w./\-]+(\.git)?$/.test(cloneUrl)) {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL. Only HTTPS URLs are supported.' });
+    }
+    const repoName = (name || cloneUrl.split('/').pop()?.replace(/\.git$/, '') || 'imported-repo')
+      .replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100);
+    if (!REPO_NAME_REGEX.test(repoName)) {
+      return res.status(400).json({ success: false, error: 'Invalid repository name' });
+    }
+    if (!isGitAvailable()) {
+      return res.status(503).json({ success: false, error: 'Git is not available on this server' });
+    }
+    const currentStorage = getUserStorageBytes(req.sessionUser);
+    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
+      return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
+    }
+    const repos = readUserRepos(req.sessionUser);
+    if (repos.some(r => r.name === repoName && r.status !== 'archived')) {
+      return res.status(409).json({ success: false, error: 'A repository with this name already exists' });
+    }
+
+    const integrations = readUserIntegrations(req.sessionUser);
+    const gitToken = integrations.github?.token || null;
+    const repoId = crypto.randomUUID();
+    const authKey = crypto.randomBytes(32).toString('base64url');
+    const { execFileSync } = require('child_process');
+    const os = require('os');
+
+    try {
+      const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
+      const cloneEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      let tmpAskPass = null;
+      if (gitToken) {
+        tmpAskPass = path.join(os.tmpdir(), `localllm-askpass-${repoId}.sh`);
+        fs.writeFileSync(tmpAskPass, `#!/bin/sh\necho "$GIT_TOKEN"\n`, { mode: 0o700 });
+        cloneEnv.GIT_ASKPASS = tmpAskPass;
+        cloneEnv.GIT_TOKEN = gitToken;
+      }
+      try {
+        execFileSync('git', ['clone', '--bare', cloneUrl, bareDir], { timeout: 300000, env: cloneEnv });
+      } finally {
+        if (tmpAskPass) { try { fs.unlinkSync(tmpAskPass); } catch {} }
+      }
+    } catch (gitErr) {
+      try { const bd = getUserRepoBareDir(req.sessionUser, repoId); fs.rmSync(bd, { recursive: true, force: true }); } catch {}
+      console.error('Git clone error:', gitErr.message);
+      return res.status(500).json({ success: false, error: 'Failed to clone repository. Verify the URL is correct and you have access.' });
+    }
+
+    const repoSize = getRepoBytesOnDisk(req.sessionUser, repoId);
+    if (repoSize > REPO_MAX_SIZE_BYTES) {
+      try { const bd = getUserRepoBareDir(req.sessionUser, repoId); fs.rmSync(bd, { recursive: true, force: true }); } catch {}
+      return res.status(409).json({ success: false, error: `Repository exceeds max size (${Math.round(REPO_MAX_SIZE_BYTES / 1073741824)} GB)` });
+    }
+
+    const repoEntry = {
+      id: repoId, name: repoName, description: description || '', status: 'active',
+      authKey, username: req.sessionUser, defaultBranch: 'main',
+      createdAt: new Date().toISOString(), lastActivity: Date.now(),
+      archivedAt: null, containerId: null, containerName: null,
+    };
+    repos.push(repoEntry);
+    writeUserRepos(req.sessionUser, repos);
+    registerRepoInMemory(req.sessionUser, repoId);
+    auditLog({ event: 'REPO_IMPORTED', message: `Repository "${repoName}" imported from ${cloneUrl}`, username: req.sessionUser, req });
+    res.json({ success: true, repo: repoEntry });
+  } catch (err) {
+    console.error('Import GitHub repo error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/repositories/:id/export-github – Mirror-push to a new GitHub repository
+app.post('/api/repositories/:id/export-github', requireSession, async (req, res) => {
+  try {
+    const { newRepoName, isPrivate, deleteLocal } = req.body;
+    const repos = readUserRepos(req.sessionUser);
+    const repoIdx = repos.findIndex(r => r.id === req.params.id && r.status === 'active');
+    if (repoIdx === -1) return res.status(404).json({ success: false, error: 'Active repository not found' });
+    const repo = repos[repoIdx];
+
+    const integrations = readUserIntegrations(req.sessionUser);
+    const github = integrations.github;
+    if (!github?.token) {
+      return res.status(400).json({ success: false, error: 'GitHub token not configured. Add a GitHub token in Settings.' });
+    }
+
+    const ghName = (newRepoName || repo.name).replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100);
+
+    let ghRepoData;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const createRes = await fetch('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${github.token}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'LocalLLM-Repositories',
+        },
+        body: JSON.stringify({ name: ghName, description: repo.description, private: !!isPrivate, auto_init: false }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!createRes.ok) {
+        const errData = await createRes.json();
+        return res.status(400).json({ success: false, error: errData.message || 'Failed to create GitHub repository' });
+      }
+      ghRepoData = await createRes.json();
+    } catch (fetchErr) {
+      if (fetchErr.name === 'AbortError') return res.status(504).json({ success: false, error: 'GitHub API request timed out' });
+      return res.status(502).json({ success: false, error: 'Could not connect to GitHub API' });
+    }
+
+    try {
+      const { execFileSync } = require('child_process');
+      const bareDir = getUserRepoBareDir(req.sessionUser, repo.id);
+      // Embed token in URL for one-shot mirror push (not persisted anywhere)
+      const pushUrl = ghRepoData.clone_url.replace('https://', `https://x:${github.token}@`);
+      execFileSync('git', ['-C', bareDir, 'push', '--mirror', pushUrl], { timeout: 300000 });
+    } catch (pushErr) {
+      console.error('Git mirror push error:', pushErr.message);
+      return res.status(500).json({ success: false, error: 'Failed to push to GitHub' });
+    }
+
+    auditLog({ event: 'REPO_EXPORTED', message: `Repository "${repo.name}" exported to GitHub as ${ghName}`, username: req.sessionUser, req });
+
+    if (deleteLocal) {
+      try { await performArchiveRepo(req.sessionUser, repo.id); } catch {}
+      // Then delete the archive too
+      try { const ap = getUserRepoArchivePath(req.sessionUser, repo.id); if (fs.existsSync(ap)) fs.unlinkSync(ap); } catch {}
+      const updatedRepos = readUserRepos(req.sessionUser);
+      const idx = updatedRepos.findIndex(r => r.id === repo.id);
+      if (idx !== -1) { updatedRepos.splice(idx, 1); writeUserRepos(req.sessionUser, updatedRepos); }
+    }
+
+    res.json({ success: true, githubUrl: ghRepoData.html_url, githubCloneUrl: ghRepoData.clone_url });
+  } catch (err) {
+    console.error('Export GitHub repo error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/local-repositories – active repos for the logged-in user (used by coding agent)
+app.get('/api/local-repositories', requireSession, (req, res) => {
+  try {
+    const repos = readUserRepos(req.sessionUser);
+    const activeRepos = repos.filter(r => r.status === 'active').map(({ authKey, ...r }) => r);
+    res.json({ success: true, repos: activeRepos });
+  } catch (err) {
+    console.error('List local repos error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -3478,4 +4320,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS };

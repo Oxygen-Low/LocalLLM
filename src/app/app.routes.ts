@@ -57,6 +57,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/coding-agent.page').then(m => m.CodingAgentPageComponent),
         canActivate: [authGuard, riskyAppsGuard],
       },
+      {
+        path: 'app/repositories',
+        loadComponent: () => import('./pages/repositories.page').then(m => m.RepositoriesPageComponent),
+        canActivate: [authGuard, riskyAppsGuard],
+      },
     ],
   },
   {
