@@ -235,4 +235,74 @@ describe('CodingAgentService', () => {
       await promise;
     });
   });
+
+  // --- Agent Terminal ---
+
+  describe('agentExec', () => {
+    it('should execute a command with agent-exec endpoint', async () => {
+      const promise = service.agentExec('test-id', 'npm install');
+      const req = httpMock.expectOne('/api/coding-agent/containers/test-id/agent-exec');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ command: 'npm install' });
+      req.flush({ success: true, output: 'added 100 packages' });
+      const result = await promise;
+      expect(result.output).toBe('added 100 packages');
+    });
+
+    it('should handle timed out commands', async () => {
+      const promise = service.agentExec('test-id', 'long-command');
+      const req = httpMock.expectOne('/api/coding-agent/containers/test-id/agent-exec');
+      req.flush({ success: true, output: 'partial output\n[Command timed out after 10 minutes]', exitCode: 1, timedOut: true });
+      const result = await promise;
+      expect(result.timedOut).toBe(true);
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
+  // --- Agent Memories ---
+
+  describe('getMemories', () => {
+    it('should list memories for a repo', async () => {
+      const promise = service.getMemories('user/repo');
+      const req = httpMock.expectOne(r => r.url === '/api/coding-agent/memories');
+      expect(req.request.method).toBe('GET');
+      expect(req.request.params.get('repo')).toBe('user/repo');
+      req.flush({ success: true, memories: [{ id: 'mem-1', content: 'uses TypeScript', createdAt: '2024-01-01' }] });
+      const result = await promise;
+      expect(result.length).toBe(1);
+      expect(result[0].content).toBe('uses TypeScript');
+    });
+
+    it('should return empty array when no memories exist', async () => {
+      const promise = service.getMemories('new/repo');
+      const req = httpMock.expectOne(r => r.url === '/api/coding-agent/memories');
+      req.flush({ success: true, memories: [] });
+      const result = await promise;
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('addMemory', () => {
+    it('should add a memory', async () => {
+      const promise = service.addMemory('user/repo', 'This project uses Angular');
+      const req = httpMock.expectOne('/api/coding-agent/memories');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ repo: 'user/repo', content: 'This project uses Angular' });
+      req.flush({ success: true, memory: { id: 'mem-new', content: 'This project uses Angular', createdAt: '2024-01-01' } });
+      const result = await promise;
+      expect(result.id).toBe('mem-new');
+      expect(result.content).toBe('This project uses Angular');
+    });
+  });
+
+  describe('deleteMemory', () => {
+    it('should delete a memory', async () => {
+      const promise = service.deleteMemory('user/repo', 'mem-1');
+      const req = httpMock.expectOne(r => r.url === '/api/coding-agent/memories/mem-1');
+      expect(req.request.method).toBe('DELETE');
+      expect(req.request.params.get('repo')).toBe('user/repo');
+      req.flush({ success: true });
+      await promise;
+    });
+  });
 });
