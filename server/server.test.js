@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -2420,5 +2420,279 @@ describe('reset-admin.js script', { concurrency: false }, () => {
 
     // Reload server cache
     writeUsers(users);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub Integration & Coding Agent endpoints
+// ---------------------------------------------------------------------------
+describe('GitHub Integration', () => {
+  let ghToken;
+  const ghTestUser = 'gh_test_user_' + Date.now();
+
+  before(async () => {
+    // Create a test user directly
+    const users = readUsers();
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(sha256Hex('TestPass1!'), salt, 100000, 32, 'sha256').toString('hex');
+    users.push({ username: ghTestUser, passwordHash: hash, salt, createdAt: new Date().toISOString() });
+    writeUsers(users);
+    ghToken = createSessionToken(ghTestUser);
+  });
+
+  after(() => {
+    // Cleanup test user
+    writeUsers(readUsers().filter(u => u.username !== ghTestUser));
+    invalidateUserSessions(ghTestUser);
+  });
+
+  it('GET /api/user/integrations/github/status requires auth', async () => {
+    const res = await request(server, 'GET', '/api/user/integrations/github/status', null);
+    assert.equal(res.status, 401);
+  });
+
+  it('GET /api/user/integrations/github/status returns not configured for new user', async () => {
+    const res = await request(server, 'GET', '/api/user/integrations/github/status', null, ghToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.configured, false);
+    assert.equal(res.body.username, null);
+  });
+
+  it('PUT /api/user/integrations/github requires auth', async () => {
+    const res = await request(server, 'PUT', '/api/user/integrations/github', { token: 'test' });
+    assert.equal(res.status, 401);
+  });
+
+  it('PUT /api/user/integrations/github rejects missing token', async () => {
+    const res = await request(server, 'PUT', '/api/user/integrations/github', {}, ghToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('PUT /api/user/integrations/github rejects token exceeding max length', async () => {
+    const res = await request(server, 'PUT', '/api/user/integrations/github', { token: 'x'.repeat(501) }, ghToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('DELETE /api/user/integrations/github requires auth', async () => {
+    const res = await request(server, 'DELETE', '/api/user/integrations/github', null);
+    assert.equal(res.status, 401);
+  });
+
+  it('DELETE /api/user/integrations/github succeeds even without token configured', async () => {
+    const res = await request(server, 'DELETE', '/api/user/integrations/github', null, ghToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+  });
+
+  it('GET /api/user/integrations/github/repos requires auth', async () => {
+    const res = await request(server, 'GET', '/api/user/integrations/github/repos', null);
+    assert.equal(res.status, 401);
+  });
+
+  it('GET /api/user/integrations/github/repos fails without token configured', async () => {
+    const res = await request(server, 'GET', '/api/user/integrations/github/repos', null, ghToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('readUserIntegrations returns empty object for new user', () => {
+    const integrations = readUserIntegrations(ghTestUser);
+    assert.deepEqual(integrations, {});
+  });
+
+  it('writeUserIntegration and readUserIntegrations round-trip', () => {
+    writeUserIntegration(ghTestUser, 'github', { token: 'test-token', ghUsername: 'testgh' });
+    const integrations = readUserIntegrations(ghTestUser);
+    assert.equal(integrations.github.token, 'test-token');
+    assert.equal(integrations.github.ghUsername, 'testgh');
+
+    // Cleanup
+    removeUserIntegration(ghTestUser, 'github');
+    const after = readUserIntegrations(ghTestUser);
+    assert.equal(after.github, undefined);
+  });
+
+  it('removeUserIntegration is idempotent', () => {
+    removeUserIntegration(ghTestUser, 'nonexistent');
+    // Should not throw
+  });
+});
+
+describe('Docker/Container endpoints', () => {
+  let dockerToken;
+  const dockerTestUser = 'docker_test_user_' + Date.now();
+
+  before(async () => {
+    const users = readUsers();
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(sha256Hex('TestPass1!'), salt, 100000, 32, 'sha256').toString('hex');
+    users.push({ username: dockerTestUser, passwordHash: hash, salt, createdAt: new Date().toISOString() });
+    writeUsers(users);
+    dockerToken = createSessionToken(dockerTestUser);
+  });
+
+  after(() => {
+    writeUsers(readUsers().filter(u => u.username !== dockerTestUser));
+    invalidateUserSessions(dockerTestUser);
+    // Cleanup container file
+    const file = path.join(CONTAINERS_DIR, `${dockerTestUser}.json`);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  });
+
+  it('GET /api/coding-agent/docker/status requires auth', async () => {
+    const res = await request(server, 'GET', '/api/coding-agent/docker/status', null);
+    assert.equal(res.status, 401);
+  });
+
+  it('GET /api/coding-agent/docker/status returns availability', async () => {
+    const res = await request(server, 'GET', '/api/coding-agent/docker/status', null, dockerToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(typeof res.body.available, 'boolean');
+  });
+
+  it('GET /api/coding-agent/containers requires auth', async () => {
+    const res = await request(server, 'GET', '/api/coding-agent/containers', null);
+    assert.equal(res.status, 401);
+  });
+
+  it('GET /api/coding-agent/containers returns empty array for new user', async () => {
+    const res = await request(server, 'GET', '/api/coding-agent/containers', null, dockerToken);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.deepEqual(res.body.containers, []);
+  });
+
+  it('POST /api/coding-agent/containers requires auth', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {
+      repoFullName: 'user/repo',
+      cloneUrl: 'https://github.com/user/repo.git',
+      mode: 'manual',
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it('POST /api/coding-agent/containers rejects missing fields', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {}, dockerToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('POST /api/coding-agent/containers rejects invalid mode', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {
+      repoFullName: 'user/repo',
+      cloneUrl: 'https://github.com/user/repo.git',
+      mode: 'invalid',
+    }, dockerToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('POST /api/coding-agent/containers rejects invalid clone URL', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {
+      repoFullName: 'user/repo',
+      cloneUrl: 'ftp://evil.com/exploit',
+      mode: 'manual',
+    }, dockerToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('POST /api/coding-agent/containers rejects without GitHub token', async () => {
+    removeUserIntegration(dockerTestUser, 'github');
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {
+      repoFullName: 'user/repo',
+      cloneUrl: 'https://github.com/user/repo.git',
+      mode: 'manual',
+    }, dockerToken);
+    assert.ok([400, 503].includes(res.status));
+    assert.equal(res.body.success, false);
+  });
+
+  it('GET /api/coding-agent/containers/:id returns 404 for nonexistent container', async () => {
+    const res = await request(server, 'GET', '/api/coding-agent/containers/nonexistent', null, dockerToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('POST /api/coding-agent/containers/:id/stop returns 404 for nonexistent container', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers/nonexistent/stop', {}, dockerToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('POST /api/coding-agent/containers/:id/start returns 404 for nonexistent container', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers/nonexistent/start', {}, dockerToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('POST /api/coding-agent/containers/:id/exec requires auth', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers/test-id/exec', { command: 'ls' });
+    assert.equal(res.status, 401);
+  });
+
+  it('POST /api/coding-agent/containers/:id/exec returns 404 for nonexistent container', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers/nonexistent/exec', { command: 'ls' }, dockerToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('POST /api/coding-agent/containers/:id/exec rejects invalid command', async () => {
+    const file = path.join(CONTAINERS_DIR, `${dockerTestUser}.json`);
+    fs.writeFileSync(file, JSON.stringify([{
+      id: 'test-exec-id',
+      dockerId: 'abc123',
+      dockerName: 'test-container',
+      repoFullName: 'user/repo',
+      branch: 'main',
+      mode: 'manual',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      lastActivity: Date.now(),
+    }]), 'utf-8');
+
+    const res = await request(server, 'POST', '/api/coding-agent/containers/test-exec-id/exec', {}, dockerToken);
+    assert.equal(res.status, 400);
+
+    fs.writeFileSync(file, '[]', 'utf-8');
+  });
+
+  it('GET /api/coding-agent/containers/:id/files returns 404 for nonexistent container', async () => {
+    const res = await request(server, 'GET', '/api/coding-agent/containers/nonexistent/files', null, dockerToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('GET /api/coding-agent/containers/:id/file rejects path traversal', async () => {
+    const file = path.join(CONTAINERS_DIR, `${dockerTestUser}.json`);
+    fs.writeFileSync(file, JSON.stringify([{
+      id: 'test-file-id',
+      dockerId: 'abc123',
+      dockerName: 'test-container',
+      repoFullName: 'user/repo',
+      branch: 'main',
+      mode: 'manual',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      lastActivity: Date.now(),
+    }]), 'utf-8');
+
+    const res = await request(server, 'GET', '/api/coding-agent/containers/test-file-id/file?path=../../etc/passwd', null, dockerToken);
+    assert.equal(res.status, 400);
+
+    fs.writeFileSync(file, '[]', 'utf-8');
+  });
+
+  it('DELETE /api/coding-agent/containers/:id returns 404 for nonexistent container', async () => {
+    const res = await request(server, 'DELETE', '/api/coding-agent/containers/nonexistent', null, dockerToken);
+    assert.equal(res.status, 404);
+  });
+
+  it('isDockerAvailable returns a boolean', () => {
+    const result = isDockerAvailable();
+    assert.equal(typeof result, 'boolean');
+  });
+
+  it('CONTAINERS_DIR exists', () => {
+    assert.ok(fs.existsSync(CONTAINERS_DIR));
   });
 });
