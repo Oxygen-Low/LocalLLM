@@ -843,6 +843,11 @@ function setupGracefulShutdown(server) {
 
     console.log(`\n${signal} received. Saving data and shutting down...`);
 
+    // Stop the stale-container cleanup timer
+    if (typeof staleContainerCleanupTimer !== 'undefined') {
+      clearInterval(staleContainerCleanupTimer);
+    }
+
     // Persist data first to guarantee nothing is lost
     saveAllData();
 
@@ -1231,6 +1236,9 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     // SOC2 CC6.3: Invalidate all sessions for deleted user
     invalidateUserSessions(normalizedUsername);
+
+    // Clean up all Docker containers owned by this user
+    deleteAllUserContainers(normalizedUsername);
 
     auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: normalizedUsername, req });
 
@@ -1853,6 +1861,740 @@ app.put('/api/user/api-keys/:provider/model', requireSession, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Set model error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GitHub Integration (Coding Agent)
+// ---------------------------------------------------------------------------
+
+// Helper functions for GitHub integration data
+function readUserIntegrations(username) {
+  const keys = readUserApiKeys(username);
+  return keys._integrations || {};
+}
+
+function writeUserIntegration(username, integrationId, data) {
+  const keys = readUserApiKeys(username);
+  if (!keys._integrations) keys._integrations = {};
+  keys._integrations[integrationId] = data;
+  writeUserApiKeys(username, keys);
+}
+
+function removeUserIntegration(username, integrationId) {
+  const keys = readUserApiKeys(username);
+  if (keys._integrations) {
+    delete keys._integrations[integrationId];
+    writeUserApiKeys(username, keys);
+  }
+}
+
+// GET /api/user/integrations/github/status - Check if GitHub token is configured
+app.get('/api/user/integrations/github/status', requireSession, (req, res) => {
+  try {
+    const integrations = readUserIntegrations(req.sessionUser);
+    const github = integrations.github;
+    res.json({
+      success: true,
+      configured: !!github?.token,
+      username: github?.ghUsername || null,
+    });
+  } catch (err) {
+    console.error('GitHub status error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/integrations/github - Save GitHub PAT token
+app.put('/api/user/integrations/github', requireSession, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token || typeof token !== 'string' || token.length > 500) {
+      return res.status(400).json({ success: false, error: 'Valid GitHub token is required' });
+    }
+
+    // Validate token by calling GitHub API
+    let ghUsername;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const ghRes = await fetch('https://api.github.com/user', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'User-Agent': 'LocalLLM-CodingAgent',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!ghRes.ok) {
+        return res.status(400).json({ success: false, error: 'Invalid GitHub token. Please check your token and try again.' });
+      }
+
+      const ghUser = await ghRes.json();
+      ghUsername = ghUser.login;
+    } catch (fetchErr) {
+      if (fetchErr.name === 'AbortError') {
+        return res.status(504).json({ success: false, error: 'GitHub API request timed out' });
+      }
+      return res.status(502).json({ success: false, error: 'Could not connect to GitHub API' });
+    }
+
+    writeUserIntegration(req.sessionUser, 'github', { token, ghUsername });
+    auditLog({ event: 'GITHUB_TOKEN_SET', message: `GitHub token configured for ${ghUsername}`, username: req.sessionUser, req });
+    res.json({ success: true, username: ghUsername });
+  } catch (err) {
+    console.error('Set GitHub token error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/user/integrations/github - Remove GitHub token
+app.delete('/api/user/integrations/github', requireSession, (req, res) => {
+  try {
+    removeUserIntegration(req.sessionUser, 'github');
+    auditLog({ event: 'GITHUB_TOKEN_REMOVED', message: 'GitHub token removed', username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Remove GitHub token error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/user/integrations/github/repos - List user's GitHub repositories
+app.get('/api/user/integrations/github/repos', requireSession, async (req, res) => {
+  try {
+    const integrations = readUserIntegrations(req.sessionUser);
+    const github = integrations.github;
+
+    if (!github?.token) {
+      return res.status(400).json({ success: false, error: 'GitHub token not configured' });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const perPage = Math.min(parseInt(req.query.per_page) || 30, 100);
+    const search = req.query.search || '';
+
+    let url = `https://api.github.com/user/repos?per_page=${perPage}&page=${page}&sort=updated&direction=desc&type=all`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const ghRes = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${github.token}`,
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'LocalLLM-CodingAgent',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!ghRes.ok) {
+      if (ghRes.status === 401) {
+        return res.status(401).json({ success: false, error: 'GitHub token expired or invalid' });
+      }
+      return res.status(502).json({ success: false, error: 'GitHub API error' });
+    }
+
+    let repos = await ghRes.json();
+
+    // Server-side search filtering
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      repos = repos.filter(r =>
+        r.full_name.toLowerCase().includes(lowerSearch) ||
+        (r.description && r.description.toLowerCase().includes(lowerSearch))
+      );
+    }
+
+    const result = repos.map(r => ({
+      id: r.id,
+      name: r.name,
+      fullName: r.full_name,
+      description: r.description,
+      private: r.private,
+      defaultBranch: r.default_branch,
+      language: r.language,
+      updatedAt: r.updated_at,
+      htmlUrl: r.html_url,
+      cloneUrl: r.clone_url,
+    }));
+
+    res.json({ success: true, repos: result });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return res.status(504).json({ success: false, error: 'GitHub API request timed out' });
+    }
+    console.error('GitHub repos error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Docker Container Management (Coding Agent)
+// ---------------------------------------------------------------------------
+
+const CONTAINERS_DIR = path.join(DATA_DIR, 'containers');
+if (!fs.existsSync(CONTAINERS_DIR)) fs.mkdirSync(CONTAINERS_DIR, { recursive: true });
+
+// In-memory container tracking with inactivity timeouts.
+// Containers are automatically stopped after 10 minutes of inactivity to
+// conserve resources. Activity is refreshed on exec, file read/write, and
+// status checks so that actively-used containers remain running.
+const containerRegistry = new Map();
+const CONTAINER_INACTIVITY_TIMEOUT_MS = parseInt(process.env.CONTAINER_TIMEOUT_MINUTES || '10', 10) * 60 * 1000;
+const CONTAINER_STALE_THRESHOLD_MS = parseInt(process.env.CONTAINER_STALE_DAYS || '3', 10) * 24 * 60 * 60 * 1000;
+const CONTAINER_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
+const MAX_EXEC_COMMAND_LENGTH = 2000;
+
+function getUserContainersFile(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(CONTAINERS_DIR, `${safeUsername}.json`);
+  return ensureWithinDir(CONTAINERS_DIR, filePath);
+}
+
+function readUserContainers(username) {
+  const file = getUserContainersFile(username);
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+function writeUserContainers(username, containers) {
+  const file = getUserContainersFile(username);
+  fs.writeFileSync(file, JSON.stringify(containers, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+function touchContainerActivity(containerId) {
+  const entry = containerRegistry.get(containerId);
+  if (entry) {
+    clearTimeout(entry.inactivityTimer);
+    entry.lastActivity = Date.now();
+    entry.inactivityTimer = setTimeout(() => stopContainerByInactivity(containerId), CONTAINER_INACTIVITY_TIMEOUT_MS);
+  }
+}
+
+async function stopContainerByInactivity(containerId) {
+  try {
+    const { execFileSync } = require('child_process');
+    // containerId here is actually the dockerName from the registry
+    const entry = containerRegistry.get(containerId);
+    if (entry) {
+      execFileSync('docker', ['stop', entry.dockerName], { timeout: 30000 });
+      entry.status = 'stopped';
+      clearTimeout(entry.inactivityTimer);
+    }
+    console.log(`Container ${containerId} stopped due to inactivity`);
+  } catch (err) {
+    console.error(`Failed to stop container ${containerId}:`, err.message);
+  }
+}
+
+// Helper: check if Docker is available
+function isDockerAvailable() {
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync('docker', ['info'], { timeout: 5000, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Delete all Docker containers owned by a user (called on account deletion)
+function deleteAllUserContainers(username) {
+  const containers = readUserContainers(username);
+  const { execFileSync } = require('child_process');
+
+  for (const container of containers) {
+    // Remove Docker container
+    try {
+      execFileSync('docker', ['rm', '-f', container.dockerName], { timeout: 30000 });
+    } catch {
+      // Container might not exist in Docker
+    }
+
+    // Clean up in-memory registry
+    const entry = containerRegistry.get(container.id);
+    if (entry) {
+      clearTimeout(entry.inactivityTimer);
+      containerRegistry.delete(container.id);
+    }
+  }
+
+  // Remove the containers JSON file
+  const file = getUserContainersFile(username);
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+  }
+}
+
+// Periodically remove containers unused for CONTAINER_STALE_THRESHOLD_MS (default 3 days).
+// Runs every hour and checks lastActivity timestamps for all users.
+function cleanupStaleContainers() {
+  try {
+    const files = fs.readdirSync(CONTAINERS_DIR).filter(f => f.endsWith('.json'));
+    const now = Date.now();
+    const { execFileSync } = require('child_process');
+
+    for (const file of files) {
+      const filePath = path.join(CONTAINERS_DIR, file);
+      let containers;
+      try {
+        containers = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      } catch {
+        continue;
+      }
+
+      if (!Array.isArray(containers)) continue;
+
+      const kept = [];
+      for (const container of containers) {
+        const lastUsed = container.lastActivity || new Date(container.createdAt).getTime();
+        if (now - lastUsed > CONTAINER_STALE_THRESHOLD_MS) {
+          // Remove stale container from Docker
+          try {
+            execFileSync('docker', ['rm', '-f', container.dockerName], { timeout: 30000 });
+          } catch {
+            // Container might not exist
+          }
+
+          // Clean up in-memory registry
+          const entry = containerRegistry.get(container.id);
+          if (entry) {
+            clearTimeout(entry.inactivityTimer);
+            containerRegistry.delete(container.id);
+          }
+
+          console.log(`Stale container ${container.dockerName} removed (unused for ${Math.round((now - lastUsed) / 86400000)}d)`);
+        } else {
+          kept.push(container);
+        }
+      }
+
+      // Update or remove the file
+      if (kept.length !== containers.length) {
+        if (kept.length === 0) {
+          fs.unlinkSync(filePath);
+        } else {
+          fs.writeFileSync(filePath, JSON.stringify(kept, null, 2), { encoding: 'utf-8', mode: 0o600 });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Stale container cleanup error:', err.message);
+  }
+}
+
+// Start periodic stale-container cleanup
+const staleContainerCleanupTimer = setInterval(cleanupStaleContainers, CONTAINER_CLEANUP_INTERVAL_MS);
+// Don't let the timer prevent process exit
+if (staleContainerCleanupTimer.unref) staleContainerCleanupTimer.unref();
+
+// GET /api/coding-agent/docker/status - Check Docker availability
+app.get('/api/coding-agent/docker/status', requireSession, (req, res) => {
+  res.json({ success: true, available: isDockerAvailable() });
+});
+
+// POST /api/coding-agent/containers - Create and start a container for a repo
+app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
+  try {
+    const { repoFullName, cloneUrl, branch, mode } = req.body;
+
+    if (!repoFullName || !cloneUrl || !mode) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    if (!['background', 'manual'].includes(mode)) {
+      return res.status(400).json({ success: false, error: 'Invalid mode. Must be "background" or "manual"' });
+    }
+
+    // Validate clone URL format
+    if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\.git)?$/.test(cloneUrl)) {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL' });
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
+    }
+
+    const integrations = readUserIntegrations(req.sessionUser);
+    const github = integrations.github;
+    if (!github?.token) {
+      return res.status(400).json({ success: false, error: 'GitHub token not configured' });
+    }
+
+    const containerId = crypto.randomUUID();
+    const containerName = `localllm-${sanitizeUsernameForPath(req.sessionUser)}-${containerId.slice(0, 8)}`;
+    const branchName = (branch || 'main').replace(/[^a-zA-Z0-9._/-]/g, '');
+
+    if (!branchName) {
+      return res.status(400).json({ success: false, error: 'Invalid branch name' });
+    }
+
+    try {
+      const { execFileSync } = require('child_process');
+
+      // Build a shell script that uses git credential helper for safe token handling.
+      // The token is passed via environment variable and never appears in the process
+      // argument list or shell history.
+      const initScript = [
+        'set -e',
+        'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
+        'git config --global credential.helper \'!f() { echo "password=$GIT_TOKEN"; }; f\'',
+        `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null`,
+        'unset GIT_TOKEN',
+        'cd /workspace',
+        'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
+        'tail -f /dev/null',
+      ].join(' && ');
+
+      // Use execFileSync with argument array to prevent shell injection
+      const dockerArgs = [
+        'run', '-d',
+        '--name', containerName,
+        '--memory=512m',
+        '--cpus=1',
+        '--network=bridge',
+        '-e', `GIT_TOKEN=${github.token}`,
+        'node:20-slim',
+        'bash', '-c', initScript,
+      ];
+
+      const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+
+      // Track container
+      const containerEntry = {
+        id: containerId,
+        dockerId: dockerId.slice(0, 12),
+        dockerName: containerName,
+        repoFullName,
+        branch: branchName,
+        mode,
+        status: 'running',
+        createdAt: new Date().toISOString(),
+        lastActivity: Date.now(),
+      };
+
+      containerRegistry.set(containerId, {
+        ...containerEntry,
+        inactivityTimer: setTimeout(() => stopContainerByInactivity(containerId), CONTAINER_INACTIVITY_TIMEOUT_MS),
+      });
+
+      // Persist to disk
+      const containers = readUserContainers(req.sessionUser);
+      containers.push(containerEntry);
+      writeUserContainers(req.sessionUser, containers);
+
+      auditLog({ event: 'CONTAINER_CREATED', message: `Container created for ${repoFullName} (${mode})`, username: req.sessionUser, req });
+      res.json({ success: true, container: containerEntry });
+    } catch (dockerErr) {
+      console.error('Docker create error:', dockerErr.message);
+      res.status(500).json({ success: false, error: 'Failed to create container' });
+    }
+  } catch (err) {
+    console.error('Container create error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/coding-agent/containers - List user's containers
+app.get('/api/coding-agent/containers', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    // Update status from registry
+    const updated = containers.map(c => {
+      const entry = containerRegistry.get(c.id);
+      return { ...c, status: entry?.status || c.status };
+    });
+    res.json({ success: true, containers: updated });
+  } catch (err) {
+    console.error('List containers error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/coding-agent/containers/:id - Get container status
+app.get('/api/coding-agent/containers/:id', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    const entry = containerRegistry.get(container.id);
+    container.status = entry?.status || container.status;
+
+    touchContainerActivity(container.id);
+    res.json({ success: true, container });
+  } catch (err) {
+    console.error('Get container error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/coding-agent/containers/:id/stop - Stop a container
+app.post('/api/coding-agent/containers/:id/stop', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    try {
+      const { execFileSync } = require('child_process');
+      execFileSync('docker', ['stop', container.dockerName], { timeout: 30000 });
+    } catch {
+      // Container might already be stopped
+    }
+
+    const entry = containerRegistry.get(container.id);
+    if (entry) {
+      clearTimeout(entry.inactivityTimer);
+      entry.status = 'stopped';
+    }
+
+    // Update stored data
+    const idx = containers.findIndex(c => c.id === req.params.id);
+    if (idx !== -1) {
+      containers[idx].status = 'stopped';
+      writeUserContainers(req.sessionUser, containers);
+    }
+
+    auditLog({ event: 'CONTAINER_STOPPED', message: `Container stopped for ${container.repoFullName}`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Stop container error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/coding-agent/containers/:id/start - Restart a stopped container
+app.post('/api/coding-agent/containers/:id/start', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    try {
+      const { execFileSync } = require('child_process');
+      execFileSync('docker', ['start', container.dockerName], { timeout: 30000 });
+    } catch (dockerErr) {
+      return res.status(500).json({ success: false, error: 'Failed to start container' });
+    }
+
+    // Re-register in memory
+    containerRegistry.set(container.id, {
+      ...container,
+      status: 'running',
+      lastActivity: Date.now(),
+      inactivityTimer: setTimeout(() => stopContainerByInactivity(container.id), CONTAINER_INACTIVITY_TIMEOUT_MS),
+    });
+
+    const idx = containers.findIndex(c => c.id === req.params.id);
+    if (idx !== -1) {
+      containers[idx].status = 'running';
+      writeUserContainers(req.sessionUser, containers);
+    }
+
+    auditLog({ event: 'CONTAINER_STARTED', message: `Container restarted for ${container.repoFullName}`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Start container error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/coding-agent/containers/:id/exec - Execute a command in a container
+app.post('/api/coding-agent/containers/:id/exec', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    const { command } = req.body;
+    if (!command || typeof command !== 'string' || command.length > MAX_EXEC_COMMAND_LENGTH) {
+      return res.status(400).json({ success: false, error: 'Invalid command' });
+    }
+
+    touchContainerActivity(container.id);
+
+    try {
+      const { execFileSync } = require('child_process');
+      // Use docker exec with explicit arguments; pass command via base64 to avoid
+      // any shell metacharacter issues on the outer shell. Inside the container,
+      // bash -c executes the decoded command.
+      const b64Cmd = Buffer.from(command).toString('base64');
+      const output = execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
+      ], {
+        timeout: 30000,
+        encoding: 'utf-8',
+        maxBuffer: 1024 * 1024,
+      });
+      res.json({ success: true, output });
+    } catch (execErr) {
+      res.json({ success: true, output: execErr.stderr || execErr.stdout || execErr.message, exitCode: execErr.status || 1 });
+    }
+  } catch (err) {
+    console.error('Exec container error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/coding-agent/containers/:id/files - List files in container
+app.get('/api/coding-agent/containers/:id/files', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    const dirPath = typeof req.query.path === 'string' ? req.query.path : '.';
+    // Sanitize path: block traversal and absolute paths
+    if (dirPath.includes('..') || path.isAbsolute(dirPath)) {
+      return res.status(400).json({ success: false, error: 'Invalid path' });
+    }
+
+    touchContainerActivity(container.id);
+
+    try {
+      const { execFileSync } = require('child_process');
+      const output = execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `cd /workspace && find "${dirPath}" -maxdepth 1 -printf '%y %p\\n' 2>/dev/null | head -500`,
+      ], { timeout: 10000, encoding: 'utf-8' });
+
+      const files = output.trim().split('\n').filter(Boolean).map(line => {
+        const type = line.charAt(0);
+        const name = line.substring(2);
+        return { name, type: type === 'd' ? 'directory' : 'file' };
+      }).filter(f => f.name !== dirPath);
+
+      res.json({ success: true, files });
+    } catch (execErr) {
+      res.json({ success: true, files: [] });
+    }
+  } catch (err) {
+    console.error('List files error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/coding-agent/containers/:id/file - Read a file from container
+app.get('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    const filePath = typeof req.query.path === 'string' ? req.query.path : '';
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath)) {
+      return res.status(400).json({ success: false, error: 'Invalid file path' });
+    }
+
+    touchContainerActivity(container.id);
+
+    try {
+      const { execFileSync } = require('child_process');
+      const content = execFileSync('docker', [
+        'exec', container.dockerName,
+        'cat', `/workspace/${filePath}`,
+      ], { timeout: 10000, encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
+      res.json({ success: true, content });
+    } catch {
+      res.status(404).json({ success: false, error: 'File not found or too large' });
+    }
+  } catch (err) {
+    console.error('Read file error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/coding-agent/containers/:id/file - Write a file in container
+app.put('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    const { path: filePath, content } = req.body;
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || typeof content !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid file path or content' });
+    }
+
+    if (content.length > 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'File content too large (max 1MB)' });
+    }
+
+    touchContainerActivity(container.id);
+
+    try {
+      const { execFileSync } = require('child_process');
+      // Write content via base64 piped to base64 -d; using execFileSync avoids outer shell injection
+      const b64Content = Buffer.from(content).toString('base64');
+      execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `echo '${b64Content}' | base64 -d > '/workspace/${filePath}'`,
+      ], { timeout: 10000 });
+      res.json({ success: true });
+    } catch {
+      res.status(500).json({ success: false, error: 'Failed to write file' });
+    }
+  } catch (err) {
+    console.error('Write file error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/coding-agent/containers/:id - Remove a container
+app.delete('/api/coding-agent/containers/:id', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    try {
+      const { execFileSync } = require('child_process');
+      execFileSync('docker', ['rm', '-f', container.dockerName], { timeout: 30000 });
+    } catch {
+      // Container might not exist
+    }
+
+    const entry = containerRegistry.get(container.id);
+    if (entry) {
+      clearTimeout(entry.inactivityTimer);
+      containerRegistry.delete(container.id);
+    }
+
+    const updated = containers.filter(c => c.id !== req.params.id);
+    writeUserContainers(req.sessionUser, updated);
+
+    auditLog({ event: 'CONTAINER_REMOVED', message: `Container removed for ${container.repoFullName}`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Remove container error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -2733,4 +3475,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS };

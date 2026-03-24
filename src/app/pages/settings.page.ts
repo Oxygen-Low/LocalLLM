@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { LlmService, type ProviderKeyStatus } from '../services/llm.service';
+import { CodingAgentService } from '../services/coding-agent.service';
 
 interface ProviderConfig {
   id: string;
@@ -212,6 +213,96 @@ interface ProviderConfig {
                       </button>
                     </div>
                   }
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- GitHub Integration -->
+          <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
+            <h2 class="text-xl font-semibold text-secondary-900 mb-2">GitHub Integration</h2>
+            <p class="text-sm text-muted mb-6">Connect your GitHub account to use the Coding Agent. Your token is encrypted and stored securely.</p>
+
+            @if (githubSuccessMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {{ githubSuccessMessage() }}
+              </div>
+            }
+            @if (githubErrorMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {{ githubErrorMessage() }}
+              </div>
+            }
+
+            <div class="border border-secondary-100 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full" [ngClass]="githubConfigured() ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                  <h3 class="font-medium text-secondary-900">GitHub Personal Access Token</h3>
+                </div>
+                @if (githubConfigured()) {
+                  <button
+                    (click)="removeGitHubToken()"
+                    class="text-xs text-red-500 hover:text-red-700 transition-colors"
+                  >
+                    Remove Token
+                  </button>
+                }
+              </div>
+
+              @if (editingGitHub()) {
+                <div class="space-y-3">
+                  <div>
+                    <label for="github-pat" class="block text-xs font-medium text-secondary-600 mb-1">Personal Access Token</label>
+                    <input
+                      id="github-pat"
+                      type="password"
+                      [(ngModel)]="githubToken"
+                      name="githubToken"
+                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                      autocomplete="off"
+                    />
+                    <p class="mt-1.5 text-xs text-muted">
+                      Create a token at
+                      <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline">github.com/settings/tokens</a>
+                      with <strong>repo</strong> scope.
+                    </p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button
+                      (click)="saveGitHubToken()"
+                      [disabled]="isSavingGitHub()"
+                      class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                    >
+                      {{ isSavingGitHub() ? 'Validating...' : 'Save Token' }}
+                    </button>
+                    <button
+                      (click)="cancelEditGitHub()"
+                      class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              } @else {
+                <div class="flex items-center justify-between">
+                  <div class="text-sm text-muted">
+                    @if (githubConfigured()) {
+                      <span class="text-green-600">✓ Connected</span>
+                      @if (githubUsername()) {
+                        <span class="text-secondary-400 ml-2">· {{ githubUsername() }}</span>
+                      }
+                    } @else {
+                      Not configured
+                    }
+                  </div>
+                  <button
+                    (click)="startEditGitHub()"
+                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                  >
+                    {{ githubConfigured() ? 'Update' : 'Configure' }}
+                  </button>
                 </div>
               }
             </div>
@@ -452,7 +543,17 @@ export class SettingsPageComponent implements OnInit {
     },
   ];
 
+  // GitHub Integration fields
+  githubConfigured = signal(false);
+  githubUsername = signal<string | null>(null);
+  editingGitHub = signal(false);
+  githubToken = '';
+  isSavingGitHub = signal(false);
+  githubSuccessMessage = signal<string | null>(null);
+  githubErrorMessage = signal<string | null>(null);
+
   private llmService = inject(LlmService);
+  private codingAgentService = inject(CodingAgentService);
 
   constructor(
     public authService: AuthService,
@@ -460,7 +561,7 @@ export class SettingsPageComponent implements OnInit {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    await this.loadApiKeyStatus();
+    await Promise.all([this.loadApiKeyStatus(), this.loadGitHubStatus()]);
   }
 
   async loadApiKeyStatus(): Promise<void> {
@@ -585,6 +686,63 @@ export class SettingsPageComponent implements OnInit {
       await this.loadApiKeyStatus();
     } catch {
       this.apiKeyErrorMessage.set('Failed to remove API key');
+    }
+  }
+
+  // --- GitHub Integration methods ---
+
+  async loadGitHubStatus(): Promise<void> {
+    try {
+      const status = await this.codingAgentService.getGitHubStatus();
+      this.githubConfigured.set(status.configured);
+      this.githubUsername.set(status.username);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  startEditGitHub(): void {
+    this.editingGitHub.set(true);
+    this.githubToken = '';
+    this.githubSuccessMessage.set(null);
+    this.githubErrorMessage.set(null);
+  }
+
+  cancelEditGitHub(): void {
+    this.editingGitHub.set(false);
+    this.githubToken = '';
+  }
+
+  async saveGitHubToken(): Promise<void> {
+    if (!this.githubToken.trim()) {
+      this.githubErrorMessage.set('Please enter a GitHub token');
+      return;
+    }
+
+    this.isSavingGitHub.set(true);
+    this.githubErrorMessage.set(null);
+
+    try {
+      const result = await this.codingAgentService.setGitHubToken(this.githubToken.trim());
+      this.githubSuccessMessage.set(`GitHub connected as ${result.username}`);
+      this.editingGitHub.set(false);
+      this.githubToken = '';
+      await this.loadGitHubStatus();
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.githubErrorMessage.set(httpErr?.error?.error || 'Failed to save GitHub token');
+    } finally {
+      this.isSavingGitHub.set(false);
+    }
+  }
+
+  async removeGitHubToken(): Promise<void> {
+    try {
+      await this.codingAgentService.removeGitHubToken();
+      this.githubSuccessMessage.set('GitHub token removed');
+      await this.loadGitHubStatus();
+    } catch {
+      this.githubErrorMessage.set('Failed to remove GitHub token');
     }
   }
 
