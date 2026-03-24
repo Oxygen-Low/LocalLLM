@@ -44,6 +44,12 @@ export interface FileEntry {
   type: 'file' | 'directory';
 }
 
+export interface AgentMemory {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -209,6 +215,49 @@ export class CodingAgentService {
         path: filePath,
         content,
       })
+    );
+  }
+
+  // --- Agent Terminal (10-min timeout) ---
+
+  async agentExec(id: string, command: string): Promise<{ output: string; exitCode?: number; timedOut?: boolean }> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; output: string; exitCode?: number; timedOut?: boolean }>(
+        `${environment.apiUrl}/api/coding-agent/containers/${id}/agent-exec`,
+        { command }
+      )
+    );
+    return { output: res.output || '', exitCode: res.exitCode, timedOut: res.timedOut };
+  }
+
+  // --- Agent Memories ---
+
+  async getMemories(repoKey: string): Promise<AgentMemory[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; memories: AgentMemory[] }>(
+        `${environment.apiUrl}/api/coding-agent/memories`,
+        { params: { repo: repoKey } }
+      )
+    );
+    return res.memories || [];
+  }
+
+  async addMemory(repoKey: string, content: string): Promise<AgentMemory> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; memory: AgentMemory }>(
+        `${environment.apiUrl}/api/coding-agent/memories`,
+        { repo: repoKey, content }
+      )
+    );
+    return res.memory;
+  }
+
+  async deleteMemory(repoKey: string, memoryId: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(
+        `${environment.apiUrl}/api/coding-agent/memories/${memoryId}`,
+        { params: { repo: repoKey } }
+      )
     );
   }
 }
