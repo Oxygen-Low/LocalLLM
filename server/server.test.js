@@ -2601,15 +2601,40 @@ describe('Docker/Container endpoints', () => {
     assert.equal(res.body.success, false);
   });
 
-  it('POST /api/coding-agent/containers rejects without GitHub token', async () => {
+  it('POST /api/coding-agent/containers rejects non-HTTPS git URL', async () => {
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {
+      repoFullName: 'user/repo',
+      cloneUrl: 'git://github.com/user/repo.git',
+      mode: 'manual',
+    }, dockerToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('POST /api/coding-agent/containers accepts GitLab HTTPS URL without GitHub token', async () => {
+    removeUserIntegration(dockerTestUser, 'github');
+    const res = await request(server, 'POST', '/api/coding-agent/containers', {
+      repoFullName: 'user/repo',
+      cloneUrl: 'https://gitlab.com/user/repo.git',
+      mode: 'manual',
+    }, dockerToken);
+    // Should reach Docker availability check rather than fail on URL validation or token check
+    // (429 is also possible due to rate limiter contention in parallel test runs)
+    assert.ok([200, 503, 429].includes(res.status));
+  });
+
+  it('POST /api/coding-agent/containers proceeds without GitHub token (public repos allowed)', async () => {
     removeUserIntegration(dockerTestUser, 'github');
     const res = await request(server, 'POST', '/api/coding-agent/containers', {
       repoFullName: 'user/repo',
       cloneUrl: 'https://github.com/user/repo.git',
       mode: 'manual',
     }, dockerToken);
-    assert.ok([400, 503].includes(res.status));
-    assert.equal(res.body.success, false);
+    // Without a GitHub token the request should now reach the Docker availability
+    // check (503 when Docker is not present in CI) rather than being rejected for
+    // missing token (400).  Both 200 and 503 are acceptable depending on the environment.
+    // 429 is also possible due to rate limiter contention in parallel test runs.
+    assert.ok([200, 503, 429].includes(res.status));
   });
 
   it('GET /api/coding-agent/containers/:id returns 404 for nonexistent container', async () => {

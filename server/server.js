@@ -2216,20 +2216,18 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid mode. Must be "background" or "manual"' });
     }
 
-    // Validate clone URL format
-    if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\.git)?$/.test(cloneUrl)) {
-      return res.status(400).json({ success: false, error: 'Invalid clone URL' });
+    // Validate clone URL format - accept any HTTPS git URL
+    if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?\/[\w./\-]+(\.git)?$/.test(cloneUrl)) {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL. Only HTTPS URLs are supported.' });
     }
 
     if (!isDockerAvailable()) {
       return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
     }
 
+    // Load GitHub token if configured - used for private repositories
     const integrations = readUserIntegrations(req.sessionUser);
-    const github = integrations.github;
-    if (!github?.token) {
-      return res.status(400).json({ success: false, error: 'GitHub token not configured' });
-    }
+    const gitToken = integrations.github?.token || null;
 
     const containerId = crypto.randomUUID();
     const containerName = `localllm-${sanitizeUsernameForPath(req.sessionUser)}-${containerId.slice(0, 8)}`;
@@ -2242,28 +2240,33 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
     try {
       const { execFileSync } = require('child_process');
 
-      // Build a shell script that uses git credential helper for safe token handling.
+      // Build a shell script that conditionally uses a git credential helper when a
+      // token is available (private repos). For public repos no token is required.
       // The token is passed via environment variable and never appears in the process
       // argument list or shell history.
+      const credentialHelperStep = gitToken
+        ? 'git config --global credential.helper \'!f() { echo "password=$GIT_TOKEN"; }; f\''
+        : null;
       const initScript = [
         'set -e',
         'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
-        'git config --global credential.helper \'!f() { echo "password=$GIT_TOKEN"; }; f\'',
-        `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null`,
+        ...(credentialHelperStep ? [credentialHelperStep] : []),
+        `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null || (echo "ERROR: Failed to clone repository. If this is a private repository, configure a Personal Access Token in Settings." >&2 && exit 1)`,
         'unset GIT_TOKEN',
         'cd /workspace',
         'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
         'tail -f /dev/null',
       ].join(' && ');
 
-      // Use execFileSync with argument array to prevent shell injection
+      // Use execFileSync with argument array to prevent shell injection.
+      // Only pass GIT_TOKEN env var when a token is available.
       const dockerArgs = [
         'run', '-d',
         '--name', containerName,
         '--memory=512m',
         '--cpus=1',
         '--network=bridge',
-        '-e', `GIT_TOKEN=${github.token}`,
+        ...(gitToken ? ['-e', `GIT_TOKEN=${gitToken}`] : []),
         'node:20-slim',
         'bash', '-c', initScript,
       ];
