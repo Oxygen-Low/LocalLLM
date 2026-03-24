@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -2694,5 +2694,108 @@ describe('Docker/Container endpoints', () => {
 
   it('CONTAINERS_DIR exists', () => {
     assert.ok(fs.existsSync(CONTAINERS_DIR));
+  });
+});
+
+describe('Container cleanup on account deletion', () => {
+  const cleanupUser = 'cleanup_test_user_' + Date.now();
+
+  before(() => {
+    const users = readUsers();
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(sha256Hex('TestPass1!'), salt, 100000, 32, 'sha256').toString('hex');
+    users.push({ username: cleanupUser, passwordHash: hash, salt, createdAt: new Date().toISOString() });
+    writeUsers(users);
+  });
+
+  after(() => {
+    // Ensure user and containers are cleaned up
+    writeUsers(readUsers().filter(u => u.username !== cleanupUser));
+    const file = path.join(CONTAINERS_DIR, `${cleanupUser}.json`);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  });
+
+  it('deleteAllUserContainers removes container file and registry entries', () => {
+    // Write fake container data
+    const file = path.join(CONTAINERS_DIR, `${cleanupUser}.json`);
+    const fakeContainers = [
+      { id: 'cleanup-1', dockerName: 'localllm-cleanup-1', repoFullName: 'user/repo1', status: 'stopped', createdAt: new Date().toISOString(), lastActivity: Date.now() },
+      { id: 'cleanup-2', dockerName: 'localllm-cleanup-2', repoFullName: 'user/repo2', status: 'stopped', createdAt: new Date().toISOString(), lastActivity: Date.now() },
+    ];
+    fs.writeFileSync(file, JSON.stringify(fakeContainers), 'utf-8');
+
+    // Add to registry
+    containerRegistry.set('cleanup-1', { ...fakeContainers[0], inactivityTimer: null });
+    containerRegistry.set('cleanup-2', { ...fakeContainers[1], inactivityTimer: null });
+
+    // Run cleanup
+    deleteAllUserContainers(cleanupUser);
+
+    // Verify file is deleted
+    assert.ok(!fs.existsSync(file), 'Container file should be deleted');
+
+    // Verify registry entries are removed
+    assert.ok(!containerRegistry.has('cleanup-1'), 'Registry entry 1 should be removed');
+    assert.ok(!containerRegistry.has('cleanup-2'), 'Registry entry 2 should be removed');
+  });
+
+  it('deleteAllUserContainers is safe for users with no containers', () => {
+    // Should not throw for a user with no container file
+    deleteAllUserContainers('nonexistent_user_' + Date.now());
+  });
+});
+
+describe('Stale container auto-cleanup', () => {
+  const staleUser = 'stale_test_user_' + Date.now();
+  const staleFile = path.join(CONTAINERS_DIR, `${staleUser}.json`);
+
+  after(() => {
+    if (fs.existsSync(staleFile)) fs.unlinkSync(staleFile);
+  });
+
+  it('cleanupStaleContainers removes old containers and keeps recent ones', () => {
+    const now = Date.now();
+    const containers = [
+      { id: 'stale-old', dockerName: 'localllm-stale-old', repoFullName: 'user/old-repo', status: 'stopped', createdAt: new Date(now - 5 * 86400000).toISOString(), lastActivity: now - 5 * 86400000 },
+      { id: 'stale-recent', dockerName: 'localllm-stale-recent', repoFullName: 'user/recent-repo', status: 'running', createdAt: new Date().toISOString(), lastActivity: now },
+    ];
+    fs.writeFileSync(staleFile, JSON.stringify(containers), 'utf-8');
+
+    // Run cleanup
+    cleanupStaleContainers();
+
+    // Verify: only the recent container should remain
+    assert.ok(fs.existsSync(staleFile), 'File should still exist (has recent container)');
+    const remaining = JSON.parse(fs.readFileSync(staleFile, 'utf-8'));
+    assert.equal(remaining.length, 1, 'Should have 1 remaining container');
+    assert.equal(remaining[0].id, 'stale-recent', 'Recent container should be kept');
+  });
+
+  it('cleanupStaleContainers deletes file when all containers are stale', () => {
+    const now = Date.now();
+    const containers = [
+      { id: 'stale-all-1', dockerName: 'localllm-stale-all-1', repoFullName: 'user/repo', status: 'stopped', createdAt: new Date(now - 10 * 86400000).toISOString(), lastActivity: now - 10 * 86400000 },
+    ];
+    fs.writeFileSync(staleFile, JSON.stringify(containers), 'utf-8');
+
+    cleanupStaleContainers();
+
+    assert.ok(!fs.existsSync(staleFile), 'File should be deleted when all containers are stale');
+  });
+
+  it('cleanupStaleContainers uses createdAt when lastActivity is missing', () => {
+    const now = Date.now();
+    const containers = [
+      { id: 'stale-no-activity', dockerName: 'localllm-stale-no-act', repoFullName: 'user/repo', status: 'stopped', createdAt: new Date(now - 5 * 86400000).toISOString() },
+    ];
+    fs.writeFileSync(staleFile, JSON.stringify(containers), 'utf-8');
+
+    cleanupStaleContainers();
+
+    assert.ok(!fs.existsSync(staleFile), 'Stale container without lastActivity should be removed');
+  });
+
+  it('CONTAINER_STALE_THRESHOLD_MS defaults to 3 days', () => {
+    assert.equal(CONTAINER_STALE_THRESHOLD_MS, 3 * 24 * 60 * 60 * 1000);
   });
 });

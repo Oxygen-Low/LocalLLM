@@ -1232,6 +1232,9 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
     // SOC2 CC6.3: Invalidate all sessions for deleted user
     invalidateUserSessions(normalizedUsername);
 
+    // Clean up all Docker containers owned by this user
+    deleteAllUserContainers(normalizedUsername);
+
     auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: normalizedUsername, req });
 
     // Recreate the admin account if it was just deleted
@@ -2039,6 +2042,8 @@ if (!fs.existsSync(CONTAINERS_DIR)) fs.mkdirSync(CONTAINERS_DIR, { recursive: tr
 // status checks so that actively-used containers remain running.
 const containerRegistry = new Map();
 const CONTAINER_INACTIVITY_TIMEOUT_MS = parseInt(process.env.CONTAINER_TIMEOUT_MINUTES || '10', 10) * 60 * 1000;
+const CONTAINER_STALE_THRESHOLD_MS = parseInt(process.env.CONTAINER_STALE_DAYS || '3', 10) * 24 * 60 * 60 * 1000;
+const CONTAINER_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
 const MAX_EXEC_COMMAND_LENGTH = 2000;
 
 function getUserContainersFile(username) {
@@ -2097,6 +2102,96 @@ function isDockerAvailable() {
     return false;
   }
 }
+
+// Delete all Docker containers owned by a user (called on account deletion)
+function deleteAllUserContainers(username) {
+  const containers = readUserContainers(username);
+  const { execFileSync } = require('child_process');
+
+  for (const container of containers) {
+    // Remove Docker container
+    try {
+      execFileSync('docker', ['rm', '-f', container.dockerName], { timeout: 30000 });
+    } catch {
+      // Container might not exist in Docker
+    }
+
+    // Clean up in-memory registry
+    const entry = containerRegistry.get(container.id);
+    if (entry) {
+      clearTimeout(entry.inactivityTimer);
+      containerRegistry.delete(container.id);
+    }
+  }
+
+  // Remove the containers JSON file
+  const file = getUserContainersFile(username);
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+  }
+}
+
+// Periodically remove containers unused for CONTAINER_STALE_THRESHOLD_MS (default 3 days).
+// Runs every hour and checks lastActivity timestamps for all users.
+function cleanupStaleContainers() {
+  try {
+    const files = fs.readdirSync(CONTAINERS_DIR).filter(f => f.endsWith('.json'));
+    const now = Date.now();
+    const { execFileSync } = require('child_process');
+
+    for (const file of files) {
+      const filePath = path.join(CONTAINERS_DIR, file);
+      let containers;
+      try {
+        containers = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      } catch {
+        continue;
+      }
+
+      if (!Array.isArray(containers)) continue;
+
+      const kept = [];
+      for (const container of containers) {
+        const lastUsed = container.lastActivity || new Date(container.createdAt).getTime();
+        if (now - lastUsed > CONTAINER_STALE_THRESHOLD_MS) {
+          // Remove stale container from Docker
+          try {
+            execFileSync('docker', ['rm', '-f', container.dockerName], { timeout: 30000 });
+          } catch {
+            // Container might not exist
+          }
+
+          // Clean up in-memory registry
+          const entry = containerRegistry.get(container.id);
+          if (entry) {
+            clearTimeout(entry.inactivityTimer);
+            containerRegistry.delete(container.id);
+          }
+
+          console.log(`Stale container ${container.dockerName} removed (unused for ${Math.round((now - lastUsed) / 86400000)}d)`);
+        } else {
+          kept.push(container);
+        }
+      }
+
+      // Update or remove the file
+      if (kept.length !== containers.length) {
+        if (kept.length === 0) {
+          fs.unlinkSync(filePath);
+        } else {
+          fs.writeFileSync(filePath, JSON.stringify(kept, null, 2), { encoding: 'utf-8', mode: 0o600 });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Stale container cleanup error:', err.message);
+  }
+}
+
+// Start periodic stale-container cleanup
+const staleContainerCleanupTimer = setInterval(cleanupStaleContainers, CONTAINER_CLEANUP_INTERVAL_MS);
+// Don't let the timer prevent process exit
+if (staleContainerCleanupTimer.unref) staleContainerCleanupTimer.unref();
 
 // GET /api/coding-agent/docker/status - Check Docker availability
 app.get('/api/coding-agent/docker/status', requireSession, (req, res) => {
@@ -3375,4 +3470,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS };
