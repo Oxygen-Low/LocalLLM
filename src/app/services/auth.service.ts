@@ -9,6 +9,7 @@ export interface AuthSession {
   expiresAt: number;
   passwordResetRequired?: boolean;
   token?: string;
+  serverId?: string;
 }
 
 interface LoginAttemptRecord {
@@ -24,6 +25,7 @@ interface AuthResponse {
   passwordResetRequired?: boolean;
   token?: string;
   retryAfterSeconds?: number;
+  instanceId?: string;
 }
 
 const SESSION_STORAGE_KEY = 'localllm_session';
@@ -56,6 +58,18 @@ export class AuthService {
       if (!sessionData) return null;
       const session: AuthSession = JSON.parse(sessionData);
       return session.token ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Returns the server ID associated with the current session */
+  getSessionServerId(): string | null {
+    try {
+      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionData) return null;
+      const session: AuthSession = JSON.parse(sessionData);
+      return session.serverId ?? null;
     } catch {
       return null;
     }
@@ -104,12 +118,13 @@ export class AuthService {
     }
   }
 
-  private async createSession(username: string, passwordResetRequired = false, token?: string): Promise<void> {
+  private async createSession(username: string, passwordResetRequired = false, token?: string, serverId?: string): Promise<void> {
     const session: AuthSession = {
       username,
       expiresAt: Date.now() + SESSION_DURATION_MS,
       passwordResetRequired,
       token,
+      serverId,
     };
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     this.currentUser.set(username);
@@ -306,8 +321,13 @@ export class AuthService {
         this.passwordResetRequired.set(required);
         this.updateSessionPasswordResetFlag(required);
       }
-    } catch {
-      // Silent failure to avoid impacting UX on network issues
+    } catch (error) {
+      // A 401 response means the session is invalid or expired
+      if (error instanceof HttpErrorResponse && error.status === 401) {
+        this.securityLogger.log('SESSION_EXPIRED', 'Session invalidated during status check', user);
+        this.logout();
+      }
+      // Other errors (network, 500) stay silent to avoid impacting UX
     }
   }
 
@@ -368,7 +388,7 @@ export class AuthService {
       );
 
       if (response.success && response.username) {
-        await this.createSession(response.username, false, response.token);
+        await this.createSession(response.username, false, response.token, response.instanceId);
         this.securityLogger.log('SIGNUP_SUCCESS', 'New account created', response.username);
         return { success: true };
       }
@@ -408,7 +428,7 @@ export class AuthService {
 
       if (response.success && response.username) {
         this.clearLoginAttempts(normalizedUsername);
-        await this.createSession(response.username, !!response.passwordResetRequired, response.token);
+        await this.createSession(response.username, !!response.passwordResetRequired, response.token, response.instanceId);
         this.securityLogger.log('LOGIN_SUCCESS', 'User logged in successfully', response.username);
         return { success: true, passwordResetRequired: !!response.passwordResetRequired };
       }
@@ -514,7 +534,7 @@ export class AuthService {
 
       if (response.success && response.username) {
         this.securityLogger.log('USERNAME_CHANGED', 'Username changed successfully', response.username);
-        await this.createSession(response.username, this.passwordResetRequired(), response.token);
+        await this.createSession(response.username, this.passwordResetRequired(), response.token, response.instanceId);
         return { success: true };
       }
 

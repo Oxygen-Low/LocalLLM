@@ -1404,6 +1404,38 @@ describe('SOC2 CC6.1 – Password hash format validation', () => {
 
 });
 
+describe('Server Instance Tracking', () => {
+  it('all API responses include an X-Server-Instance-ID header', async () => {
+    const res = await request(server, 'GET', '/api/health', null);
+    assert.ok(res.headers['x-server-instance-id'], 'Expected X-Server-Instance-ID header to be present');
+    // UUID v4 format check
+    assert.match(res.headers['x-server-instance-id'], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  });
+
+  it('login response includes instanceId in body', async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    const res = await request(server, 'POST', '/api/auth/login', {
+      username: 'admin',
+      password: sha256Hex(adminPassword),
+    });
+    assert.equal(res.status, 200);
+    assert.ok(res.body.instanceId, 'Expected instanceId in login response body');
+    assert.equal(res.body.instanceId, res.headers['x-server-instance-id']);
+  });
+
+  it('signup response includes instanceId in body', async () => {
+    await authLimiter.resetKey('127.0.0.1');
+    const name = 'instance_signup_' + Date.now();
+    const res = await request(server, 'POST', '/api/auth/signup', {
+      username: name,
+      password: sha256Hex('SecurePass1!'),
+    });
+    assert.equal(res.status, 201);
+    assert.ok(res.body.instanceId, 'Expected instanceId in signup response body');
+    assert.equal(res.body.instanceId, res.headers['x-server-instance-id']);
+  });
+});
+
 describe('SOC2 A1.1/CC7.1 – Health check endpoint', () => {
   it('GET /api/health returns healthy status', async () => {
     const res = await request(server, 'GET', '/api/health', null);

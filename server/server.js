@@ -11,6 +11,7 @@ const selfsigned = require('selfsigned');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SERVER_INSTANCE_ID = crypto.randomUUID();
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const UNIVERSES_FILE = path.join(DATA_DIR, 'universes.json');
@@ -599,7 +600,14 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:4200' }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:4200',
+  exposedHeaders: ['X-Server-Instance-ID']
+}));
+app.use((req, res, next) => {
+  res.setHeader('X-Server-Instance-ID', SERVER_INSTANCE_ID);
+  next();
+});
 // SOC2 PI1.1 – Explicit request body size limit (increased for chat messages)
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', apiLimiter);
@@ -942,7 +950,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
     const token = createSessionToken(normalizedUsername);
 
     auditLog({ event: 'SIGNUP_SUCCESS', message: 'New account created', username: normalizedUsername, req });
-    res.status(201).json({ success: true, username: normalizedUsername, token });
+    res.status(201).json({ success: true, username: normalizedUsername, token, instanceId: SERVER_INSTANCE_ID });
   } catch (err) {
     console.error('Signup error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -992,7 +1000,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const token = createSessionToken(user.username);
 
     auditLog({ event: 'LOGIN_SUCCESS', message: 'User logged in', username: user.username, req });
-    res.json({ success: true, username: user.username, token, passwordResetRequired: !!user.passwordResetRequired });
+    res.json({ success: true, username: user.username, token, passwordResetRequired: !!user.passwordResetRequired, instanceId: SERVER_INSTANCE_ID });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -1205,7 +1213,7 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
     usernameChangeCooldowns.set(normalizedNew, Date.now());
 
     auditLog({ event: 'USERNAME_CHANGED', message: `Username changed from ${oldUsername} to ${normalizedNew}`, username: normalizedNew, req });
-    res.json({ success: true, username: normalizedNew, token: newToken });
+    res.json({ success: true, username: normalizedNew, token: newToken, instanceId: SERVER_INSTANCE_ID });
   } catch (err) {
     console.error('Change username error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
