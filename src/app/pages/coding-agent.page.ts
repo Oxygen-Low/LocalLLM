@@ -1107,6 +1107,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   private static readonly MARKDOWN_CACHE_MAX_SIZE = 500;
   private readonly markdownCache = new Map<string, string>();
 
+  // Cap tool iterations to prevent infinite loops when the LLM keeps invoking tools
   private static readonly MAX_TOOL_ITERATIONS = 10;
 
   async ngOnInit(): Promise<void> {
@@ -1887,7 +1888,8 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   }
 
   private buildLlmMessages(): LlmChatMessage[] {
-    const repoName = this.selectedLocalRepo()?.name || this.selectedRepo()?.fullName || 'unknown';
+    const rawRepoName = this.selectedLocalRepo()?.name || this.selectedRepo()?.fullName || 'unknown';
+    const repoName = rawRepoName.replace(/[`${}\\]/g, '');
     const memoriesText = this.memories().map(m => `- ${m.content}`).join('\n') || '(none)';
 
     const systemPrompt = `You are an expert AI coding assistant working inside a Docker container with a cloned repository: ${repoName}.
@@ -2063,13 +2065,13 @@ Guidelines:
         case 'explorer_subagent': {
           const treeResult = await this.codingAgentService.agentExec(container.id, 'find . -maxdepth 3 -not -path "*/node_modules/*" -not -path "*/.git/*" | head -100');
           let output = `Directory tree:\n${treeResult.output}\n`;
-          // Try to read key files
-          for (const keyFile of ['package.json', 'README.md', 'Cargo.toml', 'go.mod', 'requirements.txt']) {
-            try {
-              const fileContent = await this.codingAgentService.readFile(container.id, keyFile);
-              output += `\n--- ${keyFile} ---\n${fileContent.slice(0, 2000)}\n`;
-            } catch {
-              // File doesn't exist
+          const keyFiles = ['package.json', 'README.md', 'Cargo.toml', 'go.mod', 'requirements.txt'];
+          const keyFileResults = await Promise.allSettled(
+            keyFiles.map(kf => this.codingAgentService.readFile(container.id, kf).then(c => ({ name: kf, content: c })))
+          );
+          for (const r of keyFileResults) {
+            if (r.status === 'fulfilled') {
+              output += `\n--- ${r.value.name} ---\n${r.value.content.slice(0, 2000)}\n`;
             }
           }
           return output;
