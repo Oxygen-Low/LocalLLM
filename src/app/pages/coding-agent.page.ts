@@ -9,9 +9,13 @@ import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type Container
 type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'container-manager' | 'background-running' | 'manual-workspace';
 
 interface LocalChatMessage {
-  role: 'user' | 'assistant' | 'tool';
+  role: 'user' | 'assistant' | 'tool' | 'step';
   content: string;
+  displayContent?: string;
   thinking?: string;
+  status?: 'running' | 'completed' | 'failed';
+  toolName?: string;
+  toolResult?: string;
 }
 
 interface ToolCall {
@@ -904,7 +908,51 @@ interface ToolCall {
                 <!-- Chat Messages -->
                 <div class="flex-1 overflow-y-auto p-3 space-y-3" #chatMessagesContainer>
                   @for (msg of chatMessages(); track $index) {
-                    @if (msg.role !== 'tool') {
+                    @if (msg.role === 'step') {
+                      <div
+                        (click)="msg.toolResult && showToolResult(msg)"
+                        class="flex items-center gap-2 text-xs text-secondary-500 py-1 px-2 rounded hover:bg-secondary-50 transition-colors group cursor-default"
+                        [class.cursor-pointer]="msg.toolResult"
+                      >
+                        @if (msg.status === 'running') {
+                          <div class="w-3 h-3 border-2 border-secondary-300 border-t-secondary-600 rounded-full animate-spin"></div>
+                        } @else if (msg.status === 'failed') {
+                          <span class="text-red-500">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                          </span>
+                        } @else {
+                          <span class="text-secondary-400">
+                            @switch (msg.toolName) {
+                              @case ('read_file') {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                              }
+                              @case ('edit_file') {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              }
+                              @case ('create_file') {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                              }
+                              @case ('run_terminal') {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                              }
+                              @case ('explorer_subagent') {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                              }
+                              @case ('coder_subagent') {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                              }
+                              @default {
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                              }
+                            }
+                          </span>
+                        }
+                        <span class="flex-1 truncate">{{ msg.content }}</span>
+                        <svg class="w-3 h-3 text-secondary-300 group-hover:text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    } @else if (msg.role !== 'tool') {
                       <div [ngClass]="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
                         <div
                           class="max-w-[90%] px-3 py-2 rounded-lg text-sm"
@@ -914,11 +962,11 @@ interface ToolCall {
                         >
                           @if (msg.thinking) {
                             <details class="mb-2">
-                              <summary class="text-xs cursor-pointer opacity-70">💭 Thought</summary>
+                              <summary class="text-xs cursor-pointer opacity-70 font-medium">💭 Thought</summary>
                               <div class="mt-1 text-xs opacity-80 prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.thinking)"></div>
                             </details>
                           }
-                          <div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.content)"></div>
+                          <div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.displayContent || msg.content)"></div>
                         </div>
                       </div>
                     }
@@ -1434,6 +1482,12 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.isCreatingContainer.set(true);
     this.errorMessage.set(null);
 
+    // Initial message in chat
+    this.chatMessages.set([
+      { role: 'assistant', content: 'Setting up environment...' },
+      { role: 'step', content: 'Create container', status: 'running' }
+    ]);
+
     try {
       let container: ContainerInfo;
       const localRepo = this.selectedLocalRepo();
@@ -1446,6 +1500,13 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
           repo.fullName, repo.cloneUrl, 'manual', repo.defaultBranch
         );
       }
+
+      this.chatMessages.update(msgs => {
+        const newMsgs = [...msgs];
+        newMsgs[1] = { ...newMsgs[1], status: 'completed' };
+        newMsgs.push({ role: 'step', content: 'Clone repository', status: 'running' });
+        return newMsgs;
+      });
 
       // Poll until files are available (clone complete) or timeout after 30s
       let filesLoaded = false;
@@ -1461,6 +1522,15 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
           // Container may not be ready yet, retry
         }
       }
+
+      this.chatMessages.update(msgs => {
+        const newMsgs = [...msgs];
+        newMsgs[2] = { ...newMsgs[2], status: filesLoaded ? 'completed' : 'failed' };
+        if (filesLoaded) {
+          newMsgs.push({ role: 'assistant', content: 'Hi! I\u0027m your AI coding assistant. I\u0027ve set up the environment. What would you like to work on?' });
+        }
+        return newMsgs;
+      });
 
       this.activeContainer.set(container);
       if (!filesLoaded) {
@@ -1500,9 +1570,22 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
   async startAndLoadContainer(container: ContainerInfo): Promise<void> {
     this.isStartingContainer.set(true);
+    this.chatMessages.set([
+      { role: 'assistant', content: 'Resuming environment...' },
+      { role: 'step', content: 'Start container', status: 'running' }
+    ]);
+
     try {
       await this.codingAgentService.startContainer(container.id);
       const updated = await this.codingAgentService.getContainer(container.id);
+
+      this.chatMessages.update(msgs => {
+        const newMsgs = [...msgs];
+        newMsgs[1] = { ...newMsgs[1], status: 'completed' };
+        newMsgs.push({ role: 'assistant', content: 'Welcome back! Environment is ready.' });
+        return newMsgs;
+      });
+
       await this.loadContainerWorkspace(updated);
     } catch {
       this.errorMessage.set('Failed to start container');
@@ -1682,6 +1765,12 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.agentTerminalOutput.set('');
   }
 
+  showToolResult(msg: LocalChatMessage): void {
+    if (!msg.toolResult) return;
+    this.agentTerminalOutput.update(o => o + `\n[${msg.content}]\n${msg.toolResult}\n`);
+    this.showAgentTerminal.set(true);
+  }
+
   // --- Manual Mode: Dev Server ---
 
   async runDevServer(): Promise<void> {
@@ -1847,32 +1936,64 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       // Parse tool calls from response
       const toolCalls = this.parseToolCalls(fullContent);
 
-      if (toolCalls.length === 0) {
-        // No tools to call - add the final response and finish
+      // Add the assistant's response (with thinking) but strip tool blocks for display
+      const cleanedContent = this.stripToolCalls(fullContent).trim();
+      if (cleanedContent || result.thinking || toolCalls.length > 0) {
         this.chatMessages.update(msgs => [...msgs, {
           role: 'assistant',
           content: fullContent,
+          displayContent: cleanedContent || (toolCalls.length > 0 ? '' : '...'),
           thinking: result.thinking || undefined,
         }]);
         this.scrollChatToBottom();
+      }
+
+      if (toolCalls.length === 0) {
+        // No tools to call - we're done with this turn
         return;
       }
 
-      // Strip tool call blocks from the visible response content
-      const cleanedContent = this.stripToolCalls(fullContent).trim();
-      if (cleanedContent) {
-        this.chatMessages.update(msgs => [...msgs, {
-          role: 'assistant',
-          content: cleanedContent,
-          thinking: result.thinking || undefined,
-        }]);
-      }
-
-      // Execute each tool call and accumulate results
+      // Execute each tool call
       let toolResultsText = '';
       for (const tc of toolCalls) {
-        const toolResult = await this.executeTool(tc);
-        toolResultsText += `[TOOL_RESULT: ${tc.name}]\n${toolResult}\n[/TOOL_RESULT]\n\n`;
+        // Add a "step" message to show progress
+        const stepIndex = this.chatMessages().length;
+        const stepLabel = this.getToolStepLabel(tc);
+        this.chatMessages.update(msgs => [...msgs, {
+          role: 'step',
+          content: stepLabel,
+          status: 'running',
+          toolName: tc.name
+        }]);
+        this.scrollChatToBottom();
+
+        try {
+          const toolResult = await this.executeTool(tc);
+          toolResultsText += `[TOOL_RESULT: ${tc.name}]\n${toolResult}\n[/TOOL_RESULT]\n\n`;
+
+          const isError = typeof toolResult === 'string' && toolResult.startsWith('Error:');
+
+          // Update step status
+          this.chatMessages.update(msgs => {
+            const newMsgs = [...msgs];
+            newMsgs[stepIndex] = {
+              ...newMsgs[stepIndex],
+              status: isError ? 'failed' : 'completed',
+              toolResult: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult)
+            };
+            return newMsgs;
+          });
+        } catch (err) {
+          const errMsg = String(err);
+          toolResultsText += `[TOOL_RESULT: ${tc.name}]\nError: ${errMsg}\n[/TOOL_RESULT]\n\n`;
+          // Update step to failed
+          this.chatMessages.update(msgs => {
+            const newMsgs = [...msgs];
+            newMsgs[stepIndex] = { ...newMsgs[stepIndex], status: 'failed', toolResult: errMsg };
+            return newMsgs;
+          });
+        }
+        this.scrollChatToBottom();
       }
 
       // Add tool results as a tool message for the next LLM iteration
@@ -1884,7 +2005,22 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.chatMessages.update(msgs => [...msgs, {
       role: 'assistant',
       content: 'I\'ve reached the maximum number of tool iterations (10). Please provide further instructions if you\'d like me to continue.',
+      displayContent: 'I\'ve reached the maximum number of tool iterations (10). Please provide further instructions if you\'d like me to continue.',
     }]);
+  }
+
+  private getToolStepLabel(tc: ToolCall): string {
+    switch (tc.name) {
+      case 'read_file': return `Read ${tc.params['path']}`;
+      case 'create_file': return `Create ${tc.params['path']}`;
+      case 'edit_file': return `Edit ${tc.params['path']}`;
+      case 'run_terminal': return `Run \`${tc.params['command']}\``;
+      case 'explorer_subagent': return 'Explore repository';
+      case 'coder_subagent': return tc.params['task'] ? `Work on: ${tc.params['task']}` : 'Perform coding task';
+      case 'store_memory': return 'Store memory';
+      case 'delete_memory': return 'Delete memory';
+      default: return `Execute ${tc.name}`;
+    }
   }
 
   private buildLlmMessages(): LlmChatMessage[] {
@@ -1893,7 +2029,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     const memoriesText = this.memories().map(m => `- ${m.content}`).join('\n') || '(none)';
 
     const systemPrompt = `You are an expert AI coding assistant working inside a Docker container with a cloned repository: ${repoName}.
-You have access to the following tools. To use a tool, output the exact format below in your response:
+You have access to the following tools. To use a tool, you MUST output the exact format below in your response. Do not use markdown blocks for tool calls.
 
 [TOOL: tool_name]
 {"param": "value"}
@@ -1905,7 +2041,7 @@ Available tools:
 2. create_file - Create a new file. Params: {"path": "relative/path", "content": "file contents"}
 3. edit_file - Replace lines in a file. Params: {"path": "relative/path", "startLine": 1, "endLine": 5, "content": "replacement content"}
 4. explorer_subagent - Read directory tree and key files to understand the repo. Params: {}
-5. coder_subagent - Perform a coding task (read, create, edit files, run commands). Params: {"paths": ["file1.ts", "file2.ts"], "task": "description of task"}
+5. coder_subagent - Use when you need to perform a complex coding task. Params: {"paths": ["file1.ts"], "task": "description"}
 6. run_terminal - Execute a shell command (10-minute timeout). Params: {"command": "npm install"}
 7. new_terminal - Reset/clear the agent terminal output. Params: {}
 8. store_memory - Store a memory about this repo for future sessions. Params: {"content": "fact to remember"}
@@ -1915,15 +2051,21 @@ Current memories for this repo:
 ${memoriesText}
 
 Guidelines:
-- Use tools to explore, read, create, and edit files as needed.
-- After tool results are returned to you, continue working or respond to the user.
-- Be concise and clear. Use markdown formatting.
-- When editing files, provide complete replacement content for the specified line range.
-- You can chain multiple tool calls in a single response.`;
+- **Think step-by-step.** Explain your reasoning before using tools.
+- **Proactivity.** If a task requires multiple steps (e.g., install deps, then create file, then run tests), use the tools one after another. You do not need to wait for the user between tool calls.
+- **Verification.** After creating or editing a file, you should ideally verify it (e.g., by reading it back or running a command).
+- **Conciseness.** Be clear and professional. Use markdown for your normal text response.
+- **File Edits.** When using edit_file, the "content" param must be the full new content for the specified line range.
+- **Continuity.** After a tool result is provided, analyze the output and decide on the next step. Only stop when the task is complete or you need user clarification.`;
 
     const msgs: LlmChatMessage[] = [{ role: 'system', content: systemPrompt }];
 
     for (const msg of this.chatMessages()) {
+      if (msg.role === 'step') {
+        // Steps are for UI only, skip them for the LLM payload
+        continue;
+      }
+
       if (msg.role === 'tool') {
         // Tool results are sent as user messages with context
         msgs.push({ role: 'user', content: `[Tool execution results]\n${msg.content}` });
