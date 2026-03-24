@@ -2050,6 +2050,7 @@ Guidelines:
           const endLine = tc.params['endLine'] as number;
           const content = tc.params['content'] as string;
           if (!path || !startLine || !endLine || content === undefined) return 'Error: path, startLine, endLine, and content are required';
+          if (startLine > endLine) return 'Error: startLine must be <= endLine';
           const existing = await this.codingAgentService.readFile(container.id, path);
           const lines = existing.split('\n');
           const newLines = content.split('\n');
@@ -2151,7 +2152,9 @@ Guidelines:
     const escapedText = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
 
     try {
       const html = marked.parse(escapedText, { breaks: true, gfm: true }) as string;

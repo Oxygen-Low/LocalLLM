@@ -2060,6 +2060,8 @@ const CONTAINER_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
 const MAX_EXEC_COMMAND_LENGTH = 2000;
 const MAX_ACTIVE_CONTAINERS_PER_WORKSPACE = 3;
 const AGENT_EXEC_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes for agent terminal commands
+const MAX_MEMORY_CONTENT_LENGTH = 2000;
+const MAX_MEMORIES_PER_REPO = 50;
 
 // Agent memories directory (per-user, per-repo persistent memories)
 const AGENT_MEMORIES_DIR = path.join(DATA_DIR, 'agent_memories');
@@ -2808,12 +2810,12 @@ app.post('/api/coding-agent/memories', requireSession, (req, res) => {
     if (!repo || !content || typeof content !== 'string') {
       return res.status(400).json({ success: false, error: 'Missing repo or content' });
     }
-    if (content.length > 2000) {
-      return res.status(400).json({ success: false, error: 'Memory content too long (max 2000 chars)' });
+    if (content.length > MAX_MEMORY_CONTENT_LENGTH) {
+      return res.status(400).json({ success: false, error: `Memory content too long (max ${MAX_MEMORY_CONTENT_LENGTH} chars)` });
     }
     const memories = readAgentMemories(req.sessionUser, repo);
-    if (memories.length >= 50) {
-      return res.status(409).json({ success: false, error: 'Maximum 50 memories per repository reached' });
+    if (memories.length >= MAX_MEMORIES_PER_REPO) {
+      return res.status(409).json({ success: false, error: `Maximum ${MAX_MEMORIES_PER_REPO} memories per repository reached` });
     }
     const memory = { id: crypto.randomUUID(), content, createdAt: new Date().toISOString() };
     memories.push(memory);
@@ -4467,4 +4469,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO };
