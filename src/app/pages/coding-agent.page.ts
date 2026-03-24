@@ -14,7 +14,7 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
   template: `
     <div class="h-[calc(100vh-64px)] flex flex-col bg-secondary-50">
       @switch (currentStep()) {
-        <!-- Step 1: Check GitHub Token -->
+        <!-- Step 1: Check Setup -->
         @case ('check-github') {
           <div class="flex-1 flex items-center justify-center">
             <div class="max-w-md w-full mx-4">
@@ -29,27 +29,27 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
                   <div class="flex justify-center">
                     <div class="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
                   </div>
-                } @else if (!githubConnected()) {
-                  <p class="text-muted mb-6">
-                    Connect your GitHub account to get started. You'll need a Personal Access Token with <strong>repo</strong> scope.
-                  </p>
-                  <a routerLink="/settings" class="btn-primary inline-block">
-                    Configure in Settings
-                  </a>
                 } @else if (!dockerAvailable()) {
-                  <div class="mb-6">
+                  @if (githubConnected()) {
                     <p class="text-green-600 text-sm font-medium mb-4">✓ GitHub connected as {{ githubUsername() }}</p>
-                    <div class="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-                      <p class="font-semibold mb-1">Docker not available</p>
-                      <p>The Coding Agent requires Docker to be installed and running on the server. Please contact your administrator.</p>
-                    </div>
+                  }
+                  <div class="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    <p class="font-semibold mb-1">Docker not available</p>
+                    <p>The Coding Agent requires Docker to be installed and running on the server. Please contact your administrator.</p>
                   </div>
                   <a routerLink="/dashboard" class="text-sm text-muted hover:text-secondary-700 transition-colors">
                     ← Back to Dashboard
                   </a>
                 } @else {
-                  <p class="text-green-600 text-sm font-medium mb-2">✓ GitHub connected as {{ githubUsername() }}</p>
-                  <p class="text-green-600 text-sm font-medium mb-6">✓ Docker available</p>
+                  <p class="text-green-600 text-sm font-medium mb-2">✓ Docker available</p>
+                  @if (githubConnected()) {
+                    <p class="text-green-600 text-sm font-medium mb-6">✓ GitHub connected as {{ githubUsername() }}</p>
+                  } @else {
+                    <div class="mb-6 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm text-left">
+                      <p class="font-semibold mb-1">GitHub not connected</p>
+                      <p>You can still use <strong>public repositories</strong> by entering a URL. To access private repositories, <a routerLink="/settings" class="underline hover:text-blue-600">configure a GitHub token in Settings</a>.</p>
+                    </div>
+                  }
                   <button (click)="goToStep('select-repo')" class="btn-primary">
                     Select Repository
                   </button>
@@ -71,20 +71,8 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
                   Back
                 </button>
                 <h1 class="text-2xl font-bold text-secondary-900">Select Repository</h1>
-                <p class="text-sm text-muted mt-1">Choose a GitHub repository to work on</p>
+                <p class="text-sm text-muted mt-1">Choose a repository to work on</p>
               </div>
-            </div>
-
-            <!-- Search -->
-            <div class="mb-4">
-              <input
-                type="text"
-                [(ngModel)]="repoSearch"
-                name="repoSearch"
-                (ngModelChange)="onRepoSearchChange()"
-                placeholder="Search repositories..."
-                class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
-              />
             </div>
 
             @if (errorMessage()) {
@@ -93,54 +81,97 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
               </div>
             }
 
-            <!-- Repository List -->
-            <div class="flex-1 overflow-y-auto space-y-2">
-              @if (isLoadingRepos()) {
-                <div class="flex justify-center py-12">
-                  <div class="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
-                </div>
-              } @else if (repos().length === 0) {
-                <div class="text-center py-12 text-muted">
-                  <p>No repositories found.</p>
-                </div>
-              } @else {
-                @for (repo of repos(); track repo.id) {
-                  <button
-                    (click)="selectRepo(repo)"
-                    class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
-                    [ngClass]="selectedRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
-                  >
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2">
-                          <span class="font-medium text-secondary-900 truncate">{{ repo.fullName }}</span>
-                          @if (repo.private) {
-                            <span class="flex-shrink-0 px-2 py-0.5 rounded-full bg-secondary-100 text-secondary-600 text-xs font-medium">Private</span>
-                          }
-                        </div>
-                        @if (repo.description) {
-                          <p class="text-sm text-muted mt-1 truncate">{{ repo.description }}</p>
-                        }
-                        <div class="flex items-center gap-3 mt-2 text-xs text-muted">
-                          @if (repo.language) {
-                            <span class="flex items-center gap-1">
-                              <span class="w-2 h-2 rounded-full bg-primary-400"></span>
-                              {{ repo.language }}
-                            </span>
-                          }
-                          <span>{{ repo.defaultBranch }}</span>
-                        </div>
-                      </div>
-                      @if (selectedRepo()?.id === repo.id) {
-                        <svg class="w-5 h-5 text-primary-600 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
-                          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                        </svg>
-                      }
-                    </div>
-                  </button>
-                }
+            <!-- Manual URL input (always visible) -->
+            <div class="mb-6 p-4 bg-white rounded-lg border border-secondary-200">
+              <h3 class="font-medium text-secondary-900 mb-1">Enter Repository URL</h3>
+              <p class="text-xs text-muted mb-3">Paste any public git repository HTTPS URL (GitHub, GitLab, Bitbucket, etc.)</p>
+              <div class="flex gap-2">
+                <input
+                  type="url"
+                  [(ngModel)]="customRepoUrl"
+                  name="customRepoUrl"
+                  placeholder="https://github.com/owner/repo"
+                  class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                />
+                <button (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0">
+                  Use URL
+                </button>
+              </div>
+              @if (customUrlError()) {
+                <p class="mt-2 text-xs text-red-600">{{ customUrlError() }}</p>
               }
             </div>
+
+            <!-- GitHub repos section -->
+            @if (githubConnected()) {
+              <div class="mb-2">
+                <h3 class="font-medium text-secondary-700 mb-3">Your GitHub Repositories</h3>
+                <!-- Search -->
+                <div class="mb-4">
+                  <input
+                    type="text"
+                    [(ngModel)]="repoSearch"
+                    name="repoSearch"
+                    (ngModelChange)="onRepoSearchChange()"
+                    placeholder="Search repositories..."
+                    class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
+                  />
+                </div>
+              </div>
+
+              <!-- Repository List -->
+              <div class="flex-1 overflow-y-auto space-y-2">
+                @if (isLoadingRepos()) {
+                  <div class="flex justify-center py-12">
+                    <div class="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
+                  </div>
+                } @else if (repos().length === 0) {
+                  <div class="text-center py-12 text-muted">
+                    <p>No repositories found.</p>
+                  </div>
+                } @else {
+                  @for (repo of repos(); track repo.id) {
+                    <button
+                      (click)="selectRepo(repo)"
+                      class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
+                      [ngClass]="selectedRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
+                    >
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-secondary-900 truncate">{{ repo.fullName }}</span>
+                            @if (repo.private) {
+                              <span class="flex-shrink-0 px-2 py-0.5 rounded-full bg-secondary-100 text-secondary-600 text-xs font-medium">Private</span>
+                            }
+                          </div>
+                          @if (repo.description) {
+                            <p class="text-sm text-muted mt-1 truncate">{{ repo.description }}</p>
+                          }
+                          <div class="flex items-center gap-3 mt-2 text-xs text-muted">
+                            @if (repo.language) {
+                              <span class="flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-primary-400"></span>
+                                {{ repo.language }}
+                              </span>
+                            }
+                            <span>{{ repo.defaultBranch }}</span>
+                          </div>
+                        </div>
+                        @if (selectedRepo()?.id === repo.id) {
+                          <svg class="w-5 h-5 text-primary-600 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                          </svg>
+                        }
+                      </div>
+                    </button>
+                  }
+                }
+              </div>
+            } @else {
+              <div class="p-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm">
+                <p><strong>Connect GitHub</strong> to browse and select from your private repositories. <a routerLink="/settings" class="underline hover:text-blue-600">Configure in Settings →</a></p>
+              </div>
+            }
 
             <!-- Continue button -->
             @if (selectedRepo()) {
@@ -566,6 +597,10 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   selectedRepo = signal<GitHubRepo | null>(null);
   private repoSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  // Custom URL entry
+  customRepoUrl = '';
+  customUrlError = signal<string | null>(null);
+
   // Container state
   activeContainer = signal<ContainerInfo | null>(null);
   isCreatingContainer = signal(false);
@@ -626,7 +661,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       this.githubUsername.set(ghStatus.username);
       this.dockerAvailable.set(dockerStatus.available);
 
-      if (ghStatus.configured && dockerStatus.available) {
+      if (dockerStatus.available) {
         this.goToStep('select-repo');
       }
     } catch {
@@ -639,8 +674,9 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   goToStep(step: WizardStep): void {
     this.currentStep.set(step);
     this.errorMessage.set(null);
+    this.customUrlError.set(null);
 
-    if (step === 'select-repo') {
+    if (step === 'select-repo' && this.githubConnected()) {
       this.loadRepos();
     }
   }
@@ -648,6 +684,10 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   // --- Repository Selection ---
 
   async loadRepos(): Promise<void> {
+    if (!this.githubConnected()) {
+      this.repos.set([]);
+      return;
+    }
     this.isLoadingRepos.set(true);
     try {
       const repos = await this.codingAgentService.getGitHubRepos(1, this.repoSearch);
@@ -666,6 +706,48 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
   selectRepo(repo: GitHubRepo): void {
     this.selectedRepo.set(repo);
+    this.customUrlError.set(null);
+  }
+
+  useCustomUrl(): void {
+    const url = this.customRepoUrl.trim();
+    this.customUrlError.set(null);
+
+    if (!url) {
+      this.customUrlError.set('Please enter a repository URL');
+      return;
+    }
+
+    // Validate: must be an HTTPS URL (matches server-side validation)
+    if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?\/[\w./\-]+(\.git)?$/.test(url)) {
+      this.customUrlError.set('Please enter a valid HTTPS git repository URL (e.g. https://github.com/owner/repo)');
+      return;
+    }
+
+    // Derive a display name from the URL path
+    let urlPath: string;
+    try {
+      urlPath = new URL(url).pathname.replace(/\.git$/, '');
+    } catch {
+      this.customUrlError.set('Invalid URL format');
+      return;
+    }
+    const parts = urlPath.split('/').filter(Boolean);
+    const fullName = parts.join('/') || url;
+    const name = parts[parts.length - 1] || 'repository';
+
+    this.selectedRepo.set({
+      id: Math.floor(Math.random() * Number.MAX_SAFE_INTEGER),
+      name,
+      fullName,
+      description: null,
+      private: false,
+      defaultBranch: 'main',
+      language: null,
+      updatedAt: new Date().toISOString(),
+      htmlUrl: url.replace(/\.git$/, ''),
+      cloneUrl: url,
+    });
   }
 
   // --- Mode Selection ---
@@ -685,7 +767,12 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       this.goToStep('background-running');
     } catch (err: unknown) {
       const httpErr = err as { error?: { error?: string } };
-      this.errorMessage.set(httpErr?.error?.error || 'Failed to create container');
+      const msg = httpErr?.error?.error || 'Failed to create container';
+      this.errorMessage.set(
+        msg.toLowerCase().includes('private') || msg.toLowerCase().includes('auth') || msg.toLowerCase().includes('token')
+          ? `${msg} — if this is a private repository, configure a Personal Access Token in Settings.`
+          : msg
+      );
     } finally {
       this.isCreatingContainer.set(false);
     }
@@ -721,12 +808,22 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
       if (!filesLoaded) {
         await this.loadFiles();
+        if (this.currentFiles().length === 0 && !this.githubConnected()) {
+          this.errorMessage.set(
+            'No files found. If this is a private repository, configure a Personal Access Token in Settings to enable cloning.'
+          );
+        }
       }
 
       this.goToStep('manual-workspace');
     } catch (err: unknown) {
       const httpErr = err as { error?: { error?: string } };
-      this.errorMessage.set(httpErr?.error?.error || 'Failed to create container');
+      const msg = httpErr?.error?.error || 'Failed to create container';
+      this.errorMessage.set(
+        msg.toLowerCase().includes('private') || msg.toLowerCase().includes('auth') || msg.toLowerCase().includes('token')
+          ? `${msg} — if this is a private repository, configure a Personal Access Token in Settings.`
+          : msg
+      );
     } finally {
       this.isCreatingContainer.set(false);
     }
