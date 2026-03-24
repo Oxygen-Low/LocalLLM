@@ -1,11 +1,23 @@
-import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, signal, ViewChild, ElementRef, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, ActivatedRoute } from '@angular/router';
-import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type ContainerInfo, type FileEntry } from '../services/coding-agent.service';
-import { LlmService, type ProviderInfo } from '../services/llm.service';
+import { marked } from 'marked';
+import { LlmService, type ProviderInfo, type UniverseSummary, type UniverseCharacterSummary, type SearchEvent, type SendMessageOptions, type StreamResult, type ChatMessage as LlmChatMessage } from '../services/llm.service';
+import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type ContainerInfo, type FileEntry, type AgentMemory } from '../services/coding-agent.service';
 
-type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-running' | 'manual-workspace';
+type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'container-manager' | 'background-running' | 'manual-workspace';
+
+interface LocalChatMessage {
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  thinking?: string;
+}
+
+interface ToolCall {
+  name: string;
+  params: Record<string, unknown>;
+}
 
 @Component({
   selector: 'app-coding-agent',
@@ -303,6 +315,122 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
           </div>
         }
 
+        <!-- Step 3b: Container Manager -->
+        @case ('container-manager') {
+          <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
+            <button (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+              Back
+            </button>
+
+            <div class="flex items-center justify-between mb-6">
+              <div>
+                <h1 class="text-2xl font-bold text-secondary-900">Containers</h1>
+                <p class="text-sm text-muted mt-1">Manage containers for <strong>{{ selectedLocalRepo()?.name || selectedRepo()?.fullName }}</strong></p>
+              </div>
+              <button
+                (click)="createNewContainer()"
+                [disabled]="isCreatingContainer() || activeContainersForRepo().length >= 3"
+                class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                @if (isCreatingContainer()) {
+                  <span class="flex items-center gap-2">
+                    <span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                    Creating...
+                  </span>
+                } @else {
+                  + New Container
+                }
+              </button>
+            </div>
+
+            @if (errorMessage()) {
+              <div class="mb-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {{ errorMessage() }}
+              </div>
+            }
+
+            @if (activeContainersForRepo().length >= 3) {
+              <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                Maximum of 3 active containers reached. Stop or remove a container to create a new one.
+              </div>
+            }
+
+            @if (isLoadingContainers()) {
+              <div class="flex justify-center py-12">
+                <div class="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
+              </div>
+            } @else if (containersForRepo().length === 0) {
+              <div class="text-center py-12">
+                <div class="w-16 h-16 rounded-full bg-secondary-100 flex items-center justify-center mx-auto mb-4">
+                  <span class="text-2xl">📦</span>
+                </div>
+                <p class="text-muted mb-2">No containers yet</p>
+                <p class="text-sm text-muted">Create a new container to get started</p>
+              </div>
+            } @else {
+              <div class="space-y-3">
+                @for (container of containersForRepo(); track container.id) {
+                  <div class="bg-white rounded-lg border border-secondary-200 p-4 hover:shadow-sm transition-all">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-3 flex-1 min-w-0">
+                        <div class="w-3 h-3 rounded-full flex-shrink-0"
+                          [ngClass]="container.status === 'running' ? 'bg-green-500' : container.status === 'creating' ? 'bg-amber-500 animate-pulse' : 'bg-secondary-400'">
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium text-secondary-900 truncate">{{ container.dockerName || container.id.slice(0, 12) }}</span>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                              [ngClass]="container.status === 'running' ? 'bg-green-100 text-green-700' : container.status === 'creating' ? 'bg-amber-100 text-amber-700' : 'bg-secondary-100 text-secondary-600'">
+                              {{ container.status }}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-3 mt-1 text-xs text-muted">
+                            <span>Branch: {{ container.branch }}</span>
+                            <span>Created: {{ formatDate(container.createdAt) }}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2 flex-shrink-0">
+                        @if (container.status === 'running') {
+                          <button
+                            (click)="loadContainerWorkspace(container)"
+                            class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 transition-colors"
+                          >
+                            Open
+                          </button>
+                          <button
+                            (click)="stopContainerById(container.id)"
+                            class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                          >
+                            Stop
+                          </button>
+                        } @else if (container.status === 'stopped') {
+                          <button
+                            (click)="startAndLoadContainer(container)"
+                            [disabled]="isStartingContainer()"
+                            class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+                          >
+                            {{ isStartingContainer() ? 'Starting...' : 'Start & Open' }}
+                          </button>
+                          <button
+                            (click)="removeContainerById(container.id)"
+                            class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            Remove
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+
         <!-- Background Mode: Running -->
         @case ('background-running') {
           <div class="flex-1 flex flex-col max-w-3xl mx-auto w-full px-4 py-8">
@@ -407,18 +535,25 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
             <!-- Toolbar -->
             <div class="flex items-center justify-between px-4 py-2 bg-white border-b border-secondary-200">
               <div class="flex items-center gap-3">
-                <button (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
+                <button (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
                   Exit
                 </button>
-                <span class="text-sm font-medium text-secondary-900">{{ selectedRepo()?.fullName }}</span>
+                <span class="text-sm font-medium text-secondary-900">{{ selectedLocalRepo()?.name || selectedRepo()?.fullName }}</span>
                 <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
                   {{ activeContainer()?.status || 'running' }}
                 </span>
               </div>
               <div class="flex items-center gap-2">
+                <button
+                  (click)="toggleAgentTerminal()"
+                  class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                  [ngClass]="showAgentTerminal() ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-secondary-200 text-secondary-700 hover:bg-secondary-50'"
+                >
+                  🤖 Agent Terminal
+                </button>
                 <button
                   (click)="runDevServer()"
                   [disabled]="isRunningDevServer()"
@@ -434,6 +569,17 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
                 </button>
               </div>
             </div>
+
+            <!-- Agent Terminal Output (collapsible) -->
+            @if (showAgentTerminal()) {
+              <div class="bg-secondary-900 border-b border-secondary-700 max-h-48 overflow-y-auto">
+                <div class="flex items-center justify-between px-4 py-1.5 border-b border-secondary-700">
+                  <span class="text-xs font-semibold text-secondary-400 uppercase tracking-wider">Agent Terminal</span>
+                  <button (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors">Clear</button>
+                </div>
+                <pre class="p-3 text-xs text-green-400 font-mono whitespace-pre-wrap">{{ agentTerminalOutput() || '(No output yet)' }}</pre>
+              </div>
+            }
 
             <!-- Main Content: 3-panel layout -->
             <div class="flex-1 flex overflow-hidden">
@@ -562,32 +708,252 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
               </div>
 
               <!-- Right Panel: AI Chat -->
-              <div class="w-80 flex-shrink-0 bg-white border-l border-secondary-200 flex flex-col overflow-hidden">
-                <div class="p-3 border-b border-secondary-100">
-                  <h3 class="text-xs font-semibold text-secondary-500 uppercase tracking-wider">AI Assistant</h3>
+              <div class="w-96 flex-shrink-0 bg-white border-l border-secondary-200 flex flex-col overflow-hidden" #chatPanelRef>
+                <!-- Header with toggles -->
+                <div class="p-3 border-b border-secondary-100 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-semibold text-secondary-500 uppercase tracking-wider">AI Assistant</h3>
+                    <button
+                      (click)="showMemoriesPanel.set(!showMemoriesPanel())"
+                      class="text-xs px-2 py-1 rounded transition-colors"
+                      [ngClass]="showMemoriesPanel() ? 'bg-purple-100 text-purple-700' : 'text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100'"
+                    >
+                      🧠 {{ memories().length }}
+                    </button>
+                  </div>
+
+                  <!-- Provider & Character selectors -->
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <div class="relative" #providerDropdown>
+                      <button
+                        (click)="toggleProviderDropdown($event)"
+                        class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-xs transition-colors"
+                      >
+                        <span class="w-1.5 h-1.5 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
+                        <span class="text-secondary-700 max-w-[120px] truncate">
+                          {{ selectedProvider()?.name || 'Provider' }}
+                          @if (selectedProvider()?.model) {
+                            <span class="text-secondary-400"> · {{ selectedProvider()?.model }}</span>
+                          }
+                        </span>
+                        <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      @if (showProviderDropdown()) {
+                        <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-72 overflow-y-auto">
+                          @if (providers().length === 0) {
+                            <div class="px-3 py-2 text-xs text-secondary-500">
+                              No providers configured.
+                              <a routerLink="/settings" class="text-primary-600 hover:underline">Set up API keys</a>
+                            </div>
+                          }
+                          @for (p of providers(); track p.id) {
+                            @if (p.models && p.models.length > 1) {
+                              <div>
+                                <button
+                                  (click)="toggleModelList(p, $event)"
+                                  class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                                  [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
+                                >
+                                  <span class="w-1.5 h-1.5 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                                  <div class="flex-1 min-w-0">
+                                    <div class="font-medium">{{ p.name }}</div>
+                                    <div class="text-[10px] text-secondary-400">{{ p.models.length }} models</div>
+                                  </div>
+                                  <svg class="w-3 h-3 text-secondary-400 transition-transform" [ngClass]="expandedProvider() === p.id ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                </button>
+                                @if (expandedProvider() === p.id) {
+                                  <div class="border-t border-secondary-100 bg-secondary-50">
+                                    @for (m of p.models; track m) {
+                                      <button
+                                        (click)="selectProviderModel(p, m)"
+                                        class="w-full text-left pl-7 pr-3 py-1.5 text-xs hover:bg-secondary-100 transition-colors flex items-center gap-1.5"
+                                        [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === m ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
+                                      >
+                                        <span class="w-1 h-1 rounded-full" [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === m ? 'bg-primary-600' : 'bg-secondary-300'"></span>
+                                        <span class="truncate">{{ m }}</span>
+                                      </button>
+                                    }
+                                  </div>
+                                }
+                              </div>
+                            } @else {
+                              <button
+                                (click)="selectProvider(p)"
+                                class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                                [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
+                              >
+                                <span class="w-1.5 h-1.5 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                                <div class="flex-1 min-w-0">
+                                  <div class="font-medium">{{ p.name }}</div>
+                                  @if (p.model) {
+                                    <div class="text-[10px] text-secondary-400 truncate">{{ p.model }}</div>
+                                  }
+                                </div>
+                              </button>
+                            }
+                          }
+                        </div>
+                      }
+                    </div>
+
+                    <!-- Character selector -->
+                    @if (universes().length > 0) {
+                      <div class="relative" #characterDropdown>
+                        <button
+                          (click)="toggleCharacterDropdown($event)"
+                          class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
+                          [ngClass]="selectedCharacter()
+                            ? 'border-purple-300 bg-purple-50 text-purple-700'
+                            : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                        >
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                          {{ selectedCharacter()?.name || 'Char' }}
+                        </button>
+
+                        @if (showCharacterDropdown()) {
+                          <div class="absolute bottom-full left-0 mb-1 w-56 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-56 overflow-y-auto">
+                            <button
+                              (click)="selectCharacter(null)"
+                              class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors"
+                              [ngClass]="!selectedCharacter() ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
+                            >
+                              <div class="font-medium">No character</div>
+                            </button>
+                            @for (universe of universes(); track universe.id) {
+                              @if (universe.characters.length > 0) {
+                                <div class="px-3 py-1 text-[10px] font-semibold text-secondary-400 uppercase tracking-wider bg-secondary-50">
+                                  {{ universe.name }}
+                                </div>
+                                @for (char of universe.characters; track char.id) {
+                                  <button
+                                    (click)="selectCharacter(char)"
+                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors"
+                                    [ngClass]="selectedCharacter()?.id === char.id ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
+                                  >
+                                    {{ char.name }}
+                                  </button>
+                                }
+                              }
+                            }
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    <!-- Think toggle -->
+                    <button
+                      (click)="thinkEnabled.set(!thinkEnabled())"
+                      class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
+                      [ngClass]="thinkEnabled()
+                        ? 'border-primary-300 bg-primary-50 text-primary-700'
+                        : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                    >
+                      💡 Think
+                    </button>
+                  </div>
                 </div>
 
-                <!-- Chat Messages -->
-                <div class="flex-1 overflow-y-auto p-3 space-y-3">
-                  @for (msg of chatMessages(); track $index) {
-                    <div [ngClass]="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
-                      <div
-                        class="max-w-[85%] px-3 py-2 rounded-lg text-sm"
-                        [ngClass]="msg.role === 'user'
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-secondary-100 text-secondary-800'"
-                      >
-                        {{ msg.content }}
+                <!-- Memories Panel (collapsible) -->
+                @if (showMemoriesPanel()) {
+                  <div class="border-b border-secondary-100 bg-purple-50/50 max-h-48 overflow-y-auto">
+                    <div class="p-2 space-y-1">
+                      @for (mem of memories(); track mem.id) {
+                        <div class="flex items-start gap-1.5 p-1.5 bg-white rounded border border-secondary-100 text-xs">
+                          <span class="flex-1 text-secondary-700 break-words">{{ mem.content }}</span>
+                          <button
+                            (click)="deleteMemory(mem.id)"
+                            class="text-secondary-400 hover:text-red-500 flex-shrink-0 p-0.5"
+                          >
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      }
+                      @if (memories().length === 0) {
+                        <p class="text-xs text-secondary-400 text-center py-2">No memories stored</p>
+                      }
+                      <div class="flex gap-1 mt-1">
+                        <input
+                          type="text"
+                          [(ngModel)]="newMemoryContent"
+                          name="newMemoryContent"
+                          (keydown.enter)="addMemory()"
+                          placeholder="Add a memory..."
+                          class="flex-1 px-2 py-1 rounded border border-secondary-200 text-xs focus:border-primary-600 focus:outline-none"
+                        />
+                        <button
+                          (click)="addMemory()"
+                          [disabled]="!newMemoryContent.trim()"
+                          class="px-2 py-1 rounded bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                        >
+                          Add
+                        </button>
                       </div>
                     </div>
+                  </div>
+                }
+
+                <!-- Chat Messages -->
+                <div class="flex-1 overflow-y-auto p-3 space-y-3" #chatMessagesContainer>
+                  @for (msg of chatMessages(); track $index) {
+                    @if (msg.role !== 'tool') {
+                      <div [ngClass]="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+                        <div
+                          class="max-w-[90%] px-3 py-2 rounded-lg text-sm"
+                          [ngClass]="msg.role === 'user'
+                            ? 'bg-primary-600 text-white'
+                            : 'bg-secondary-100 text-secondary-800'"
+                        >
+                          @if (msg.thinking) {
+                            <details class="mb-2">
+                              <summary class="text-xs cursor-pointer opacity-70">💭 Thought</summary>
+                              <div class="mt-1 text-xs opacity-80 prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.thinking)"></div>
+                            </details>
+                          }
+                          <div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.content)"></div>
+                        </div>
+                      </div>
+                    }
                   }
                   @if (isAiResponding()) {
                     <div class="flex justify-start">
-                      <div class="bg-secondary-100 text-secondary-800 px-3 py-2 rounded-lg text-sm">
-                        <div class="flex items-center gap-2">
-                          <div class="w-3 h-3 border-2 border-secondary-300 border-t-secondary-600 rounded-full animate-spin"></div>
-                          Thinking...
-                        </div>
+                      <div class="max-w-[90%] bg-secondary-100 text-secondary-800 px-3 py-2 rounded-lg text-sm">
+                        @if (streamingThinking()) {
+                          <details open class="mb-2">
+                            <summary class="text-xs cursor-pointer opacity-70">💭 {{ thinkingDone() ? 'Thought' : 'Thinking...' }}</summary>
+                            <div class="mt-1 text-xs opacity-80 prose prose-sm prose-secondary max-w-none" [innerHTML]="renderMarkdown(streamingThinking())"></div>
+                          </details>
+                        }
+                        @if (streamingSearches().length > 0) {
+                          <div class="space-y-1 mb-2">
+                            @for (search of streamingSearches(); track $index) {
+                              <div class="flex items-center gap-1.5 text-xs text-secondary-500">
+                                @if (search.status === 'searching') {
+                                  <div class="w-3 h-3 border-2 border-secondary-300 border-t-secondary-600 rounded-full animate-spin"></div>
+                                } @else {
+                                  <span>🔍</span>
+                                }
+                                <span>{{ search.query }}</span>
+                              </div>
+                            }
+                          </div>
+                        }
+                        @if (streamingContent()) {
+                          <div class="prose prose-sm prose-secondary max-w-none" [innerHTML]="renderMarkdown(streamingContent())"></div>
+                        } @else if (!streamingThinking() && !streamingSearches().length) {
+                          <div class="flex items-center gap-2">
+                            <div class="w-3 h-3 border-2 border-secondary-300 border-t-secondary-600 rounded-full animate-spin"></div>
+                            <span class="text-xs">{{ toolIterationCount() > 0 ? 'Executing tools (' + toolIterationCount() + '/10)...' : 'Thinking...' }}</span>
+                          </div>
+                        }
                       </div>
                     </div>
                   }
@@ -596,20 +962,23 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
                 <!-- Chat Input -->
                 <div class="p-3 border-t border-secondary-100">
                   <div class="flex gap-2">
-                    <input
-                      type="text"
+                    <textarea
                       [(ngModel)]="chatInput"
                       name="chatInput"
-                      (keydown.enter)="sendChatMessage()"
+                      (keydown.enter)="onChatEnterKey($event)"
                       placeholder="Ask AI for help..."
-                      class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 text-sm focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100"
-                    />
+                      rows="1"
+                      class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 text-sm focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 resize-none max-h-24 overflow-y-auto"
+                      (input)="autoChatResize($event)"
+                    ></textarea>
                     <button
                       (click)="sendChatMessage()"
-                      [disabled]="isAiResponding() || !chatInput.trim()"
-                      class="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm hover:bg-primary-700 transition-colors disabled:opacity-50"
+                      [disabled]="isAiResponding() || !chatInput.trim() || !selectedProvider()"
+                      class="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm hover:bg-primary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
                     >
-                      Send
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                      </svg>
                     </button>
                   </div>
                 </div>
@@ -622,6 +991,10 @@ type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'background-r
   `,
 })
 export class CodingAgentPageComponent implements OnInit, OnDestroy {
+  @ViewChild('chatMessagesContainer') chatMessagesContainer!: ElementRef;
+  @ViewChild('providerDropdown') providerDropdown!: ElementRef;
+  @ViewChild('characterDropdown') characterDropdown!: ElementRef;
+
   private codingAgentService = inject(CodingAgentService);
   private llmService = inject(LlmService);
   private route = inject(ActivatedRoute);
@@ -656,6 +1029,14 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   activeContainer = signal<ContainerInfo | null>(null);
   isCreatingContainer = signal(false);
 
+  // Container manager
+  allContainers = signal<ContainerInfo[]>([]);
+  isLoadingContainers = signal(false);
+  isStartingContainer = signal(false);
+
+  containersForRepo = signal<ContainerInfo[]>([]);
+  activeContainersForRepo = signal<ContainerInfo[]>([]);
+
   // Background mode
   taskDescription = '';
   backgroundTaskStarted = signal(false);
@@ -682,22 +1063,83 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   previewUrl = signal<string | null>(null);
   isRunningDevServer = signal(false);
 
+  // Manual mode - Agent Terminal
+  showAgentTerminal = signal(false);
+  agentTerminalOutput = signal('');
+
   // Manual mode - AI Chat
-  chatMessages = signal<Array<{ role: 'user' | 'assistant'; content: string }>>([
+  chatMessages = signal<LocalChatMessage[]>([
     { role: 'assistant', content: 'Hi! I\u0027m your AI coding assistant. I can help you edit code, run commands, and debug issues. What would you like to work on?' },
   ]);
   chatInput = '';
   isAiResponding = signal(false);
+  toolIterationCount = signal(0);
+
+  // Provider/Model selection
+  providers = signal<ProviderInfo[]>([]);
+  selectedProvider = signal<ProviderInfo | null>(null);
+  showProviderDropdown = signal(false);
+  expandedProvider = signal<string | null>(null);
+
+  // Character selection
+  universes = signal<UniverseSummary[]>([]);
+  selectedCharacter = signal<UniverseCharacterSummary | null>(null);
+  showCharacterDropdown = signal(false);
+
+  // Think mode
+  thinkEnabled = signal(false);
+
+  // Streaming state
+  streamingThinking = signal('');
+  streamingContent = signal('');
+  streamingSearches = signal<SearchEvent[]>([]);
+  thinkingDone = signal(false);
+
+  // Memories
+  memories = signal<AgentMemory[]>([]);
+  showMemoriesPanel = signal(false);
+  newMemoryContent = '';
 
   private statusInterval: ReturnType<typeof setInterval> | null = null;
+  private clickOutsideListener: ((e: Event) => void) | null = null;
+  private providerPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  private static readonly MARKDOWN_CACHE_MAX_SIZE = 500;
+  private readonly markdownCache = new Map<string, string>();
+
+  // Cap tool iterations to prevent infinite loops when the LLM keeps invoking tools
+  private static readonly MAX_TOOL_ITERATIONS = 10;
 
   async ngOnInit(): Promise<void> {
-    await this.checkSetup();
+    this.clickOutsideListener = (e: Event) => {
+      if (this.showProviderDropdown() && this.providerDropdown &&
+          !this.providerDropdown.nativeElement.contains(e.target as Node)) {
+        this.showProviderDropdown.set(false);
+        this.expandedProvider.set(null);
+      }
+      if (this.showCharacterDropdown() && this.characterDropdown &&
+          !this.characterDropdown.nativeElement.contains(e.target as Node)) {
+        this.showCharacterDropdown.set(false);
+      }
+    };
+    document.addEventListener('click', this.clickOutsideListener);
+
+    await Promise.all([
+      this.checkSetup(),
+      this.loadProvidersWithRetry(),
+      this.loadUniverses(),
+    ]);
+
+    this.startProviderPollingIfNeeded();
   }
 
   ngOnDestroy(): void {
     if (this.repoSearchTimeout) clearTimeout(this.repoSearchTimeout);
     if (this.statusInterval) clearInterval(this.statusInterval);
+    if (this.clickOutsideListener) {
+      document.removeEventListener('click', this.clickOutsideListener);
+    }
+    this.stopProviderPolling();
   }
 
   async checkSetup(): Promise<void> {
@@ -731,6 +1173,104 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       if (this.githubConnected()) this.loadRepos();
       this.loadLocalRepos();
     }
+
+    if (step === 'container-manager') {
+      this.loadContainersForRepo();
+    }
+
+    if (step === 'manual-workspace') {
+      this.loadMemories();
+    }
+  }
+
+  // --- Provider/Model Selection ---
+
+  private hasLocalProvider(): boolean {
+    return this.providers().some(p => p.id === 'kobold' || p.id === 'ollama');
+  }
+
+  private startProviderPollingIfNeeded(): void {
+    if (this.hasLocalProvider()) return;
+    this.providerPollTimer = setInterval(async () => {
+      await this.loadProviders();
+      if (this.hasLocalProvider()) {
+        this.stopProviderPolling();
+      }
+    }, 10_000);
+  }
+
+  private stopProviderPolling(): void {
+    if (this.providerPollTimer) {
+      clearInterval(this.providerPollTimer);
+      this.providerPollTimer = null;
+    }
+  }
+
+  private async loadProvidersWithRetry(): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.loadProviders();
+      if (this.providers().length > 0) return;
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  async loadProviders(): Promise<void> {
+    try {
+      const providers = await this.llmService.getProviders();
+      this.providers.set(providers);
+      if (providers.length > 0 && !this.selectedProvider()) {
+        this.selectedProvider.set(providers[0]);
+      }
+    } catch {
+      // Silent failure
+    }
+  }
+
+  toggleProviderDropdown(event: Event): void {
+    event.stopPropagation();
+    const opening = !this.showProviderDropdown();
+    this.showProviderDropdown.set(opening);
+    if (!opening) this.expandedProvider.set(null);
+  }
+
+  selectProvider(provider: ProviderInfo): void {
+    this.selectedProvider.set(provider);
+    this.showProviderDropdown.set(false);
+    this.expandedProvider.set(null);
+  }
+
+  toggleModelList(provider: ProviderInfo, event: Event): void {
+    event.stopPropagation();
+    this.expandedProvider.set(this.expandedProvider() === provider.id ? null : provider.id);
+  }
+
+  selectProviderModel(provider: ProviderInfo, model: string): void {
+    this.selectedProvider.set({ ...provider, model });
+    this.showProviderDropdown.set(false);
+    this.expandedProvider.set(null);
+  }
+
+  // --- Character Selection ---
+
+  async loadUniverses(): Promise<void> {
+    try {
+      const universes = await this.llmService.getUniverses();
+      this.universes.set(universes);
+    } catch {
+      // Silent failure – character selection is optional
+    }
+  }
+
+  toggleCharacterDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showCharacterDropdown.set(!this.showCharacterDropdown());
+  }
+
+  selectCharacter(character: UniverseCharacterSummary | null): void {
+    this.selectedCharacter.set(character);
+    this.showCharacterDropdown.set(false);
   }
 
   // --- Repository Selection ---
@@ -756,14 +1296,13 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     try {
       const repos = await this.codingAgentService.getLocalRepos();
       this.localRepos.set(repos);
-      // If a localRepoId was passed via query param, auto-select it now that repos are loaded
       const localRepoId = this.route.snapshot.queryParamMap.get('localRepoId');
       if (localRepoId) {
         const match = repos.find(r => r.id === localRepoId);
         if (match) this.selectLocalRepo(match);
       }
     } catch {
-      // Local repos are optional; don't show an error if unavailable
+      // Local repos are optional
     } finally {
       this.isLoadingLocalRepos.set(false);
     }
@@ -795,13 +1334,11 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Validate: must be an HTTPS URL (matches server-side validation)
     if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?\/[\w./\-]+(\.git)?$/.test(url)) {
       this.customUrlError.set('Please enter a valid HTTPS git repository URL (e.g. https://github.com/owner/repo)');
       return;
     }
 
-    // Derive a display name from the URL path
     let urlPath: string;
     try {
       urlPath = new URL(url).pathname.replace(/\.git$/, '');
@@ -864,12 +1401,41 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     }
   }
 
-  async startManualMode(): Promise<void> {
+  startManualMode(): void {
+    this.goToStep('container-manager');
+  }
+
+  // --- Container Manager ---
+
+  async loadContainersForRepo(): Promise<void> {
+    this.isLoadingContainers.set(true);
+    try {
+      const containers = await this.codingAgentService.listContainers();
+      this.allContainers.set(containers);
+
+      const localRepo = this.selectedLocalRepo();
+      const ghRepo = this.selectedRepo();
+
+      const filtered = containers.filter(c => {
+        if (localRepo) return c.localRepoId === localRepo.id;
+        if (ghRepo) return c.repoFullName === ghRepo.fullName;
+        return false;
+      });
+      this.containersForRepo.set(filtered);
+      this.activeContainersForRepo.set(filtered.filter(c => c.status === 'running' || c.status === 'creating'));
+    } catch {
+      this.errorMessage.set('Failed to load containers');
+    } finally {
+      this.isLoadingContainers.set(false);
+    }
+  }
+
+  async createNewContainer(): Promise<void> {
     this.isCreatingContainer.set(true);
     this.errorMessage.set(null);
 
     try {
-      let container;
+      let container: ContainerInfo;
       const localRepo = this.selectedLocalRepo();
       if (localRepo) {
         container = await this.codingAgentService.createLocalRepoContainer(localRepo.id);
@@ -880,7 +1446,6 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
           repo.fullName, repo.cloneUrl, 'manual', repo.defaultBranch
         );
       }
-      this.activeContainer.set(container);
 
       // Poll until files are available (clone complete) or timeout after 30s
       let filesLoaded = false;
@@ -897,15 +1462,10 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
         }
       }
 
+      this.activeContainer.set(container);
       if (!filesLoaded) {
         await this.loadFiles();
-        if (this.currentFiles().length === 0 && !this.githubConnected()) {
-          this.errorMessage.set(
-            'No files found. If this is a private repository, configure a Personal Access Token in Settings to enable cloning.'
-          );
-        }
       }
-
       this.goToStep('manual-workspace');
     } catch (err: unknown) {
       const httpErr = err as { error?: { error?: string } };
@@ -917,6 +1477,63 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       );
     } finally {
       this.isCreatingContainer.set(false);
+    }
+  }
+
+  async loadContainerWorkspace(container: ContainerInfo): Promise<void> {
+    this.activeContainer.set(container);
+    this.isLoadingFiles.set(true);
+    try {
+      const files = await this.codingAgentService.listFiles(container.id);
+      files.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      this.currentFiles.set(files);
+    } catch {
+      // May fail if container is still starting
+    } finally {
+      this.isLoadingFiles.set(false);
+    }
+    this.goToStep('manual-workspace');
+  }
+
+  async startAndLoadContainer(container: ContainerInfo): Promise<void> {
+    this.isStartingContainer.set(true);
+    try {
+      await this.codingAgentService.startContainer(container.id);
+      const updated = await this.codingAgentService.getContainer(container.id);
+      await this.loadContainerWorkspace(updated);
+    } catch {
+      this.errorMessage.set('Failed to start container');
+    } finally {
+      this.isStartingContainer.set(false);
+    }
+  }
+
+  async stopContainerById(containerId: string): Promise<void> {
+    try {
+      await this.codingAgentService.stopContainer(containerId);
+      await this.loadContainersForRepo();
+    } catch {
+      this.errorMessage.set('Failed to stop container');
+    }
+  }
+
+  async removeContainerById(containerId: string): Promise<void> {
+    try {
+      await this.codingAgentService.removeContainer(containerId);
+      await this.loadContainersForRepo();
+    } catch {
+      this.errorMessage.set('Failed to remove container');
+    }
+  }
+
+  formatDate(dateStr: string): string {
+    try {
+      return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return dateStr;
     }
   }
 
@@ -934,24 +1551,19 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     if (!container) return;
 
     try {
-      // Step 1: Create branch
       this.appendTaskLog('> Creating feature branch...\n');
       await this.codingAgentService.execInContainer(container.id, 'git checkout -b ai-coding-agent-task');
       this.appendTaskLog('✓ Branch created: ai-coding-agent-task\n\n');
 
-      // Step 2: Analyze the project
       this.appendTaskLog('> Analyzing project structure...\n');
       const lsResult = await this.codingAgentService.execInContainer(container.id, 'ls -la');
       this.appendTaskLog(lsResult.output + '\n');
 
-      // Step 3: Let the AI process the task (simulated through exec commands)
       this.appendTaskLog('> AI is analyzing the task and generating changes...\n');
       this.appendTaskLog(`> Task: ${this.taskDescription}\n\n`);
 
-      // Step 4: Commit changes
       this.appendTaskLog('> Staging and committing changes...\n');
       await this.codingAgentService.execInContainer(container.id, 'git add -A');
-      // Sanitize task description for use in git commit message (strip shell metacharacters)
       const safeDescription = this.taskDescription.slice(0, 72).replace(/["`$\\]/g, '');
       const commitResult = await this.codingAgentService.execInContainer(
         container.id,
@@ -959,7 +1571,6 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       );
       this.appendTaskLog(commitResult.output + '\n');
 
-      // Step 5: Push and create PR
       this.appendTaskLog('> Pushing branch and creating pull request...\n');
       const pushResult = await this.codingAgentService.execInContainer(container.id, 'git push origin ai-coding-agent-task 2>&1');
       this.appendTaskLog(pushResult.output + '\n');
@@ -987,7 +1598,6 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.isLoadingFiles.set(true);
     try {
       const files = await this.codingAgentService.listFiles(container.id, dirPath);
-      // Sort: directories first, then files, alphabetically
       files.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -1062,6 +1672,16 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  // --- Manual Mode: Agent Terminal ---
+
+  toggleAgentTerminal(): void {
+    this.showAgentTerminal.set(!this.showAgentTerminal());
+  }
+
+  clearAgentTerminal(): void {
+    this.agentTerminalOutput.set('');
+  }
+
   // --- Manual Mode: Dev Server ---
 
   async runDevServer(): Promise<void> {
@@ -1071,7 +1691,6 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.isRunningDevServer.set(true);
 
     try {
-      // Try to detect project type and run appropriate dev server
       const result = await this.codingAgentService.execInContainer(
         container.id,
         'if [ -f package.json ]; then cat package.json; fi'
@@ -1090,7 +1709,6 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       }
 
       if (!devCommand) {
-        // Check for other project types
         const checkResult = await this.codingAgentService.execInContainer(
           container.id,
           'ls requirements.txt Gemfile pom.xml go.mod 2>/dev/null || true'
@@ -1128,42 +1746,429 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  // --- Memories ---
+
+  private getRepoKey(): string {
+    const localRepo = this.selectedLocalRepo();
+    if (localRepo) return `local:${localRepo.id}`;
+    const repo = this.selectedRepo();
+    if (repo) return repo.fullName;
+    return 'unknown';
+  }
+
+  async loadMemories(): Promise<void> {
+    try {
+      const mems = await this.codingAgentService.getMemories(this.getRepoKey());
+      this.memories.set(mems);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async addMemory(): Promise<void> {
+    const content = this.newMemoryContent.trim();
+    if (!content) return;
+    this.newMemoryContent = '';
+    try {
+      const mem = await this.codingAgentService.addMemory(this.getRepoKey(), content);
+      this.memories.update(mems => [...mems, mem]);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async deleteMemory(memId: string): Promise<void> {
+    try {
+      await this.codingAgentService.deleteMemory(this.getRepoKey(), memId);
+      this.memories.update(mems => mems.filter(m => m.id !== memId));
+    } catch {
+      // Silent failure
+    }
+  }
+
   // --- Manual Mode: AI Chat ---
 
+  onChatEnterKey(event: Event): void {
+    const ke = event as KeyboardEvent;
+    if (!ke.shiftKey) {
+      ke.preventDefault();
+      this.sendChatMessage();
+    }
+  }
+
+  autoChatResize(event: Event): void {
+    const textarea = event.target as HTMLTextAreaElement;
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 96) + 'px';
+  }
+
+  private scrollChatToBottom(): void {
+    setTimeout(() => {
+      if (this.chatMessagesContainer?.nativeElement) {
+        this.chatMessagesContainer.nativeElement.scrollTop = this.chatMessagesContainer.nativeElement.scrollHeight;
+      }
+    }, 50);
+  }
+
   async sendChatMessage(): Promise<void> {
-    if (!this.chatInput.trim() || this.isAiResponding()) return;
+    if (!this.chatInput.trim() || this.isAiResponding() || !this.selectedProvider()) return;
 
     const message = this.chatInput.trim();
     this.chatInput = '';
 
     this.chatMessages.update(msgs => [...msgs, { role: 'user', content: message }]);
+    this.scrollChatToBottom();
     this.isAiResponding.set(true);
+    this.toolIterationCount.set(0);
 
     try {
-      const container = this.activeContainer();
-      // Simple AI response: execute commands or provide code suggestions
-      let response = '';
-
-      if (message.toLowerCase().startsWith('run ') || message.toLowerCase().startsWith('exec ')) {
-        const cmd = message.replace(/^(run|exec)\s+/i, '');
-        if (container) {
-          const result = await this.codingAgentService.execInContainer(container.id, cmd);
-          response = `Command output:\n\`\`\`\n${result.output}\n\`\`\``;
-        }
-      } else if (message.toLowerCase().includes('list files') || message.toLowerCase().includes('show files')) {
-        if (container) {
-          const result = await this.codingAgentService.execInContainer(container.id, 'find . -maxdepth 2 -type f | head -30');
-          response = `Here are the files:\n\`\`\`\n${result.output}\n\`\`\``;
-        }
-      } else {
-        response = `I understand you want to: "${message}". I can help with that! Try:\n\n• "run <command>" to execute a command\n• "list files" to see the file structure\n• Ask me about code changes and I'll guide you through the edits`;
-      }
-
-      this.chatMessages.update(msgs => [...msgs, { role: 'assistant', content: response }]);
+      await this.runAiLoop();
     } catch {
       this.chatMessages.update(msgs => [...msgs, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
     } finally {
       this.isAiResponding.set(false);
+      this.streamingThinking.set('');
+      this.streamingContent.set('');
+      this.streamingSearches.set([]);
+      this.thinkingDone.set(false);
+      this.toolIterationCount.set(0);
+      this.scrollChatToBottom();
+    }
+  }
+
+  private async runAiLoop(): Promise<void> {
+    for (let iteration = 0; iteration < CodingAgentPageComponent.MAX_TOOL_ITERATIONS; iteration++) {
+      this.toolIterationCount.set(iteration);
+
+      const llmMessages = this.buildLlmMessages();
+      const result = await this.runStreamRequest(llmMessages);
+      const fullContent = result.content;
+
+      // Parse tool calls from response
+      const toolCalls = this.parseToolCalls(fullContent);
+
+      if (toolCalls.length === 0) {
+        // No tools to call - add the final response and finish
+        this.chatMessages.update(msgs => [...msgs, {
+          role: 'assistant',
+          content: fullContent,
+          thinking: result.thinking || undefined,
+        }]);
+        this.scrollChatToBottom();
+        return;
+      }
+
+      // Strip tool call blocks from the visible response content
+      const cleanedContent = this.stripToolCalls(fullContent).trim();
+      if (cleanedContent) {
+        this.chatMessages.update(msgs => [...msgs, {
+          role: 'assistant',
+          content: cleanedContent,
+          thinking: result.thinking || undefined,
+        }]);
+      }
+
+      // Execute each tool call and accumulate results
+      let toolResultsText = '';
+      for (const tc of toolCalls) {
+        const toolResult = await this.executeTool(tc);
+        toolResultsText += `[TOOL_RESULT: ${tc.name}]\n${toolResult}\n[/TOOL_RESULT]\n\n`;
+      }
+
+      // Add tool results as a tool message for the next LLM iteration
+      this.chatMessages.update(msgs => [...msgs, { role: 'tool', content: toolResultsText }]);
+      this.scrollChatToBottom();
+    }
+
+    // Exceeded max iterations
+    this.chatMessages.update(msgs => [...msgs, {
+      role: 'assistant',
+      content: 'I\'ve reached the maximum number of tool iterations (10). Please provide further instructions if you\'d like me to continue.',
+    }]);
+  }
+
+  private buildLlmMessages(): LlmChatMessage[] {
+    const rawRepoName = this.selectedLocalRepo()?.name || this.selectedRepo()?.fullName || 'unknown';
+    const repoName = rawRepoName.replace(/[`${}\\]/g, '');
+    const memoriesText = this.memories().map(m => `- ${m.content}`).join('\n') || '(none)';
+
+    const systemPrompt = `You are an expert AI coding assistant working inside a Docker container with a cloned repository: ${repoName}.
+You have access to the following tools. To use a tool, output the exact format below in your response:
+
+[TOOL: tool_name]
+{"param": "value"}
+[/TOOL]
+
+Available tools:
+
+1. read_file - Read file contents. Params: {"path": "relative/path", "startLine": 1, "endLine": 50} (startLine/endLine optional)
+2. create_file - Create a new file. Params: {"path": "relative/path", "content": "file contents"}
+3. edit_file - Replace lines in a file. Params: {"path": "relative/path", "startLine": 1, "endLine": 5, "content": "replacement content"}
+4. explorer_subagent - Read directory tree and key files to understand the repo. Params: {}
+5. coder_subagent - Perform a coding task (read, create, edit files, run commands). Params: {"paths": ["file1.ts", "file2.ts"], "task": "description of task"}
+6. run_terminal - Execute a shell command (10-minute timeout). Params: {"command": "npm install"}
+7. new_terminal - Reset/clear the agent terminal output. Params: {}
+8. store_memory - Store a memory about this repo for future sessions. Params: {"content": "fact to remember"}
+9. delete_memory - Delete a stored memory. Params: {"id": "memory-id"}
+
+Current memories for this repo:
+${memoriesText}
+
+Guidelines:
+- Use tools to explore, read, create, and edit files as needed.
+- After tool results are returned to you, continue working or respond to the user.
+- Be concise and clear. Use markdown formatting.
+- When editing files, provide complete replacement content for the specified line range.
+- You can chain multiple tool calls in a single response.`;
+
+    const msgs: LlmChatMessage[] = [{ role: 'system', content: systemPrompt }];
+
+    for (const msg of this.chatMessages()) {
+      if (msg.role === 'tool') {
+        // Tool results are sent as user messages with context
+        msgs.push({ role: 'user', content: `[Tool execution results]\n${msg.content}` });
+      } else {
+        msgs.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
+      }
+    }
+
+    return msgs;
+  }
+
+  private async runStreamRequest(llmMessages: LlmChatMessage[]): Promise<StreamResult> {
+    const provider = this.selectedProvider();
+    if (!provider) throw new Error('No provider selected');
+
+    this.streamingThinking.set('');
+    this.streamingContent.set('');
+    this.streamingSearches.set([]);
+    this.thinkingDone.set(false);
+
+    const options: SendMessageOptions = {};
+    if (this.thinkEnabled()) options.think = true;
+    if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
+
+    try {
+      return await this.llmService.sendMessageStream(
+        llmMessages,
+        provider.id,
+        provider.model || '',
+        options,
+        {
+          onThinking: (content) => {
+            this.streamingThinking.update(t => t + content);
+            this.scrollChatToBottom();
+          },
+          onContent: (content) => {
+            if (!this.thinkingDone() && this.streamingThinking()) {
+              this.thinkingDone.set(true);
+            }
+            this.streamingContent.update(c => c + content);
+            this.scrollChatToBottom();
+          },
+          onSearch: (data) => {
+            this.streamingSearches.update(s => {
+              if (data.status === 'searched') {
+                const idx = s.findIndex(e => e.status === 'searching' && e.query === data.query);
+                if (idx >= 0) {
+                  const updated = [...s];
+                  updated[idx] = data;
+                  return updated;
+                }
+              }
+              return [...s, data];
+            });
+            this.scrollChatToBottom();
+          },
+          onDone: () => {
+            this.thinkingDone.set(true);
+          },
+        }
+      );
+    } finally {
+      this.streamingThinking.set('');
+      this.streamingContent.set('');
+      this.streamingSearches.set([]);
+      this.thinkingDone.set(false);
+    }
+  }
+
+  // --- Tool Parsing & Execution ---
+
+  private parseToolCalls(content: string): ToolCall[] {
+    const calls: ToolCall[] = [];
+    const regex = /\[TOOL:\s*(\w+)\]\s*\n([\s\S]*?)\n\[\/TOOL\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      try {
+        const params = JSON.parse(match[2].trim());
+        calls.push({ name: match[1], params });
+      } catch {
+        calls.push({ name: match[1], params: {} });
+      }
+    }
+    return calls;
+  }
+
+  private stripToolCalls(content: string): string {
+    return content.replace(/\[TOOL:\s*\w+\]\s*\n[\s\S]*?\n\[\/TOOL\]/g, '').trim();
+  }
+
+  private async executeTool(tc: ToolCall): Promise<string> {
+    const container = this.activeContainer();
+    if (!container) return 'Error: No active container';
+
+    try {
+      switch (tc.name) {
+        case 'read_file': {
+          const path = tc.params['path'] as string;
+          if (!path) return 'Error: path is required';
+          const content = await this.codingAgentService.readFile(container.id, path);
+          const startLine = tc.params['startLine'] as number | undefined;
+          const endLine = tc.params['endLine'] as number | undefined;
+          if (startLine || endLine) {
+            const lines = content.split('\n');
+            const start = Math.max(0, (startLine || 1) - 1);
+            const end = endLine ? Math.min(lines.length, endLine) : lines.length;
+            return lines.slice(start, end).map((l, i) => `${start + i + 1}. ${l}`).join('\n');
+          }
+          return content;
+        }
+
+        case 'create_file': {
+          const path = tc.params['path'] as string;
+          const content = tc.params['content'] as string;
+          if (!path || content === undefined) return 'Error: path and content are required';
+          await this.codingAgentService.writeFile(container.id, path, content);
+          await this.loadFiles(this.currentDirPath());
+          return `File created: ${path}`;
+        }
+
+        case 'edit_file': {
+          const path = tc.params['path'] as string;
+          const startLine = tc.params['startLine'] as number;
+          const endLine = tc.params['endLine'] as number;
+          const content = tc.params['content'] as string;
+          if (!path || !startLine || !endLine || content === undefined) return 'Error: path, startLine, endLine, and content are required';
+          if (startLine > endLine) return 'Error: startLine must be <= endLine';
+          const existing = await this.codingAgentService.readFile(container.id, path);
+          const lines = existing.split('\n');
+          const newLines = content.split('\n');
+          lines.splice(startLine - 1, endLine - startLine + 1, ...newLines);
+          await this.codingAgentService.writeFile(container.id, path, lines.join('\n'));
+          // Refresh editor if same file
+          if (this.currentFilePath() === path) {
+            this.fileContent = lines.join('\n');
+          }
+          return `File edited: ${path} (lines ${startLine}-${endLine})`;
+        }
+
+        case 'explorer_subagent': {
+          const treeResult = await this.codingAgentService.agentExec(container.id, 'find . -maxdepth 3 -not -path "*/node_modules/*" -not -path "*/.git/*" | head -100');
+          let output = `Directory tree:\n${treeResult.output}\n`;
+          const keyFiles = ['package.json', 'README.md', 'Cargo.toml', 'go.mod', 'requirements.txt'];
+          const keyFileResults = await Promise.allSettled(
+            keyFiles.map(kf => this.codingAgentService.readFile(container.id, kf).then(c => ({ name: kf, content: c })))
+          );
+          for (const r of keyFileResults) {
+            if (r.status === 'fulfilled') {
+              output += `\n--- ${r.value.name} ---\n${r.value.content.slice(0, 2000)}\n`;
+            }
+          }
+          return output;
+        }
+
+        case 'coder_subagent': {
+          const paths = tc.params['paths'] as string[] | undefined;
+          const task = tc.params['task'] as string | undefined;
+          let output = '';
+          if (paths && paths.length > 0) {
+            for (const p of paths) {
+              try {
+                const fileContent = await this.codingAgentService.readFile(container.id, p);
+                output += `--- ${p} ---\n${fileContent}\n\n`;
+              } catch {
+                output += `--- ${p} --- (not found)\n\n`;
+              }
+            }
+          }
+          if (task) {
+            output += `Task: ${task}\n`;
+          }
+          return output || 'No paths or task specified';
+        }
+
+        case 'run_terminal': {
+          const command = tc.params['command'] as string;
+          if (!command) return 'Error: command is required';
+          this.agentTerminalOutput.update(o => o + `$ ${command}\n`);
+          const result = await this.codingAgentService.agentExec(container.id, command);
+          const output = result.output || '(no output)';
+          this.agentTerminalOutput.update(o => o + output + '\n');
+          if (result.timedOut) {
+            return `Command timed out after 10 minutes.\nPartial output:\n${output}`;
+          }
+          return output;
+        }
+
+        case 'new_terminal': {
+          this.agentTerminalOutput.set('');
+          return 'Agent terminal cleared.';
+        }
+
+        case 'store_memory': {
+          const content = tc.params['content'] as string;
+          if (!content) return 'Error: content is required';
+          const mem = await this.codingAgentService.addMemory(this.getRepoKey(), content);
+          this.memories.update(mems => [...mems, mem]);
+          return `Memory stored: ${mem.id}`;
+        }
+
+        case 'delete_memory': {
+          const id = tc.params['id'] as string;
+          if (!id) return 'Error: id is required';
+          await this.codingAgentService.deleteMemory(this.getRepoKey(), id);
+          this.memories.update(mems => mems.filter(m => m.id !== id));
+          return `Memory deleted: ${id}`;
+        }
+
+        default:
+          return `Unknown tool: ${tc.name}`;
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return `Error executing ${tc.name}: ${errMsg}`;
+    }
+  }
+
+  // --- Markdown Rendering ---
+
+  renderMarkdown(text: string): string {
+    if (!text) return '';
+
+    const cached = this.markdownCache.get(text);
+    if (cached !== undefined) return cached;
+
+    const escapedText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+
+    try {
+      const html = marked.parse(escapedText, { breaks: true, gfm: true }) as string;
+      if (this.markdownCache.size >= CodingAgentPageComponent.MARKDOWN_CACHE_MAX_SIZE) {
+        this.markdownCache.clear();
+      }
+      this.markdownCache.set(text, html);
+      return html;
+    } catch {
+      if (this.markdownCache.size >= CodingAgentPageComponent.MARKDOWN_CACHE_MAX_SIZE) {
+        this.markdownCache.clear();
+      }
+      this.markdownCache.set(text, escapedText);
+      return escapedText;
     }
   }
 }

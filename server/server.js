@@ -2058,6 +2058,36 @@ const CONTAINER_INACTIVITY_TIMEOUT_MS = parseInt(process.env.CONTAINER_TIMEOUT_M
 const CONTAINER_STALE_THRESHOLD_MS = parseInt(process.env.CONTAINER_STALE_DAYS || '3', 10) * 24 * 60 * 60 * 1000;
 const CONTAINER_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
 const MAX_EXEC_COMMAND_LENGTH = 2000;
+const MAX_ACTIVE_CONTAINERS_PER_WORKSPACE = 3;
+const AGENT_EXEC_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes for agent terminal commands
+const MAX_MEMORY_CONTENT_LENGTH = 2000;
+const MAX_MEMORIES_PER_REPO = 50;
+
+// Agent memories directory (per-user, per-repo persistent memories)
+const AGENT_MEMORIES_DIR = path.join(DATA_DIR, 'agent_memories');
+if (!fs.existsSync(AGENT_MEMORIES_DIR)) fs.mkdirSync(AGENT_MEMORIES_DIR, { recursive: true });
+
+function getAgentMemoriesFile(username, repoKey) {
+  const safeUser = path.basename(sanitizeUsernameForPath(username));
+  const userDir = path.join(AGENT_MEMORIES_DIR, safeUser);
+  if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true, mode: 0o700 });
+  const safeRepo = repoKey.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 200);
+  const filePath = path.join(userDir, `${safeRepo}.json`);
+  return ensureWithinDir(userDir, filePath);
+}
+
+function readAgentMemories(username, repoKey) {
+  try {
+    const file = getAgentMemoriesFile(username, repoKey);
+    if (!fs.existsSync(file)) return [];
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch { return []; }
+}
+
+function writeAgentMemories(username, repoKey, memories) {
+  const file = getAgentMemoriesFile(username, repoKey);
+  fs.writeFileSync(file, JSON.stringify(memories, null, 2), { mode: 0o600 });
+}
 
 function getUserContainersFile(username) {
   const safeUsername = path.basename(sanitizeUsernameForPath(username));
@@ -2233,6 +2263,13 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
       }
 
+      // Enforce max active containers per workspace
+      const existingContainers = readUserContainers(req.sessionUser);
+      const activeForRepo = existingContainers.filter(c => c.localRepoId === localRepoId && c.status !== 'stopped');
+      if (activeForRepo.length >= MAX_ACTIVE_CONTAINERS_PER_WORKSPACE) {
+        return res.status(409).json({ success: false, error: `Maximum ${MAX_ACTIVE_CONTAINERS_PER_WORKSPACE} active containers per workspace reached` });
+      }
+
       let bareDir;
       try { bareDir = getUserRepoBareDir(req.sessionUser, localRepoId); }
       catch { return res.status(400).json({ success: false, error: 'Invalid local repo ID' }); }
@@ -2245,6 +2282,7 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
         'git config --global user.email "localllm@local"',
         'git config --global user.name "LocalLLM"',
+        'mkdir -p /workspace',
         'git clone /bare-repo.git /workspace || true',
         'cd /workspace',
         'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
@@ -2322,6 +2360,13 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
     }
 
+    // Enforce max active containers per workspace
+    const existingContainers = readUserContainers(req.sessionUser);
+    const activeForRepo = existingContainers.filter(c => c.repoFullName === repoFullName && c.status !== 'stopped');
+    if (activeForRepo.length >= MAX_ACTIVE_CONTAINERS_PER_WORKSPACE) {
+      return res.status(409).json({ success: false, error: `Maximum ${MAX_ACTIVE_CONTAINERS_PER_WORKSPACE} active containers per workspace reached` });
+    }
+
     // Load GitHub token if configured - used for private repositories
     const integrations = readUserIntegrations(req.sessionUser);
     const gitToken = integrations.github?.token || null;
@@ -2348,6 +2393,7 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'set -e',
         'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
         ...(credentialHelperStep ? [credentialHelperStep] : []),
+        'mkdir -p /workspace',
         `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null || (echo "ERROR: Failed to clone repository. If this is a private repository, configure a Personal Access Token in Settings." >&2 && exit 1)`,
         'unset GIT_TOKEN',
         'cd /workspace',
@@ -2695,6 +2741,109 @@ app.delete('/api/coding-agent/containers/:id', requireSession, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Remove container error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/coding-agent/containers/:id/agent-exec - Execute command with 10-min timeout for AI agent
+app.post('/api/coding-agent/containers/:id/agent-exec', requireSession, (req, res) => {
+  try {
+    const containers = readUserContainers(req.sessionUser);
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) {
+      return res.status(404).json({ success: false, error: 'Container not found' });
+    }
+
+    const { command } = req.body;
+    if (!command || typeof command !== 'string' || command.length > MAX_EXEC_COMMAND_LENGTH) {
+      return res.status(400).json({ success: false, error: 'Invalid command' });
+    }
+
+    touchContainerActivity(container.id);
+
+    try {
+      const { execFileSync } = require('child_process');
+      const b64Cmd = Buffer.from(command).toString('base64');
+      const output = execFileSync('docker', [
+        'exec', container.dockerName,
+        'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
+      ], {
+        timeout: AGENT_EXEC_TIMEOUT_MS,
+        encoding: 'utf-8',
+        maxBuffer: 1024 * 1024,
+      });
+      res.json({ success: true, output });
+    } catch (execErr) {
+      const timedOut = execErr.killed || (execErr.signal === 'SIGTERM');
+      res.json({
+        success: true,
+        output: (execErr.stderr || execErr.stdout || execErr.message) + (timedOut ? '\n[Command timed out after 10 minutes]' : ''),
+        exitCode: execErr.status || 1,
+        timedOut,
+      });
+    }
+  } catch (err) {
+    console.error('Agent exec error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/coding-agent/memories - List memories for a repository
+app.get('/api/coding-agent/memories', requireSession, (req, res) => {
+  try {
+    const repoKey = typeof req.query.repo === 'string' ? req.query.repo : '';
+    if (!repoKey) {
+      return res.status(400).json({ success: false, error: 'Missing repo query parameter' });
+    }
+    const memories = readAgentMemories(req.sessionUser, repoKey);
+    res.json({ success: true, memories });
+  } catch (err) {
+    console.error('Read memories error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/coding-agent/memories - Add a memory
+app.post('/api/coding-agent/memories', requireSession, (req, res) => {
+  try {
+    const { repo, content } = req.body;
+    if (!repo || !content || typeof content !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing repo or content' });
+    }
+    if (content.length > MAX_MEMORY_CONTENT_LENGTH) {
+      return res.status(400).json({ success: false, error: `Memory content too long (max ${MAX_MEMORY_CONTENT_LENGTH} chars)` });
+    }
+    const memories = readAgentMemories(req.sessionUser, repo);
+    if (memories.length >= MAX_MEMORIES_PER_REPO) {
+      return res.status(409).json({ success: false, error: `Maximum ${MAX_MEMORIES_PER_REPO} memories per repository reached` });
+    }
+    const memory = { id: crypto.randomUUID(), content, createdAt: new Date().toISOString() };
+    memories.push(memory);
+    writeAgentMemories(req.sessionUser, repo, memories);
+    res.json({ success: true, memory });
+  } catch (err) {
+    console.error('Create memory error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/coding-agent/memories/:id - Delete a memory
+app.delete('/api/coding-agent/memories/:id', requireSession, (req, res) => {
+  try {
+    const repoKey = typeof req.query.repo === 'string' ? req.query.repo : '';
+    if (!repoKey) {
+      return res.status(400).json({ success: false, error: 'Missing repo query parameter' });
+    }
+    const memories = readAgentMemories(req.sessionUser, repoKey);
+    const idx = memories.findIndex(m => m.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Memory not found' });
+    }
+    memories.splice(idx, 1);
+    writeAgentMemories(req.sessionUser, repoKey, memories);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete memory error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -4320,4 +4469,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO };
