@@ -73,19 +73,19 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Response</h3>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">{{ '{' }}
+            <pre class="text-white text-sm font-mono">&#123;
   "models": [
-    {{ '{' }}
+    &#123;
       "id": "gpt-4",
       "name": "GPT-4",
       "provider": "openai",
       "category": "chat",
       "description": "Most capable model for complex tasks",
       "contextWindow": 8192,
-      "costPer1kTokens": {{ '{' }}
+      "costPer1kTokens": &#123;
         "input": 0.03,
         "output": 0.06
-      {{ '}' }},
+      &#125;,
       "capabilities": [
         "conversation",
         "code-generation",
@@ -93,18 +93,18 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
       ],
       "isAvailable": true,
       "version": "gpt-4-0613"
-    {{ '}' }},
-    {{ '{' }}
+    &#125;,
+    &#123;
       "id": "gpt-3.5-turbo",
       "name": "GPT-3.5 Turbo",
       "provider": "openai",
       "category": "chat",
       "description": "Fast and efficient model for most tasks",
       "contextWindow": 4096,
-      "costPer1kTokens": {{ '{' }}
+      "costPer1kTokens": &#123;
         "input": 0.0015,
         "output": 0.002
-      {{ '}' }},
+      &#125;,
       "capabilities": [
         "conversation",
         "summarization",
@@ -112,11 +112,11 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
       ],
       "isAvailable": true,
       "version": "gpt-3.5-turbo-0613"
-    {{ '}' }}
+    &#125;
   ],
   "count": 2,
   "total": 15
-{{ '}' }}</pre>
+&#125;</pre>
           </div>
         </section>
 
@@ -139,7 +139,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Response</h3>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">{{ '{' }}
+            <pre class="text-white text-sm font-mono">&#123;
   "id": "gpt-4",
   "name": "GPT-4",
   "provider": "openai",
@@ -147,10 +147,10 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
   "description": "Most capable model for complex tasks",
   "contextWindow": 8192,
   "maxTokens": 2048,
-  "costPer1kTokens": {{ '{' }}
+  "costPer1kTokens": &#123;
     "input": 0.03,
     "output": 0.06
-  {{ '}' }},
+  &#125;,
   "capabilities": [
     "conversation",
     "code-generation",
@@ -168,7 +168,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
   "version": "gpt-4-0613",
   "releaseDate": "2023-06-27",
   "documentation": "https://platform.openai.com/docs/models/gpt-4"
-{{ '}' }}</pre>
+&#125;</pre>
           </div>
         </section>
 
@@ -185,7 +185,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Request Body</h3>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">{{ '{' }}
+            <pre class="text-white text-sm font-mono">&#123;
   "prompt": "Explain quantum computing in simple terms",
   "temperature": 0.7,
   "maxTokens": 500,
@@ -193,7 +193,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
   "frequencyPenalty": 0,
   "presencePenalty": 0,
   "stop": ["\n\n"]
-{{ '}' }}</pre>
+&#125;</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Example Request</h3>
@@ -201,28 +201,28 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/models/gpt-4/complete \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{{ '{' }}
+  -d '&#123;
     "prompt": "What is machine learning?",
     "temperature": 0.7,
     "maxTokens": 256
-  {{ '}' }}'</pre>
+  &#125;'</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Response</h3>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">{{ '{' }}
+            <pre class="text-white text-sm font-mono">&#123;
   "id": "completion-abc123",
   "model": "gpt-4",
   "text": "Machine learning is a subset of artificial intelligence...",
-  "tokens": {{ '{' }}
+  "tokens": &#123;
     "prompt": 5,
     "completion": 42,
     "total": 47
-  {{ '}' }},
+  &#125;,
   "finishReason": "stop",
   "createdAt": "2024-03-14T10:30:00Z",
   "processingTime": 2.345
-{{ '}' }}</pre>
+&#125;</pre>
           </div>
         </section>
 
@@ -242,23 +242,23 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
             <pre class="text-white text-sm font-mono">curl -X POST http://localhost:3000/api/models/gpt-4/complete-stream \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{{ '{' }}
+  -d '&#123;
     "prompt": "Write a poem about nature",
     "temperature": 0.8,
     "maxTokens": 256
-  {{ '}' }}'</pre>
+  &#125;'</pre>
           </div>
 
           <h3 class="text-lg font-semibold text-secondary-900 mb-2">Streaming Response</h3>
           <p class="text-secondary-700 mb-2">Server-Sent Events (SSE) stream:</p>
           <div class="bg-black rounded-lg p-4 overflow-x-auto mb-4">
-            <pre class="text-white text-sm font-mono">data: {{ '{' }}"token":"The","index":0{{ '}' }}
+            <pre class="text-white text-sm font-mono">data: &#123;"token":"The","index":0&#125;
 
-data: {{ '{' }}"token":" quiet","index":1{{ '}' }}
+data: &#123;"token":" quiet","index":1&#125;
 
-data: {{ '{' }}"token":" forest","index":2{{ '}' }}
+data: &#123;"token":" forest","index":2&#125;
 
-data: {{ '{' }}"done":true,"totalTokens":42{{ '}' }}</pre>
+data: &#123;"done":true,"totalTokens":42&#125;</pre>
           </div>
         </section>
 
