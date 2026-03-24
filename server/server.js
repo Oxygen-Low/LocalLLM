@@ -843,6 +843,11 @@ function setupGracefulShutdown(server) {
 
     console.log(`\n${signal} received. Saving data and shutting down...`);
 
+    // Stop the stale-container cleanup timer
+    if (typeof staleContainerCleanupTimer !== 'undefined') {
+      clearInterval(staleContainerCleanupTimer);
+    }
+
     // Persist data first to guarantee nothing is lost
     saveAllData();
 
