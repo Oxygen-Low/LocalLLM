@@ -2279,10 +2279,10 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
 
       const initScript = [
         'set -e',
+        'mkdir -p /workspace',
         'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
         'git config --global user.email "localllm@local"',
         'git config --global user.name "LocalLLM"',
-        'mkdir -p /workspace',
         'git clone /bare-repo.git /workspace || true',
         'cd /workspace',
         'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
@@ -2391,9 +2391,9 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         : null;
       const initScript = [
         'set -e',
+        'mkdir -p /workspace',
         'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
         ...(credentialHelperStep ? [credentialHelperStep] : []),
-        'mkdir -p /workspace',
         `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null || (echo "ERROR: Failed to clone repository. If this is a private repository, configure a Personal Access Token in Settings." >&2 && exit 1)`,
         'unset GIT_TOKEN',
         'cd /workspace',
