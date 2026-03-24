@@ -2465,7 +2465,7 @@ app.get('/api/coding-agent/containers/:id/files', requireSession, (req, res) => 
       return res.status(404).json({ success: false, error: 'Container not found' });
     }
 
-    const dirPath = req.query.path || '.';
+    const dirPath = typeof req.query.path === 'string' ? req.query.path : '.';
     // Sanitize path: block traversal and absolute paths
     if (dirPath.includes('..') || path.isAbsolute(dirPath)) {
       return res.status(400).json({ success: false, error: 'Invalid path' });
@@ -2505,7 +2505,7 @@ app.get('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
       return res.status(404).json({ success: false, error: 'Container not found' });
     }
 
-    const filePath = req.query.path;
+    const filePath = typeof req.query.path === 'string' ? req.query.path : '';
     if (!filePath || filePath.includes('..') || path.isAbsolute(filePath)) {
       return res.status(400).json({ success: false, error: 'Invalid file path' });
     }
