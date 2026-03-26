@@ -42,9 +42,9 @@
     "zone.js": "~0.16.1"
   },
   "devDependencies": {
-    "@angular/build": "^21.2.6",
-    "@angular/cli": "^21.2.6",
-    "@angular/compiler-cli": "^21.2.6",
+    "@angular/build": "^21.2.4",
+    "@angular/cli": "^21.2.4",
+    "@angular/compiler-cli": "^21.2.4",
     "@tailwindcss/typography": "^0.5.16",
     "autoprefixer": "^10.4.21",
     "jsdom": "^29.0.1",
