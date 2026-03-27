@@ -12,25 +12,17 @@ import { AuthService } from '../services/auth.service';
       <div class="container-custom">
         <div class="flex items-center justify-between h-16 sm:h-20">
           <!-- Logo -->
-          <div class="flex items-center gap-2">
+          <a routerLink="/" class="flex items-center gap-2 hover:opacity-90 transition-opacity">
             <div class="w-8 h-8 bg-gradient-to-br from-primary-600 to-accent-600 rounded-lg flex items-center justify-center">
               <span class="text-white font-bold text-lg">⚡</span>
             </div>
             <span class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-primary-600 to-accent-600 bg-clip-text text-transparent">
               Local.LLM
             </span>
-          </div>
+          </a>
 
           <!-- Desktop Navigation -->
           <div class="hidden md:flex items-center gap-8">
-            <a
-              routerLink="/"
-              routerLinkActive="text-primary-600"
-              [routerLinkActiveOptions]="{ exact: true }"
-              class="text-secondary-700 hover:text-primary-600 font-medium transition-colors"
-            >
-              Home
-            </a>
             <a
               routerLink="/dashboard"
               routerLinkActive="text-primary-600"
@@ -111,15 +103,6 @@ import { AuthService } from '../services/auth.service';
         <!-- Mobile Navigation -->
         @if (mobileMenuOpen()) {
           <div class="md:hidden border-t border-secondary-200 py-4 space-y-3">
-            <a
-              routerLink="/"
-              routerLinkActive="text-primary-600 bg-primary-50"
-              [routerLinkActiveOptions]="{ exact: true }"
-              (click)="mobileMenuOpen.set(false)"
-              class="block px-4 py-2 rounded-lg text-secondary-700 hover:bg-secondary-100 transition-colors font-medium"
-            >
-              Home
-            </a>
             <a
               routerLink="/dashboard"
               routerLinkActive="text-primary-600 bg-primary-50"
