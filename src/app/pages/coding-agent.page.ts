@@ -2202,6 +2202,7 @@ Guidelines:
           if (this.currentFilePath() === path) {
             this.fileContent = lines.join('\n');
           }
+          await this.loadFiles(this.currentDirPath());
           return `File edited: ${path} (lines ${startLine}-${endLine})`;
         }
 
@@ -2248,8 +2249,10 @@ Guidelines:
           const output = result.output || '(no output)';
           this.agentTerminalOutput.update(o => o + output + '\n');
           if (result.timedOut) {
+            await this.loadFiles(this.currentDirPath());
             return `Command timed out after 10 minutes.\nPartial output:\n${output}`;
           }
+          await this.loadFiles(this.currentDirPath());
           return output;
         }
 
