@@ -5,6 +5,7 @@ import { CommonModule } from '@angular/common';
 import { NavbarComponent } from '../components/navbar.component';
 import { FooterComponent } from '../components/footer.component';
 import { AuthService } from '../services/auth.service';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-layout',
@@ -12,6 +13,11 @@ import { AuthService } from '../services/auth.service';
   imports: [CommonModule, RouterOutlet, RouterLink, NavbarComponent, FooterComponent],
   template: `
     <div class="flex flex-col min-h-screen bg-white">
+      @if (isPreview) {
+        <div class="bg-primary-600 text-white text-center py-2 text-sm font-medium">
+          Preview mode: Data is not saved and authentication is disabled
+        </div>
+      }
       <app-navbar></app-navbar>
       @if (authService.passwordResetRequired()) {
         <div class="bg-amber-50 border-b border-amber-200 text-amber-900 text-sm">
@@ -39,6 +45,8 @@ import { AuthService } from '../services/auth.service';
   `,
 })
 export class AppLayoutComponent implements OnInit {
+  isPreview = environment.preview;
+
   constructor(
     private titleService: Title,
     public authService: AuthService

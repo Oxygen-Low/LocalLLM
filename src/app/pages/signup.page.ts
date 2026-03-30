@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-signup',
@@ -179,7 +180,7 @@ export class SignupPageComponent {
     private authService: AuthService,
     private router: Router
   ) {
-    if (this.authService.isAuthenticated()) {
+    if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
     }
   }
