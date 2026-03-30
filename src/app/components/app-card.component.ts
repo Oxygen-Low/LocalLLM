@@ -1,6 +1,7 @@
-import { Component, input } from '@angular/core';
+import { Component, input, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { TranslationService } from '../services/translation.service';
 
 export interface AIApp {
   id: string;
@@ -26,23 +27,23 @@ export interface AIApp {
       <!-- Category + Risky badge -->
       <div class="flex items-center gap-2 mb-2">
         <span class="text-xs font-semibold text-primary-600 uppercase tracking-wider">
-          {{ app().category }}
+          {{ t.translate(app().category) }}
         </span>
         @if (app().risky) {
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
-            ⚠️ Risky
+            ⚠️ {{ t.translate('apps.status.risky') }}
           </span>
         }
       </div>
 
       <!-- Name -->
       <h3 class="text-xl font-bold text-secondary-900 mb-3 group-hover:text-primary-600 transition-colors">
-        {{ app().name }}
+        {{ t.translate(app().name) }}
       </h3>
 
       <!-- Description -->
       <p class="text-muted text-sm mb-6 flex-1 leading-relaxed">
-        {{ app().description }}
+        {{ t.translate(app().description) }}
       </p>
 
       @if (disabled()) {
@@ -53,7 +54,7 @@ export interface AIApp {
           aria-disabled="true"
           class="w-full px-4 py-2 rounded-lg border border-secondary-200 text-secondary-400 font-medium text-center text-sm cursor-not-allowed select-none"
         >
-          Disabled by admin
+          {{ t.translate('apps.action.disabled') }}
         </button>
       } @else {
         <!-- Button -->
@@ -61,13 +62,14 @@ export interface AIApp {
           [routerLink]="['/app', app().id]"
           class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
         >
-          Launch
+          {{ t.translate('apps.action.launch') }}
         </button>
       }
     </div>
   `,
 })
 export class AppCardComponent {
+  protected t = inject(TranslationService);
   readonly app = input.required<AIApp>();
   readonly disabled = input<boolean>(false);
 

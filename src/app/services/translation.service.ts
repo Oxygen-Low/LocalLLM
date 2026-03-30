@@ -242,6 +242,80 @@ const translations: TranslationDictionary = {
     ru: 'Опасные приложения отключены администратором.',
   },
 
+  // App Card translations
+  'apps.general-assistant.name': {
+    en: 'Chat',
+    ko: '채팅',
+    ja: 'チャット',
+    ru: 'Чат',
+  },
+  'apps.general-assistant.description': {
+    en: 'A versatile AI assistant for conversations, questions, writing, coding, and more. Connect your preferred AI provider or use a local model.',
+    ko: '대화, 질문, 글쓰기, 코딩 등을 위한 다재다능한 AI 어시스턴트입니다. 선호하는 AI 제공업체를 연결하거나 로컬 모델을 사용하세요.',
+    ja: '会話、質問、執筆、コーディングなどのための多機能なAIアシスタントです。好みのAIプロバイダーを接続するか、ローカルモデルを使用してください。',
+    ru: 'Универсальный ИИ-помощник для бесед, ответов на вопросы, написания текстов, программирования и многого другого. Подключите предпочитаемого провайдера ИИ или используйте локальную модель.',
+  },
+  'apps.coding-agent.name': {
+    en: 'Coding Agent',
+    ko: '코딩 에이전트',
+    ja: 'コーディングエージェント',
+    ru: 'Код-агент',
+  },
+  'apps.coding-agent.description': {
+    en: 'An AI-powered coding agent that can write, execute, and iterate on code directly on the server. Enables autonomous software development tasks.',
+    ko: '서버에서 직접 코드를 작성, 실행 및 반복할 수 있는 AI 기반 코딩 에이전트입니다. 자율적인 소프트웨어 개발 작업을 가능하게 합니다.',
+    ja: 'サーバー上で直接コードを記述、実行、反復できるAI搭載コーディングエージェントです。自律的なソフトウェア開発タスクを可能にします。',
+    ru: 'ИИ-агент для программирования, который может писать, выполнять и дорабатывать код прямо на сервере. Позволяет выполнять задачи автономной разработки ПО.',
+  },
+  'apps.repositories.name': {
+    en: 'Repositories',
+    ko: '저장소',
+    ja: 'リポジトリ',
+    ru: 'Репозитории',
+  },
+  'apps.repositories.description': {
+    en: 'Manage Local.LLM repositories hosted on the server. Repositories auto-archive after 1 hour of inactivity, support git cloning via auth keys, and can be synced with GitHub.',
+    ko: '서버에 호스팅된 Local.LLM 저장소를 관리합니다. 저장소는 1시간 동안 활동이 없으면 자동으로 보관되며, 인증 키를 통한 git 클로닝을 지원하고 GitHub와 동기화할 수 있습니다.',
+    ja: 'サーバー上でホストされているLocal.LLMリポジトリを管理します。リポジトリは1時間の無活動後に自動的にアーカイブされ、認証キーによるgitクローンをサポートし、GitHubと同期できます。',
+    ru: 'Управление репозиториями Local.LLM, размещенными на сервере. Репозитории автоматически архивируются после 1 часа бездействия, поддерживают клонирование git через ключи аутентификации и могут синхронизироваться с GitHub.',
+  },
+  'apps.category.assistant': {
+    en: 'Assistant',
+    ko: '어시스턴트',
+    ja: 'アシスタント',
+    ru: 'Помощник',
+  },
+  'apps.category.agent': {
+    en: 'Agent',
+    ko: '에이전트',
+    ja: 'エージェント',
+    ru: 'Агент',
+  },
+  'apps.category.storage': {
+    en: 'Storage',
+    ko: '저장소',
+    ja: 'ストレージ',
+    ru: 'Хранилище',
+  },
+  'apps.status.risky': {
+    en: 'Risky',
+    ko: '위험',
+    ja: 'リスクあり',
+    ru: 'Рискованно',
+  },
+  'apps.action.launch': {
+    en: 'Launch',
+    ko: '실행',
+    ja: '起動',
+    ru: 'Запустить',
+  },
+  'apps.action.disabled': {
+    en: 'Disabled by admin',
+    ko: '관리자에 의해 비활성화됨',
+    ja: '管理者によって無効化されています',
+    ru: 'Отключено администратором',
+  },
+
   // Docs navigation
   'docs.nav.getting-started': {
     en: 'Getting Started',
