@@ -52,8 +52,17 @@ function getOrCreateMasterKey() {
 
 const MASTER_KEY = getOrCreateMasterKey();
 
+// In-memory cache for derived user keys to optimize encryption/decryption performance.
+// PBKDF2 is computationally expensive (100,000 iterations), so we cache the result.
+const userKeyCache = new Map();
+
 function deriveUserKey(username) {
-  return crypto.pbkdf2Sync(MASTER_KEY, `user:${username}`, PBKDF2_ITERATIONS, 32, 'sha256');
+  if (userKeyCache.has(username)) {
+    return userKeyCache.get(username);
+  }
+  const key = crypto.pbkdf2Sync(MASTER_KEY, `user:${username}`, PBKDF2_ITERATIONS, 32, 'sha256');
+  userKeyCache.set(username, key);
+  return key;
 }
 
 function encryptData(plaintext, username) {
@@ -1203,6 +1212,7 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
 
     // Invalidate old sessions and issue a new token for the renamed user
     invalidateUserSessions(oldUsername);
+    userKeyCache.delete(oldUsername);
     const newToken = createSessionToken(normalizedNew);
 
     // Transfer any password-change cooldown to the new username
@@ -1249,6 +1259,7 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     // SOC2 CC6.3: Invalidate all sessions for deleted user
     invalidateUserSessions(normalizedUsername);
+    userKeyCache.delete(normalizedUsername);
 
     // Clean up all Docker containers owned by this user
     deleteAllUserContainers(normalizedUsername);
