@@ -2359,9 +2359,11 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid mode. Must be "background" or "manual"' });
     }
 
-    // Validate clone URL format - accept any HTTPS git URL
-    if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?\/[\w./\-]+(\.git)?$/.test(cloneUrl)) {
-      return res.status(400).json({ success: false, error: 'Invalid clone URL. Only HTTPS URLs are supported.' });
+    // SSRF-safe URL validation for outbound clone request
+    const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
+    if (!ssrfCheck.valid || ssrfCheck.parsed.protocol !== 'https:') {
+      const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
+      return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
     }
 
     if (!isDockerAvailable()) {
@@ -3446,8 +3448,11 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
     if (!cloneUrl || typeof cloneUrl !== 'string') {
       return res.status(400).json({ success: false, error: 'Clone URL is required' });
     }
-    if (!/^https:\/\/[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?\/[\w./\-]+(\.git)?$/.test(cloneUrl)) {
-      return res.status(400).json({ success: false, error: 'Invalid clone URL. Only HTTPS URLs are supported.' });
+    // SSRF-safe URL validation for outbound clone request
+    const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
+    if (!ssrfCheck.valid || ssrfCheck.parsed.protocol !== 'https:') {
+      const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
+      return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
     }
     const repoName = (name || cloneUrl.split('/').pop()?.replace(/\.git$/, '') || 'imported-repo')
       .replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100);
