@@ -900,6 +900,58 @@ function timingSafeCompare(a, b) {
   }
 }
 
+/**
+ * Asynchronously execute a command and return its output.
+ * Uses child_process.spawn to avoid blocking the event loop.
+ */
+function runCommandAsync(command, args, options = {}) {
+  const { spawn } = require('child_process');
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args, {
+      ...options,
+      shell: false,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    if (proc.stdout) {
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+    }
+
+    if (proc.stderr) {
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+    }
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        const err = new Error(`Command failed with exit code ${code}: ${stderr || stdout}`);
+        err.status = code;
+        err.stderr = stderr;
+        err.stdout = stdout;
+        reject(err);
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(err);
+    });
+
+    if (options.timeout) {
+      setTimeout(() => {
+        proc.kill();
+        reject(new Error(`Command timed out after ${options.timeout}ms`));
+      }, options.timeout);
+    }
+  });
+}
+
 function generateSalt() {
   return crypto.randomBytes(SALT_BYTES).toString('hex');
 }

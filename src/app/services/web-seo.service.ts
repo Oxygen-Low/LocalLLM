@@ -87,16 +87,6 @@ export class WebSeoService {
     const url = `${environment.apiUrl}/api/web-seo/check/${id}`;
 
     return new Observable(observer => {
-      const eventSource = new (window as any).EventSource(url, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-
-      // EventSource doesn't support custom headers natively in all browsers.
-      // If it fails, we'll need a different approach (e.g. fetch + readable stream)
-      // but let's try this first as it matches other parts of the app.
-      // Actually, standard EventSource doesn't support headers.
-      // Let's use fetch instead to be safe.
-
       const abortController = new AbortController();
 
       (async () => {
