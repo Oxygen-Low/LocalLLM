@@ -733,6 +733,8 @@ interface ToolCall {
                       <button
                         (click)="toggleProviderDropdown($event)"
                         class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-xs transition-colors"
+                        aria-label="Select AI provider"
+                        title="Select AI provider"
                       >
                         <span class="w-1.5 h-1.5 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
                         <span class="text-secondary-700 max-w-[120px] truncate">
@@ -875,6 +877,8 @@ interface ToolCall {
                           <button
                             (click)="deleteMemory(mem.id)"
                             class="text-secondary-400 hover:text-red-500 flex-shrink-0 p-0.5"
+                            aria-label="Delete memory"
+                            title="Delete memory"
                           >
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -1024,6 +1028,8 @@ interface ToolCall {
                       (click)="sendChatMessage()"
                       [disabled]="isAiResponding() || !chatInput.trim() || !selectedProvider()"
                       class="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm hover:bg-primary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
+                      aria-label="Send message"
+                      title="Send message"
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m0 0l-7 7m7-7l7 7" />
