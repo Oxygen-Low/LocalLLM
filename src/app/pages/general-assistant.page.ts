@@ -162,7 +162,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           [ngClass]="msg.role === 'user'
                             ? 'bg-primary-600 text-white rounded-br-md prose-invert'
                             : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
-                        ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.content)"></div></div>
+                        ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(getContentAsString(msg.content))"></div></div>
                         <!-- Per-message action buttons -->
                         <div
                           class="flex items-center gap-0.5"
@@ -888,7 +888,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     // Build the alternatives list: seed with the current response if not already tracked
     const existingAlts: MessageAlternative[] = msg.alternatives?.length
       ? msg.alternatives
-      : [{ content: msg.content, thinking: msg.thinking, searches: msg.searches }];
+      : [{ content: this.getContentAsString(msg.content), thinking: msg.thinking, searches: msg.searches }];
     const newAlt: MessageAlternative = {
       content: result.content,
       thinking: result.thinking || undefined,
@@ -989,7 +989,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     const msg = chat.messages[msgIndex];
     if (!msg || msg.role !== 'user') return;
     this.editingMessageIndex.set(msgIndex);
-    this.editingContent = msg.content;
+    this.editingContent = this.getContentAsString(msg.content);
   }
 
   /** Cancel inline editing without saving. */
@@ -1180,5 +1180,13 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
         this.messagesContainer.nativeElement.scrollTop = this.messagesContainer.nativeElement.scrollHeight;
       }
     }, 50);
+  }
+
+  getContentAsString(content: string | any[]): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content.map(p => p.text || '').join('\n');
+    }
+    return '';
   }
 }

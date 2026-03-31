@@ -10,9 +10,17 @@ export interface MessageAlternative {
   searches?: SearchEvent[];
 }
 
+export interface MessageContentPart {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | MessageContentPart[];
   timestamp?: string;
   thinking?: string;
   searches?: SearchEvent[];

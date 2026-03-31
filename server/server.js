@@ -2886,6 +2886,442 @@ const REPO_INACTIVITY_MS = parseInt(process.env.REPO_INACTIVITY_MINUTES || '60',
 // Valid repo name: letters, digits, hyphens, underscores, dots; 1–100 chars
 const REPO_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,98}[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
+// ---------------------------------------------------------------------------
+// Web SEO App Management
+// ---------------------------------------------------------------------------
+
+const WEB_SEO_DIR = path.join(DATA_DIR, 'web_seo');
+if (!fs.existsSync(WEB_SEO_DIR)) fs.mkdirSync(WEB_SEO_DIR, { recursive: true });
+
+function getUserWebSeoFile(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(WEB_SEO_DIR, `${safeUsername}.json`);
+  return ensureWithinDir(WEB_SEO_DIR, filePath);
+}
+
+function readUserWebSeo(username) {
+  const file = getUserWebSeoFile(username);
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+function writeUserWebSeo(username, apps) {
+  const file = getUserWebSeoFile(username);
+  fs.writeFileSync(file, JSON.stringify(apps, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+// GET /api/web-seo/apps - List user's SEO apps
+app.get('/api/web-seo/apps', requireSession, (req, res) => {
+  try {
+    const apps = readUserWebSeo(req.sessionUser);
+    res.json({ success: true, apps });
+  } catch (err) {
+    console.error('List SEO apps error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/web-seo/apps - Create a new SEO app
+app.post('/api/web-seo/apps', requireSession, (req, res) => {
+  try {
+    const { name, type, url, repoFullName, cloneUrl, buildCommand, startCommand } = req.body;
+
+    if (!name || !type) {
+      return res.status(400).json({ success: false, error: 'Name and type are required' });
+    }
+
+    if (type === 'url' && !url) {
+      return res.status(400).json({ success: false, error: 'URL is required for URL type' });
+    }
+
+    if (type === 'repo' && (!repoFullName || !cloneUrl)) {
+      return res.status(400).json({ success: false, error: 'Repo details are required for repo type' });
+    }
+
+    const apps = readUserWebSeo(req.sessionUser);
+    const newApp = {
+      id: crypto.randomUUID(),
+      name,
+      type,
+      url: url || null,
+      repoFullName: repoFullName || null,
+      cloneUrl: cloneUrl || null,
+      buildCommand: buildCommand || null,
+      startCommand: startCommand || null,
+      createdAt: new Date().toISOString(),
+      lastCheck: null,
+    };
+
+    apps.push(newApp);
+    writeUserWebSeo(req.sessionUser, apps);
+
+    auditLog({ event: 'SEO_APP_CREATED', message: `SEO app "${name}" created`, username: req.sessionUser, req });
+    res.status(201).json({ success: true, app: newApp });
+  } catch (err) {
+    console.error('Create SEO app error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/web-seo/apps/:id - Delete an SEO app
+app.delete('/api/web-seo/apps/:id', requireSession, (req, res) => {
+  try {
+    const apps = readUserWebSeo(req.sessionUser);
+    const updated = apps.filter(a => a.id !== req.params.id);
+    writeUserWebSeo(req.sessionUser, updated);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete SEO app error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/web-seo/check/:id - Run SEO check for an app
+app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
+  let containerName = null;
+  try {
+    const apps = readUserWebSeo(req.sessionUser);
+    const appEntry = apps.find(a => a.id === req.params.id);
+    if (!appEntry) {
+      return res.status(404).json({ success: false, error: 'SEO app not found' });
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available' });
+    }
+
+    const checkId = crypto.randomUUID();
+    containerName = `seo-check-${sanitizeUsernameForPath(req.sessionUser)}-${checkId.slice(0, 8)}`;
+
+    // Start SSE for progress updates
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendProgress = (step, message, status = 'running') => {
+      sendSSE(res, 'progress', { step, message, status });
+    };
+
+    sendProgress('init', 'Starting SEO check container...');
+
+    // We use playwright image which has browsers pre-installed
+    const dockerArgs = [
+      'run', '-d',
+      '--name', containerName,
+      '--memory=1g',
+      '--cpus=1',
+      '--network=bridge',
+      'mcr.microsoft.com/playwright:v1.45.0-jammy',
+      'sleep', '3600'
+    ];
+
+    await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+
+    let targetUrl = appEntry.url;
+
+    if (appEntry.type === 'repo') {
+      sendProgress('clone', `Cloning repository ${appEntry.repoFullName}...`);
+
+      const integrations = readUserIntegrations(req.sessionUser);
+      const gitToken = integrations.github?.token || null;
+
+      const cloneCmd = gitToken
+        ? `git config --global credential.helper '!f() { echo "password=$GIT_TOKEN"; }; f' && git clone "${appEntry.cloneUrl}" /workspace`
+        : `git clone "${appEntry.cloneUrl}" /workspace`;
+
+      const cloneArgs = [
+        'exec',
+        ...(gitToken ? ['-e', `GIT_TOKEN=${gitToken}`] : []),
+        containerName,
+        'bash', '-c', cloneCmd
+      ];
+
+      try {
+        await runCommandAsync('docker', cloneArgs, { timeout: 120000 });
+      } catch (err) {
+        throw new Error(`Failed to clone repository: ${err.message}`);
+      }
+
+      if (appEntry.buildCommand) {
+        sendProgress('build', `Running build command: ${appEntry.buildCommand}...`);
+        await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', `cd /workspace && ${appEntry.buildCommand}`], { timeout: 300000 });
+      }
+
+      sendProgress('start', `Starting application: ${appEntry.startCommand}...`);
+      await runCommandAsync('docker', ['exec', '-d', containerName, 'bash', '-c', `cd /workspace && ${appEntry.startCommand}`], { timeout: 30000 });
+
+      sendProgress('wait', 'Waiting for application to respond...');
+      let ready = false;
+      for (let i = 0; i < 30; i++) {
+        try {
+          await runCommandAsync('docker', ['exec', containerName, 'curl', '-s', 'http://localhost:3000'], { timeout: 2000 });
+          ready = true;
+          targetUrl = 'http://localhost:3000';
+          break;
+        } catch {}
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      if (!ready) {
+        const ports = [8080, 5173, 4200, 3001];
+        for (const port of ports) {
+          try {
+            await runCommandAsync('docker', ['exec', containerName, 'curl', '-s', `http://localhost:${port}`], { timeout: 2000 });
+            ready = true;
+            targetUrl = `http://localhost:${port}`;
+            break;
+          } catch {}
+        }
+      }
+
+      if (!ready) {
+        throw new Error('Application failed to start or is not responding on common ports (3000, 8080, 5173, 4200).');
+      }
+    }
+
+    sendProgress('analyze', 'Analyzing page with Playwright...');
+
+    const playwrightScript = `
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+
+  const metrics = [];
+  page.on('metrics', m => metrics.push(m));
+
+  try {
+    await page.goto('${targetUrl}', { waitUntil: 'networkidle', timeout: 30000 });
+
+    const title = await page.title();
+    const html = await page.content();
+    const screenshot = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 });
+    const screenshotB64 = screenshot.toString('base64');
+
+    const seoData = await page.evaluate(() => {
+      const getMeta = (name) => document.querySelector(\`meta[name="\${name}"], meta[property="\${name}"]\`)?.content;
+      return {
+        h1: Array.from(document.querySelectorAll('h1')).map(h => h.innerText),
+        h2: Array.from(document.querySelectorAll('h2')).map(h => h.innerText),
+        description: getMeta('description') || getMeta('og:description'),
+        keywords: getMeta('keywords'),
+        robots: getMeta('robots'),
+        canonical: document.querySelector('link[rel="canonical"]')?.href,
+        altTexts: Array.from(document.querySelectorAll('img')).map(img => ({ src: img.src, alt: img.alt })),
+        links: Array.from(document.querySelectorAll('a')).map(a => ({ href: a.href, text: a.innerText })),
+      };
+    });
+
+    let robotsTxt = null;
+    try {
+      const baseUrl = new URL('${targetUrl}').origin;
+      const robotsRes = await page.request.get(\`\${baseUrl}/robots.txt\`);
+      if (robotsRes.ok()) robotsTxt = await robotsRes.text();
+    } catch {}
+
+    console.log(JSON.stringify({
+      success: true,
+      title,
+      seoData,
+      robotsTxt,
+      metrics: metrics[metrics.length - 1],
+      screenshot: screenshotB64,
+      html: html.slice(0, 50000)
+    }));
+
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: err.message }));
+  } finally {
+    await browser.close();
+  }
+})();
+`;
+    const b64Script = Buffer.from(playwrightScript).toString('base64');
+    const playwrightResultRaw = await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', `echo '${b64Script}' | base64 -d > /tmp/check.js && node /tmp/check.js`], { timeout: 60000 });
+
+    let playwrightResult;
+    try {
+      playwrightResult = JSON.parse(playwrightResultRaw);
+    } catch (e) {
+      throw new Error('Failed to parse Playwright results');
+    }
+
+    if (!playwrightResult.success) {
+      throw new Error(`Playwright analysis failed: ${playwrightResult.error}`);
+    }
+
+    sendProgress('ai', 'Generating AI SEO report...');
+
+    const keys = readUserApiKeys(req.sessionUser);
+    let selectedProvider = null;
+    let selectedModel = null;
+
+    const visionModels = ['gpt-4o', 'claude-3-5-sonnet', 'gemini-1.5-pro', 'gpt-4-turbo'];
+
+    for (const [pId, pConfig] of Object.entries(AI_PROVIDERS)) {
+      if (keys[pId]?.apiKey) {
+        const model = keys[pId].selectedModel;
+        if (model && visionModels.some(vm => model.toLowerCase().includes(vm))) {
+          selectedProvider = pId;
+          selectedModel = model;
+          break;
+        }
+      }
+    }
+
+    if (!selectedProvider) {
+      for (const [pId, pConfig] of Object.entries(AI_PROVIDERS)) {
+        if (keys[pId]?.apiKey) {
+          selectedProvider = pId;
+          selectedModel = keys[pId].selectedModel;
+          break;
+        }
+      }
+    }
+
+    if (!selectedProvider) {
+      const kobold = await checkKoboldStatus();
+      if (kobold.available) {
+        selectedProvider = 'kobold';
+        selectedModel = kobold.model;
+      } else {
+        const ollama = await checkOllamaStatus();
+        if (ollama.available && ollama.models.length > 0) {
+          selectedProvider = 'ollama';
+          selectedModel = ollama.models[0];
+        }
+      }
+    }
+
+    if (!selectedProvider) {
+      throw new Error('No AI provider configured for SEO analysis');
+    }
+
+    const visionAvailable = visionModels.some(vm => selectedModel?.toLowerCase().includes(vm));
+
+    const analysisPrompt = `You are an expert SEO auditor. Analyze the following website data and provide a structured SEO report.
+Website Title: ${playwrightResult.title}
+SEO Metadata: ${JSON.stringify(playwrightResult.seoData)}
+Robots.txt: ${playwrightResult.robotsTxt || 'Not found'}
+Performance Metrics: ${JSON.stringify(playwrightResult.metrics)}
+
+${!visionAvailable ? 'NOTE: You do not have vision capabilities, so analyze the HTML and metadata provided.' : 'Analyze the attached screenshot for visual SEO, UI/UX consistency, and mobile friendliness.'}
+
+Provide your response in JSON format with the following keys:
+- totalScore: (0-100)
+- categories: { performance: score, accessibility: score, bestPractices: score, seo: score } (all 0-100)
+- summary: (brief overview)
+- findings: [ { category, type: 'error'|'warning'|'success', message, suggestion } ]
+- visionWarning: (boolean, true if vision was needed but unavailable)
+
+Ensure the JSON is valid and only return the JSON block.`;
+
+    const analysisMessages = [
+      { role: 'system', content: 'You are an SEO analysis AI. Respond only with valid JSON.' },
+      {
+        role: 'user',
+        content: visionAvailable ? [
+          { type: 'text', text: analysisPrompt },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${playwrightResult.screenshot}` } }
+        ] : analysisPrompt
+      }
+    ];
+
+    // Helper to capture LLM output
+    let fullAiResponse = '';
+    const mockRes = {
+      writable: true,
+      write: (data) => {
+        const lines = data.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(line.slice(6));
+              if (parsed.content) fullAiResponse += parsed.content;
+            } catch {}
+          }
+        }
+      },
+      end: () => {},
+      setHeader: () => {},
+      flushHeaders: () => {},
+      finished: false,
+      destroyed: false
+    };
+
+    // Call the appropriate streaming function based on provider
+    let aiReport;
+    try {
+      const providerConfig = AI_PROVIDERS[selectedProvider];
+      const pKeys = keys[selectedProvider];
+
+      if (selectedProvider === 'kobold') {
+        await streamFromKobold(mockRes, analysisMessages, {}, null);
+      } else if (selectedProvider === 'ollama') {
+        await streamFromOllama(mockRes, analysisMessages, selectedModel, {}, null);
+      } else if (selectedProvider === 'anthropic') {
+        await streamFromAnthropic(mockRes, analysisMessages, pKeys.apiKey, selectedModel, {}, null);
+      } else if (selectedProvider === 'google') {
+        await streamFromGoogle(mockRes, analysisMessages, pKeys.apiKey, selectedModel, {}, null);
+      } else {
+        await streamFromOpenAICompatible(mockRes, analysisMessages, pKeys.apiKey, providerConfig.baseUrl, providerConfig.chatEndpoint, selectedModel, {}, null);
+      }
+
+      // Extract JSON from response (sometimes models wrap in markdown blocks)
+      const jsonMatch = fullAiResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        aiReport = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('AI failed to return a valid JSON report');
+      }
+    } catch (aiErr) {
+      console.error('AI Analysis failed:', aiErr);
+      // Minimal fallback report if AI fails
+      aiReport = {
+        totalScore: 0,
+        categories: { performance: 0, accessibility: 0, bestPractices: 0, seo: 0 },
+        summary: "AI analysis failed to generate a report.",
+        findings: [{ category: "System", type: "error", message: "AI Analysis failed", suggestion: aiErr.message }],
+        visionWarning: false
+      };
+    }
+
+    // Save result
+    appEntry.lastCheck = {
+      id: checkId,
+      timestamp: new Date().toISOString(),
+      report: aiReport,
+      screenshot: playwrightResult.screenshot
+    };
+    writeUserWebSeo(req.sessionUser, apps);
+
+    sendProgress('done', 'SEO check completed successfully!', 'completed');
+    sendSSE(res, 'result', { report: aiReport, screenshot: playwrightResult.screenshot });
+    res.end();
+
+  } catch (err) {
+    console.error('SEO check error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      sendSSE(res, 'error', { error: err.message });
+      res.end();
+    }
+  } finally {
+    if (containerName) {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('docker', ['rm', '-f', containerName], { timeout: 30000 });
+      } catch (e) {}
+    }
+  }
+});
+
 // In-memory registry: repoId -> { archiveTimer, lastActivity, username }
 const repoRegistry = new Map();
 
@@ -3838,7 +4274,15 @@ function enhanceMessagesForThink(messages) {
   const systemIdx = messages.findIndex(m => m.role === 'system');
   const enhanced = [...messages];
   if (systemIdx >= 0) {
-    enhanced[systemIdx] = { ...enhanced[systemIdx], content: enhanced[systemIdx].content + thinkInstruction };
+    const originalContent = enhanced[systemIdx].content;
+    if (typeof originalContent === 'string') {
+      enhanced[systemIdx] = { ...enhanced[systemIdx], content: originalContent + thinkInstruction };
+    } else {
+      enhanced[systemIdx] = {
+        ...enhanced[systemIdx],
+        content: [...originalContent, { type: 'text', text: thinkInstruction }]
+      };
+    }
   } else {
     enhanced.unshift({ role: 'system', content: thinkInstruction.trim() });
   }
@@ -3903,9 +4347,10 @@ async function streamFromKobold(res, messages, options = {}, signal) {
   }
 
   const prompt = messages.map(m => {
-    if (m.role === 'system') return `### System:\n${m.content}`;
-    if (m.role === 'user') return `### User:\n${m.content}`;
-    return `### Assistant:\n${m.content}`;
+    const content = typeof m.content === 'string' ? m.content : m.content.map(p => p.text || '').join('\n');
+    if (m.role === 'system') return `### System:\n${content}`;
+    if (m.role === 'user') return `### User:\n${content}`;
+    return `### Assistant:\n${content}`;
   }).join('\n\n') + '\n\n### Assistant:\n';
 
   const controller = new AbortController();
@@ -3944,7 +4389,19 @@ async function streamFromOllama(res, messages, model, options = {}, signal) {
 
   const body = {
     model,
-    messages,
+    messages: messages.map(m => {
+      if (typeof m.content === 'string') return m;
+      const images = [];
+      let text = '';
+      for (const p of m.content) {
+        if (p.type === 'text') text += p.text;
+        else if (p.type === 'image_url' && p.image_url.url.startsWith('data:')) {
+          const base64 = p.image_url.url.split(',')[1];
+          if (base64) images.push(base64);
+        }
+      }
+      return { role: m.role, content: text, images: images.length > 0 ? images : undefined };
+    }),
     stream: true,
   };
 
@@ -4020,7 +4477,14 @@ async function streamFromOpenAICompatible(res, messages, apiKey, baseUrl, chatEn
 
   const body = {
     model,
-    messages,
+    messages: messages.map(m => {
+      // OpenAI-compatible providers usually support arrays in content for multi-modal.
+      // But we should ensure system messages are strings if they don't support arrays there.
+      if (m.role === 'system' && Array.isArray(m.content)) {
+        return { ...m, content: m.content.map(p => p.text || '').join('\n') };
+      }
+      return m;
+    }),
     max_tokens: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
     temperature: 0.7,
     stream: true,
@@ -4126,10 +4590,41 @@ async function streamFromAnthropic(res, messages, apiKey, model, options = {}, s
   const body = {
     model,
     max_tokens: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
-    messages: chatMessages,
+    messages: chatMessages.map(m => {
+      if (typeof m.content === 'string') return m;
+      return {
+        ...m,
+        content: m.content.map(p => {
+          if (p.type === 'text') return { type: 'text', text: p.text };
+          if (p.type === 'image_url') {
+            const url = p.image_url.url;
+            if (url.startsWith('data:')) {
+              const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
+              if (match) {
+                return {
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: match[1],
+                    data: match[2],
+                  }
+                };
+              }
+            }
+            // Anthropic doesn't support hosted image URLs directly in the same way,
+            // they usually want base64. For now, we'll just ignore non-data URLs
+            // or pass them as text if they are not base64.
+            return { type: 'text', text: `[Image: ${url}]` };
+          }
+          return { type: 'text', text: '' };
+        })
+      };
+    }),
     stream: true,
   };
-  if (systemMsg) body.system = systemMsg.content;
+  if (systemMsg) {
+    body.system = typeof systemMsg.content === 'string' ? systemMsg.content : systemMsg.content.map(p => p.text || '').join('\n');
+  }
 
   if (options.think) {
     body.thinking = { type: 'enabled', budget_tokens: ANTHROPIC_THINKING_BUDGET };
@@ -4188,14 +4683,44 @@ async function streamFromGoogle(res, messages, apiKey, model, options = {}, sign
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
-  const contents = chatMessages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+  const contents = chatMessages.map(m => {
+    const parts = [];
+    if (typeof m.content === 'string') {
+      parts.push({ text: m.content });
+    } else {
+      for (const p of m.content) {
+        if (p.type === 'text') {
+          parts.push({ text: p.text });
+        } else if (p.type === 'image_url') {
+          const url = p.image_url.url;
+          if (url.startsWith('data:')) {
+            const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (match) {
+              parts.push({
+                inline_data: {
+                  mime_type: match[1],
+                  data: match[2],
+                }
+              });
+            }
+          } else {
+            // For hosted URLs, Google has its own File API, or you can pass them differently.
+            // For now, simpler to just treat as text.
+            parts.push({ text: `[Image: ${url}]` });
+          }
+        }
+      }
+    }
+    return {
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts,
+    };
+  });
 
   const body = { contents };
   if (systemMsg) {
-    body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+    const systemText = typeof systemMsg.content === 'string' ? systemMsg.content : systemMsg.content.map(p => p.text || '').join('\n');
+    body.systemInstruction = { parts: [{ text: systemText }] };
   }
   if (options.webSearch) {
     body.tools = [{ googleSearch: {} }];
@@ -4285,8 +4810,8 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       if (typeof msg.role !== 'string' || !VALID_ROLES.includes(msg.role)) {
         return res.status(400).json({ success: false, error: 'Invalid message role' });
       }
-      if (!msg.content || typeof msg.content !== 'string') {
-        return res.status(400).json({ success: false, error: 'Invalid message format' });
+      if (!msg.content || (typeof msg.content !== 'string' && !Array.isArray(msg.content))) {
+        return res.status(400).json({ success: false, error: 'Invalid message content format' });
       }
     }
 
@@ -4303,7 +4828,18 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       if (character && character.description) {
         processedMessages = messages.map((msg, idx) => {
           if (msg.role === 'system' && idx === 0) {
-            return { ...msg, content: `You are playing the role of "${character.name}". ${character.description}\n\n${msg.content}` };
+          const charPrompt = `You are playing the role of "${character.name}". ${character.description}\n\n`;
+          if (typeof msg.content === 'string') {
+            return { ...msg, content: charPrompt + msg.content };
+          } else {
+            return {
+              ...msg,
+              content: [
+                { type: 'text', text: charPrompt },
+                ...msg.content
+              ]
+            };
+          }
           }
           return msg;
         });

@@ -62,6 +62,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/repositories.page').then(m => m.RepositoriesPageComponent),
         canActivate: [authGuard, riskyAppsGuard],
       },
+      {
+        path: 'app/web-seo',
+        loadComponent: () => import('./pages/web-seo.page').then(m => m.WebSeoPageComponent),
+        canActivate: [authGuard, riskyAppsGuard],
+      },
     ],
   },
   {

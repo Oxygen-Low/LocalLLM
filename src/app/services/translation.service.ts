@@ -242,6 +242,68 @@ const translations: TranslationDictionary = {
     ru: 'Опасные приложения отключены администратором.',
   },
 
+  // Web SEO App
+  'webSeo.title': {
+    en: 'Web Seo Optimizer',
+    ko: '웹 SEO 최적화 도구',
+    ja: 'ウェブSEOオプティマイザー',
+    ru: 'Web Seo Оптимизатор',
+  },
+  'webSeo.subtitle': {
+    en: 'Analyze your web projects for SEO, performance, and accessibility using AI.',
+    ko: 'AI를 사용하여 웹 프로젝트의 SEO, 성능 및 접근성을 분석합니다.',
+    ja: 'AIを使用して、ウェブプロジェクトのSEO、パフォーマンス、アクセシビリティを分析します。',
+    ru: 'Анализируйте свои веб-проекты на предмет SEO, производительности и доступности с помощью ИИ.',
+  },
+  'webSeo.addApp': {
+    en: 'Add SEO App',
+    ko: 'SEO 앱 추가',
+    ja: 'SEOアプリを追加',
+    ru: 'Добавить SEO приложение',
+  },
+  'webSeo.noApps': {
+    en: 'No SEO apps yet. Add one to start analyzing!',
+    ko: '아직 SEO 앱이 없습니다. 분석을 시작하려면 하나를 추가하세요!',
+    ja: 'SEOアプリはまだありません。分析を開始するには1つ追加してください！',
+    ru: 'SEO-приложений пока нет. Добавьте одно, чтобы начать анализ!',
+  },
+  'webSeo.urlType': {
+    en: 'Web URL',
+    ko: '웹 URL',
+    ja: 'ウェブURL',
+    ru: 'Веб URL',
+  },
+  'webSeo.repoType': {
+    en: 'Repository',
+    ko: '저장소',
+    ja: 'リポジトリ',
+    ru: 'Репозиторий',
+  },
+  'webSeo.checkNow': {
+    en: 'Run SEO Check',
+    ko: 'SEO 확인 실행',
+    ja: 'SEOチェックを実行',
+    ru: 'Запустить проверку SEO',
+  },
+  'webSeo.lastChecked': {
+    en: 'Last checked',
+    ko: '마지막 확인',
+    ja: '最終チェック',
+    ru: 'Последняя проверка',
+  },
+  'webSeo.score': {
+    en: 'Score',
+    ko: '점수',
+    ja: 'スコア',
+    ru: 'Балл',
+  },
+  'webSeo.findings': {
+    en: 'AI Findings',
+    ko: 'AI 분석 결과',
+    ja: 'AIの分析結果',
+    ru: 'Результаты ИИ',
+  },
+
   // App Card translations
   'apps.general-assistant.name': {
     en: 'Chat',
@@ -277,7 +339,19 @@ const translations: TranslationDictionary = {
     en: 'Manage Local.LLM repositories hosted on the server. Repositories auto-archive after 1 hour of inactivity, support git cloning via auth keys, and can be synced with GitHub.',
     ko: '서버에 호스팅된 Local.LLM 저장소를 관리합니다. 저장소는 1시간 동안 활동이 없으면 자동으로 보관되며, 인증 키를 통한 git 클로닝을 지원하고 GitHub와 동기화할 수 있습니다.',
     ja: 'サーバー上でホストされているLocal.LLMリポジトリを管理します。リポジトリは1時間の無活動後に自動的にアーカイブされ、認証キーによるgitクローンをサポートし、GitHubと同期できます。',
-    ru: 'Управление репозиториями Local.LLM, размещенными на сервере. Репозитории автоматически архивируются после 1 часа бездействия, поддерживают клонирование git через ключи аутентификации и могут синхронизироваться с GitHub.',
+    ru: 'Управление репозиториями Local.LLM, размещенными на сервере. Репозитории автоматически архивируются после 1 часа бездействия, поддерживают клонирование git через ключи аутентификации и могут синхронизироваться with GitHub.',
+  },
+  'apps.web-seo.name': {
+    en: 'Web Seo',
+    ko: '웹 SEO',
+    ja: 'ウェブSEO',
+    ru: 'Веб SEO',
+  },
+  'apps.web-seo.description': {
+    en: 'Analyze websites and repositories for SEO optimizations using AI. Automatically creates containers to build and check your web applications.',
+    ko: 'AI를 사용하여 웹사이트 및 저장소의 SEO 최적화를 분석합니다. 웹 애플리케이션을 빌드하고 확인하기 위해 자동으로 컨테이너를 생성합니다.',
+    ja: 'AIを使用してウェブサイトやリポジトリのSEO最適化を分析します。ウェブアプリケーションをビル드して確認するために、自動的にコンテナを作成します。',
+    ru: 'Анализ веб-сайтов и репозиториев на предмет SEO-оптимизации с помощью ИИ. Автоматически создает контейнеры для сборки и проверки ваших веб-приложений.',
   },
   'apps.category.assistant': {
     en: 'Assistant',
@@ -296,6 +370,12 @@ const translations: TranslationDictionary = {
     ko: '저장소',
     ja: 'ストレージ',
     ru: 'Хранилище',
+  },
+  'apps.category.seo': {
+    en: 'SEO',
+    ko: 'SEO',
+    ja: 'SEO',
+    ru: 'SEO',
   },
   'apps.status.risky': {
     en: 'Risky',
