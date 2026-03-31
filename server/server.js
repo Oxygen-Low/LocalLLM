@@ -3065,14 +3065,22 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
     const dockerArgs = [
       'run', '-d',
       '--name', containerName,
-      '--memory=1g',
+      '--memory=1.5g',
       '--cpus=1',
       '--network=bridge',
       'mcr.microsoft.com/playwright:v1.45.0-jammy',
-      'sleep', '3600'
+      'bash', '-c', 'mkdir -p /workspace && tail -f /dev/null'
     ];
 
-    await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+    await runCommandAsync('docker', dockerArgs, { timeout: 120000 });
+
+    // Environment setup
+    sendProgress('setup', 'Setting up analysis environment...');
+    try {
+      await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', 'apt-get update -qq && apt-get install -y -qq git curl > /dev/null 2>&1'], { timeout: 60000 });
+    } catch (setupErr) {
+      console.warn('Environment setup warning (some tools might be missing):', setupErr.message);
+    }
 
     let targetUrl = appEntry.url;
 
