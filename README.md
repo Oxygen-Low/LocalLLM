@@ -1,7 +1,7 @@
 # Local.LLM
 
 ## Preview
-If you would like to see the current state of the ui, and apps currently available, go check out [the preview server](https://localllm-preview.onrender.com/).
+If you would like to see the current state of the ui, and apps currently available, go check out [the preview server](https://localllm-preview.onrender.com/) (it may take up to 5 minutes to load).
 
 ## Setup
 Just clone the repository and enter the directory ("git clone https://github.com/Oxygen-Low/LocalLLM.git", "cd LocalLLM"), then run "npm install", then test with "npm test" (optional), then start it with "npm start".
