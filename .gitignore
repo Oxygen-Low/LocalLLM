@@ -44,19 +44,5 @@ Thumbs.db
 # Log files
 *.log
 
-# Server data (user credentials)
-data/users.json
-
-# Audit log (ISO 27001 A.8.15)
-data/audit.log
-
-# Self-signed TLS certificates (development only)
-data/dev-key.pem
-data/dev-cert.pem
-
-# Encryption key (sensitive – auto-generated at startup)
-data/encryption.key
-
-# Encrypted user data
-data/apikeys_*.enc
-data/chats/
+# Server data
+/data
