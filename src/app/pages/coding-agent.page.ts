@@ -267,25 +267,26 @@ interface ToolCall {
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Background Mode -->
-                <button
-                  (click)="startBackgroundMode()"
-                  [disabled]="isCreatingContainer()"
-                  class="text-left p-6 bg-white rounded-xl border-2 border-secondary-200 hover:border-purple-300 hover:shadow-md transition-all disabled:opacity-50"
+                <div
+                  class="relative text-left p-6 bg-secondary-50 rounded-xl border-2 border-secondary-200 grayscale opacity-60 cursor-not-allowed overflow-hidden"
                 >
-                  <div class="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center mb-4">
+                  <div class="absolute top-2 right-2 bg-secondary-200 text-secondary-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                    Work in Progress
+                  </div>
+                  <div class="w-12 h-12 rounded-lg bg-secondary-200 flex items-center justify-center mb-4">
                     <span class="text-2xl">🤖</span>
                   </div>
                   <h3 class="text-lg font-bold text-secondary-900 mb-2">Background</h3>
                   <p class="text-sm text-muted leading-relaxed">
                     The AI autonomously clones, creates a branch, completes the task, and creates a pull request — all without your input.
                   </p>
-                  <div class="mt-4 flex items-center gap-2 text-purple-600 text-sm font-medium">
+                  <div class="mt-4 flex items-center gap-2 text-secondary-500 text-sm font-medium">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
                     Fully Automated
                   </div>
-                </button>
+                </div>
 
                 <!-- Manual Mode -->
                 <button
