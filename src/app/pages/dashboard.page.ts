@@ -91,6 +91,15 @@ export class DashboardPageComponent implements OnInit {
       color: 'green',
       risky: true,
     },
+    {
+      id: 'web-seo',
+      name: 'apps.web-seo.name',
+      description: 'apps.web-seo.description',
+      icon: '🔍',
+      category: 'apps.category.seo',
+      color: 'cyan',
+      risky: true,
+    },
   ];
 
   sortedApps = signal<AIApp[]>([]);
