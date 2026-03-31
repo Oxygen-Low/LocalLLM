@@ -19,6 +19,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
         <!-- New Chat Button -->
         <div class="p-3">
           <button
+            type="button"
             (click)="createNewChat()"
             class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-secondary-700 hover:bg-secondary-800 transition-colors text-sm font-medium"
           >
@@ -41,8 +42,11 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                 class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0"
               >{{ chat.title }}</button>
               <button
+                type="button"
                 (click)="deleteExistingChat(chat.id, $event)"
-                class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
+                class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 hover:text-red-400 transition-all"
+                aria-label="Delete chat"
+                title="Delete chat"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -77,7 +81,13 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
       <div class="flex-1 flex flex-col min-w-0">
         <!-- Top Bar -->
         <div class="flex items-center gap-3 px-4 py-3 border-b border-secondary-200 bg-white">
-          <button (click)="toggleSidebar()" class="p-2 rounded-lg hover:bg-secondary-100 transition-colors">
+          <button
+            type="button"
+            (click)="toggleSidebar()"
+            class="p-2 rounded-lg hover:bg-secondary-100 transition-colors"
+            aria-label="Toggle sidebar"
+            title="Toggle sidebar"
+          >
             <svg class="w-5 h-5 text-secondary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
@@ -160,6 +170,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                         >
                           @if (msg.role === 'assistant' && (msg.alternatives?.length ?? 0) > 1) {
                             <button
+                              type="button"
                               (click)="navigateAlternative($index, -1)"
                               [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === 0"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -172,6 +183,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                             </button>
                             <span class="text-xs text-secondary-400 select-none px-0.5">{{ (msg.alternativeIndex ?? 0) + 1 }}/{{ msg.alternatives?.length }}</span>
                             <button
+                              type="button"
                               (click)="navigateAlternative($index, 1)"
                               [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === (msg.alternatives?.length ?? 1) - 1"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -185,6 +197,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           }
                           @if (msg.role === 'assistant' && !isLoading()) {
                             <button
+                              type="button"
                               (click)="retryAssistantMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -198,6 +211,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           }
                           @if (msg.role === 'user' && !isLoading()) {
                             <button
+                              type="button"
                               (click)="startEditUserMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -211,6 +225,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           }
                           @if (!isLoading()) {
                             <button
+                              type="button"
                               (click)="deleteMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
                               class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -317,7 +332,13 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               {{ errorMessage() }}
-              <button (click)="errorMessage.set(null)" class="ml-auto text-red-500 hover:text-red-700">✕</button>
+              <button
+                type="button"
+                (click)="errorMessage.set(null)"
+                class="ml-auto text-red-500 hover:text-red-700"
+                aria-label="Dismiss error"
+                title="Dismiss error"
+              >✕</button>
             </div>
           </div>
         }
@@ -329,6 +350,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
             <div class="flex items-center gap-2 mb-3">
               <div class="relative" #providerDropdown>
                 <button
+                  type="button"
                   (click)="toggleProviderDropdown($event)"
                   class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-sm transition-colors"
                 >
@@ -406,6 +428,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
 
               <!-- Web Search Toggle -->
               <button
+                type="button"
                 (click)="webSearchEnabled.set(!webSearchEnabled())"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                 [ngClass]="webSearchEnabled()
@@ -420,6 +443,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
 
               <!-- Think Toggle -->
               <button
+                type="button"
                 (click)="thinkEnabled.set(!thinkEnabled())"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                 [ngClass]="thinkEnabled()
@@ -436,6 +460,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
               @if (universes().length > 0) {
                 <div class="relative" #characterDropdown>
                   <button
+                    type="button"
                     (click)="toggleCharacterDropdown($event)"
                     class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                     [ngClass]="selectedCharacter()
@@ -498,9 +523,12 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                 ></textarea>
               </div>
               <button
+                type="button"
                 (click)="sendCurrentMessage()"
                 [disabled]="isLoading() || !userMessage.trim() || !selectedProvider()"
                 class="p-3 rounded-xl bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                aria-label="Send message"
+                title="Send message"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m0 0l-7 7m7-7l7 7" />

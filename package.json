@@ -6,6 +6,7 @@
     "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve\"",
     "server": "node server/server.js",
     "build": "ng build",
+    "preview": "ng build --configuration preview && npx serve -s dist/local-llm/browser",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "resetadmin": "node server/reset-admin.js"
@@ -31,7 +32,7 @@
     "concurrently": "^9.2.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.3.1",
+    "express-rate-limit": "^8.3.2",
     "helmet": "^8.1.0",
     "marked": "^17.0.5",
     "postcss": "^8.5.6",
