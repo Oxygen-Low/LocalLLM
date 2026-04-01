@@ -2978,7 +2978,7 @@ app.get('/api/web-seo/apps', requireSession, (req, res) => {
 });
 
 // POST /api/web-seo/apps - Create a new SEO app
-app.post('/api/web-seo/apps', requireSession, (req, res) => {
+app.post('/api/web-seo/apps', requireSession, async (req, res) => {
   try {
     const { name, type, url, repoFullName, cloneUrl, buildCommand, startCommand } = req.body;
 
@@ -2986,12 +2986,26 @@ app.post('/api/web-seo/apps', requireSession, (req, res) => {
       return res.status(400).json({ success: false, error: 'Name and type are required' });
     }
 
-    if (type === 'url' && !url) {
-      return res.status(400).json({ success: false, error: 'URL is required for URL type' });
+    if (type === 'url') {
+      if (!url) {
+        return res.status(400).json({ success: false, error: 'URL is required for URL type' });
+      }
+      const ssrfCheck = await ssrfSafeUrlValidation(url);
+      if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
+        return res.status(400).json({ success: false, error: `Invalid URL: ${reason}` });
+      }
     }
 
-    if (type === 'repo' && (!repoFullName || !cloneUrl)) {
-      return res.status(400).json({ success: false, error: 'Repo details are required for repo type' });
+    if (type === 'repo') {
+      if (!repoFullName || !cloneUrl) {
+        return res.status(400).json({ success: false, error: 'Repo details are required for repo type' });
+      }
+      const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
+      if (!ssrfCheck.valid || ssrfCheck.parsed.protocol !== 'https:') {
+        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
+        return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
+      }
     }
 
     const apps = readUserWebSeo(req.sessionUser);
