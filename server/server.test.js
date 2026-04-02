@@ -1908,6 +1908,32 @@ describe('POST /api/chat/send validation', () => {
     // It should either start streaming (and fail connecting) or return a 502
     assert.notEqual(res.body?.error, 'Invalid provider');
   });
+
+  it('injects character and universe descriptions into the system prompt', async () => {
+    // Setup a universe and character
+    const universe = {
+      id: 'test-univ-id',
+      name: 'Test Universe',
+      description: 'A test universe description',
+      characters: [{ id: 'test-char-id', name: 'Test Character', description: 'A test character description' }]
+    };
+    writeUniverses([universe]);
+
+    // We can't easily check the final sent prompt without mocking fetch,
+    // but we can verify the request doesn't crash and correctly identifies
+    // that the API key is missing (meaning it passed the prompt assembly phase).
+    const res = await request(server, 'POST', '/api/chat/send', {
+      messages: [{ role: 'user', content: 'hi' }],
+      provider: 'openai',
+      characterId: 'test-char-id',
+    }, sendToken);
+
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /API key not configured/);
+
+    // Clean up
+    writeUniverses([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "id": "test-univ-id",
+    "name": "Test Universe",
+    "description": "A test universe description",
+    "characters": [
+      {
+        "id": "test-char-id",
+        "name": "Test Character",
+        "description": "A test character description"
+      }
+    ]
+  }
+]
