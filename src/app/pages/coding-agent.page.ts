@@ -1,8 +1,11 @@
 import { Component, inject, signal, ViewChild, ElementRef, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { RouterLink, ActivatedRoute } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { marked } from 'marked';
+import { environment } from '../../environments/environment';
 import { LlmService, type ProviderInfo, type UniverseSummary, type UniverseCharacterSummary, type SearchEvent, type SendMessageOptions, type StreamResult, type ChatMessage as LlmChatMessage } from '../services/llm.service';
 import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type ContainerInfo, type FileEntry, type AgentMemory } from '../services/coding-agent.service';
 
@@ -16,6 +19,7 @@ interface LocalChatMessage {
   status?: 'running' | 'completed' | 'failed';
   toolName?: string;
   toolResult?: string;
+  searches?: SearchEvent[];
 }
 
 interface ToolCall {
@@ -854,6 +858,48 @@ interface ToolCall {
                       </div>
                     }
 
+                    <!-- MCPs Dropdown -->
+                    <div class="relative" #mcpDropdown>
+                      <button
+                        (click)="toggleMcpDropdown($event)"
+                        class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
+                        [ngClass]="webSearchEnabled()
+                          ? 'border-primary-300 bg-primary-50 text-primary-700'
+                          : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        MCPs
+                        <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      @if (showMcpDropdown()) {
+                        <div class="absolute bottom-full left-0 mb-1 w-48 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
+                          <button
+                            (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
+                            class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                            [ngClass]="webSearchEnabled() ? 'text-primary-700 font-medium' : 'text-secondary-700'"
+                          >
+                            <div class="flex items-center gap-2">
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                              </svg>
+                              Web Search
+                            </div>
+                            @if (webSearchEnabled()) {
+                              <svg class="w-3.5 h-3.5 text-primary-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                              </svg>
+                            }
+                          </button>
+                        </div>
+                      }
+                    </div>
+
                     <!-- Think toggle -->
                     <button
                       (click)="thinkEnabled.set(!thinkEnabled())"
@@ -913,6 +959,21 @@ interface ToolCall {
                 <!-- Chat Messages -->
                 <div class="flex-1 overflow-y-auto p-3 space-y-3" #chatMessagesContainer>
                   @for (msg of chatMessages(); track $index) {
+                    @if (msg.role === 'assistant' && msg.searches?.length) {
+                      @for (search of msg.searches; track $index) {
+                        <div class="flex items-center gap-1.5 text-[10px] text-secondary-500 mb-1">
+                          <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                          <span>Searched</span>
+                          @if (search.url) {
+                            <a [href]="search.url" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline truncate max-w-[200px]">{{ search.query }}</a>
+                          } @else {
+                            <span class="text-secondary-600">{{ search.query }}</span>
+                          }
+                        </div>
+                      }
+                    }
                     @if (msg.role === 'step') {
                       <div
                         (click)="msg.toolResult && showToolResult(msg)"
@@ -971,7 +1032,7 @@ interface ToolCall {
                               <div class="mt-1 text-xs opacity-80 prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.thinking)"></div>
                             </details>
                           }
-                          <div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.displayContent || msg.content)"></div>
+                          <div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(msg.displayContent ?? getContentAsString(msg.content))"></div>
                         </div>
                       </div>
                     }
@@ -1049,10 +1110,12 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   @ViewChild('chatMessagesContainer') chatMessagesContainer!: ElementRef;
   @ViewChild('providerDropdown') providerDropdown!: ElementRef;
   @ViewChild('characterDropdown') characterDropdown!: ElementRef;
+  @ViewChild('mcpDropdown') mcpDropdown!: ElementRef;
 
   private codingAgentService = inject(CodingAgentService);
   private llmService = inject(LlmService);
   private route = inject(ActivatedRoute);
+  private http = inject(HttpClient);
 
   // Wizard state
   currentStep = signal<WizardStep>('check-github');
@@ -1136,6 +1199,10 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   showProviderDropdown = signal(false);
   expandedProvider = signal<string | null>(null);
 
+  // MCP selection
+  showMcpDropdown = signal(false);
+  webSearchEnabled = signal(false);
+
   // Character selection
   universes = signal<UniverseSummary[]>([]);
   selectedCharacter = signal<UniverseCharacterSummary | null>(null);
@@ -1175,6 +1242,10 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       if (this.showCharacterDropdown() && this.characterDropdown &&
           !this.characterDropdown.nativeElement.contains(e.target as Node)) {
         this.showCharacterDropdown.set(false);
+      }
+      if (this.showMcpDropdown() && this.mcpDropdown &&
+          !this.mcpDropdown.nativeElement.contains(e.target as Node)) {
+        this.showMcpDropdown.set(false);
       }
     };
     document.addEventListener('click', this.clickOutsideListener);
@@ -1321,6 +1392,11 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   toggleCharacterDropdown(event: Event): void {
     event.stopPropagation();
     this.showCharacterDropdown.set(!this.showCharacterDropdown());
+  }
+
+  toggleMcpDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showMcpDropdown.set(!this.showMcpDropdown());
   }
 
   selectCharacter(character: UniverseCharacterSummary | null): void {
@@ -1912,6 +1988,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     const message = this.chatInput.trim();
     this.chatInput = '';
 
+    this.streamingSearches.set([]);
     this.chatMessages.update(msgs => [...msgs, { role: 'user', content: message }]);
     this.scrollChatToBottom();
     this.isAiResponding.set(true);
@@ -1951,6 +2028,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
           content: fullContent,
           displayContent: cleanedContent || (toolCalls.length > 0 ? '' : '...'),
           thinking: result.thinking || undefined,
+          searches: result.searches?.length ? result.searches : undefined,
         }]);
         this.scrollChatToBottom();
       }
@@ -2026,6 +2104,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       case 'coder_subagent': return tc.params['task'] ? `Work on: ${tc.params['task']}` : 'Perform coding task';
       case 'store_memory': return 'Store memory';
       case 'delete_memory': return 'Delete memory';
+      case 'web_search': return `Search: ${tc.params['query']}`;
       default: return `Execute ${tc.name}`;
     }
   }
@@ -2035,15 +2114,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     const repoName = rawRepoName.replace(/[`${}\\]/g, '');
     const memoriesText = this.memories().map(m => `- ${m.content}`).join('\n') || '(none)';
 
-    const systemPrompt = `You are an expert AI coding assistant working inside a Docker container with a cloned repository: ${repoName}.
-You have access to the following tools. To use a tool, you MUST output the exact format below in your response. Do not use markdown blocks for tool calls.
-
-[TOOL: tool_name]
-{"param": "value"}
-[/TOOL]
-
-Available tools:
-
+    let availableTools = `
 1. read_file - Read file contents. Params: {"path": "relative/path", "startLine": 1, "endLine": 50} (startLine/endLine optional)
 2. create_file - Create a new file. Params: {"path": "relative/path", "content": "file contents"}
 3. edit_file - Replace lines in a file. Params: {"path": "relative/path", "startLine": 1, "endLine": 5, "content": "replacement content"}
@@ -2052,7 +2123,22 @@ Available tools:
 6. run_terminal - Execute a shell command (10-minute timeout). Params: {"command": "npm install"}
 7. new_terminal - Reset/clear the agent terminal output. Params: {}
 8. store_memory - Store a memory about this repo for future sessions. Params: {"content": "fact to remember"}
-9. delete_memory - Delete a stored memory. Params: {"id": "memory-id"}
+9. delete_memory - Delete a stored memory. Params: {"id": "memory-id"}`;
+
+    if (this.webSearchEnabled()) {
+      availableTools += `
+10. web_search - Perform a web search to get up-to-date information. Params: {"query": "search query"}`;
+    }
+
+    const systemPrompt = `You are an expert AI coding assistant working inside a Docker container with a cloned repository: ${repoName}.
+You have access to the following tools. To use a tool, you MUST output the exact format below in your response. Do not use markdown blocks for tool calls.
+
+[TOOL: tool_name]
+{"param": "value"}
+[/TOOL]
+
+Available tools:
+${availableTools}
 
 Current memories for this repo:
 ${memoriesText}
@@ -2284,6 +2370,41 @@ Guidelines:
           return `Memory deleted: ${id}`;
         }
 
+        case 'web_search': {
+          const query = tc.params['query'] as string;
+          if (!query) return 'Error: query is required';
+
+          this.streamingSearches.update(s => [...s, { status: 'searching', query }]);
+
+          try {
+            const res = await firstValueFrom(
+              this.http.post<{ success: boolean, results: any[] }>(
+                `${environment.apiUrl}/api/search`,
+                { query }
+              )
+            );
+
+            const resultsText = res.results.map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}`).join('\n\n');
+
+            this.streamingSearches.update(s => {
+              const idx = s.findIndex(e => e.status === 'searching' && e.query === query);
+              if (idx >= 0) {
+                const updated = [...s];
+                updated[idx] = { status: 'searched', query, url: res.results[0]?.url };
+                return updated;
+              }
+              return s;
+            });
+
+            // Add search event to the actual assistant message searches if it's currently responding
+            // Coding agent uses a different pattern for persisting assistant messages
+
+            return resultsText || 'No results found.';
+          } catch (err) {
+            return `Error: Failed to perform search`;
+          }
+        }
+
         default:
           return `Unknown tool: ${tc.name}`;
       }
@@ -2294,6 +2415,14 @@ Guidelines:
   }
 
   // --- Markdown Rendering ---
+
+  getContentAsString(content: string | any[]): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content.map(p => p.text || '').join('\n');
+    }
+    return '';
+  }
 
   renderMarkdown(text: string): string {
     if (!text) return '';
