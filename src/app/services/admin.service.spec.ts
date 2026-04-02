@@ -65,14 +65,15 @@ describe('AdminService', () => {
 
   describe('createUniverse', () => {
     it('should send POST request to create universe', async () => {
-      const mockUniverse = { id: 'u1', name: 'SciFi', characters: [] };
-      const promise = service.createUniverse('SciFi', 'hash123');
+      const mockUniverse = { id: 'u1', name: 'SciFi', description: 'Future world', characters: [] };
+      const promise = service.createUniverse('SciFi', 'Future world', 'hash123');
       const req = httpMock.expectOne('/api/admin/universes');
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({
         adminUsername: 'admin',
         adminPassword: 'hash123',
         name: 'SciFi',
+        description: 'Future world',
       });
       req.flush({ success: true, universe: mockUniverse });
       const result = await promise;
@@ -83,14 +84,15 @@ describe('AdminService', () => {
 
   describe('updateUniverse', () => {
     it('should send PUT request to update universe', async () => {
-      const mockUniverse = { id: 'u1', name: 'Updated', characters: [] };
-      const promise = service.updateUniverse('u1', 'Updated', 'hash123');
+      const mockUniverse = { id: 'u1', name: 'Updated', description: 'New description', characters: [] };
+      const promise = service.updateUniverse('u1', 'Updated', 'New description', 'hash123');
       const req = httpMock.expectOne('/api/admin/universes/u1');
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual({
         adminUsername: 'admin',
         adminPassword: 'hash123',
         name: 'Updated',
+        description: 'New description',
       });
       req.flush({ success: true, universe: mockUniverse });
       const result = await promise;
