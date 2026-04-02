@@ -381,13 +381,29 @@ describe('AuthService', () => {
     it('should log account lockout', async () => {
       logger.clearLogs();
 
-      for (let i = 0; i < 5; i++) {
+      // Clear any previous attempts so we don't start already locked
+      // Make 4 failed attempts first
+      for (let i = 0; i < 4; i++) {
         const loginPromise = service.login('locktest', 'WrongPass1!');
         await flushAsync();
         const req = httpMock.expectOne('/api/auth/login');
         req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
         await loginPromise;
       }
+
+      // The 5th attempt gets blocked by rate check before reaching HTTP mock
+      const finalLoginPromise = service.login('locktest', 'WrongPass1!');
+      await flushAsync();
+      // On the 5th attempt, checkRateLimit returns false, so NO HTTP request is made!
+      // But it still logs LOGIN_RATE_LIMITED.
+      // Actually, wait, when does it log ACCOUNT_LOCKED?
+      // During recordFailedAttempt, which runs AFTER the API call returns failure.
+      // So the 5th attempt *should* reach the API, fail, and then log ACCOUNT_LOCKED.
+      // And the 6th attempt would be blocked. Let's see!
+      const req = httpMock.expectOne('/api/auth/login');
+      req.flush({ success: false, error: 'Invalid username or password' }, { status: 401, statusText: 'Unauthorized' });
+      await finalLoginPromise;
+
       const logs = logger.getLogs();
       const lockLog = logs.find(l => l.type === 'ACCOUNT_LOCKED');
       expect(lockLog).toBeTruthy();
