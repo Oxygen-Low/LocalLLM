@@ -5311,6 +5311,7 @@ async function streamFromGoogle(res, messages, apiKey, model, options = {}, sign
 
 // POST /api/chat/send – Send message to LLM (SSE streaming)
 app.post('/api/chat/send', requireSession, async (req, res) => {
+  let processedMessages = [];
   try {
     const { messages, provider, model } = req.body;
     const webSearch = req.body.webSearch === true;
@@ -5343,7 +5344,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
 
     // If a characterId or personaId is provided, look up their details and inject them
     // into the first system message so the AI adopts that role and understands who it's talking to.
-    let processedMessages = messages;
+    processedMessages = [...messages];
     let characterPrompt = '';
     let personaPrompt = '';
 
@@ -5359,17 +5360,18 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
         }
       }
       if (character) {
-        characterPrompt = `You are playing the role of "${character.name}".`;
+        characterPrompt = `### ROLEPLAY CONTEXT: CHARACTER ROLE\n`;
+        characterPrompt += `You are playing the role of: ${character.name}\n`;
         if (universe) {
-          characterPrompt += ` This character is part of the universe "${universe.name}".`;
+          characterPrompt += `Universe Name: ${universe.name}\n`;
           if (universe.description) {
-            characterPrompt += ` Universe description: ${universe.description}`;
+            characterPrompt += `Universe Setting: ${universe.description}\n`;
           }
         }
         if (character.description) {
-          characterPrompt += ` Character description: ${character.description}`;
+          characterPrompt += `Character Background: ${character.description}\n`;
         }
-        characterPrompt += '\n\n';
+        characterPrompt += '\n';
       }
     }
 
@@ -5377,14 +5379,16 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       const personas = readPersonas(req.sessionUser);
       const persona = personas.find(p => p.id === personaId);
       if (persona) {
-        personaPrompt = `You are talking to "${persona.name}". Their persona description is: ${persona.description}\n\n`;
+        personaPrompt = `### ROLEPLAY CONTEXT: USER PERSONA\n`;
+        personaPrompt += `The user you are talking to is: ${persona.name}\n`;
+        personaPrompt += `Persona Context: ${persona.description}\n\n`;
       }
     }
 
     if (characterPrompt || personaPrompt) {
-      const combinedPrompt = characterPrompt + personaPrompt;
+      const combinedPrompt = characterPrompt + personaPrompt + "### GENERAL INSTRUCTIONS\n";
       let systemFound = false;
-      processedMessages = messages.map((msg, idx) => {
+      processedMessages = processedMessages.map((msg, idx) => {
         if (msg.role === 'system' && idx === 0) {
           systemFound = true;
           if (typeof msg.content === 'string') {
@@ -5488,6 +5492,9 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     }
     const errorId = crypto.randomUUID();
     console.error(`Chat send error [${errorId}]:`, err);
+    if (processedMessages && processedMessages.length > 0) {
+      console.log(`[${errorId}] PROCESSED MESSAGES:`, JSON.stringify(processedMessages, null, 2));
+    }
     // If headers already sent (SSE started), send error as SSE event
     if (res.headersSent) {
       sendSSE(res, 'error', { error: 'Failed to get response from LLM', requestId: errorId });
