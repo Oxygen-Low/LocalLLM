@@ -19,6 +19,7 @@ export interface Character {
 export interface Universe {
   id: string;
   name: string;
+  description?: string;
   characters: Character[];
 }
 
@@ -107,13 +108,14 @@ export class AdminService {
     }
   }
 
-  async createUniverse(name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; universe?: Universe }> {
+  async createUniverse(name: string, description: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; universe?: Universe }> {
     try {
       const response = await firstValueFrom(
         this.http.post<{ success: boolean; error?: string; universe?: Universe }>(`${environment.apiUrl}/api/admin/universes`, {
           adminUsername: this.authService.username(),
           adminPassword: adminPasswordHash,
           name,
+          description,
         })
       );
       return response;
@@ -122,13 +124,14 @@ export class AdminService {
     }
   }
 
-  async updateUniverse(universeId: string, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; universe?: Universe }> {
+  async updateUniverse(universeId: string, name: string, description: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; universe?: Universe }> {
     try {
       const response = await firstValueFrom(
         this.http.put<{ success: boolean; error?: string; universe?: Universe }>(`${environment.apiUrl}/api/admin/universes/${universeId}`, {
           adminUsername: this.authService.username(),
           adminPassword: adminPasswordHash,
           name,
+          description,
         })
       );
       return response;

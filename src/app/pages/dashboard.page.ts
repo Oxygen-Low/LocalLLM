@@ -100,6 +100,14 @@ export class DashboardPageComponent implements OnInit {
       color: 'cyan',
       risky: true,
     },
+    {
+      id: 'roleplay',
+      name: 'apps.roleplay.name',
+      description: 'apps.roleplay.description',
+      icon: '🎭',
+      category: 'apps.category.creative',
+      color: 'pink',
+    },
   ];
 
   sortedApps = signal<AIApp[]>([]);

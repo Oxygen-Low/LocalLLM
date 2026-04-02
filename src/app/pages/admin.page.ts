@@ -169,24 +169,37 @@ import { AdminService, AdminUserSummary, Universe, Character } from '../services
                 @if (universeMenuOpen()) {
                   <div class="space-y-4">
                     <!-- Create Universe -->
-                    <div class="flex items-end gap-3">
-                      <div class="flex-1">
-                        <label for="newUniverseName" class="block text-sm font-medium text-secondary-800 mb-1">New universe</label>
-                        <input
-                          id="newUniverseName"
-                          type="text"
-                          [(ngModel)]="newUniverseName"
-                          placeholder="Universe name"
-                          class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
-                        />
+                    <div class="space-y-3 p-4 border border-secondary-100 rounded-lg bg-secondary-50">
+                      <h4 class="text-sm font-semibold text-secondary-900">Create new universe</h4>
+                      <div class="space-y-2">
+                        <div>
+                          <label for="newUniverseName" class="block text-xs font-medium text-secondary-700 mb-1">Universe name</label>
+                          <input
+                            id="newUniverseName"
+                            type="text"
+                            [(ngModel)]="newUniverseName"
+                            placeholder="e.g. Cyberpunk City"
+                            class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label for="newUniverseDesc" class="block text-xs font-medium text-secondary-700 mb-1">Universe description (AI only)</label>
+                          <textarea
+                            id="newUniverseDesc"
+                            [(ngModel)]="newUniverseDesc"
+                            placeholder="Describe the universe setting, rules, and vibe..."
+                            rows="3"
+                            class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white resize-none"
+                          ></textarea>
+                        </div>
+                        <button
+                          (click)="onCreateUniverse()"
+                          [disabled]="!newUniverseName.trim()"
+                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          Create Universe
+                        </button>
                       </div>
-                      <button
-                        (click)="onCreateUniverse()"
-                        [disabled]="!newUniverseName.trim()"
-                        class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                      >
-                        Create
-                      </button>
                     </div>
 
                     @if (isLoadingUniverses()) {
@@ -198,38 +211,52 @@ import { AdminService, AdminUserSummary, Universe, Character } from '../services
                         @for (universe of universes(); track universe.id) {
                           <div class="border border-secondary-200 rounded-lg">
                             <!-- Universe Header -->
-                            <div class="p-4 bg-secondary-50 rounded-t-lg flex items-center justify-between gap-3 flex-wrap">
+                            <div class="p-4 bg-secondary-50 rounded-t-lg flex flex-col gap-3">
                               @if (editingUniverseId() === universe.id) {
-                                <div class="flex items-center gap-2 flex-1">
+                                <div class="space-y-2">
                                   <input
                                     type="text"
                                     [(ngModel)]="editingUniverseName"
-                                    class="flex-1 px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
                                   />
-                                  <button
-                                    (click)="onSaveUniverse(universe.id)"
-                                    [disabled]="!editingUniverseName.trim()"
-                                    class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
-                                  >Save</button>
-                                  <button
-                                    (click)="editingUniverseId.set(null)"
-                                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
-                                  >Cancel</button>
+                                  <textarea
+                                    [(ngModel)]="editingUniverseDesc"
+                                    rows="3"
+                                    class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm resize-none"
+                                  ></textarea>
+                                  <div class="flex items-center gap-2">
+                                    <button
+                                      (click)="onSaveUniverse(universe.id)"
+                                      [disabled]="!editingUniverseName.trim()"
+                                      class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
+                                    >Save</button>
+                                    <button
+                                      (click)="editingUniverseId.set(null)"
+                                      class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
+                                    >Cancel</button>
+                                  </div>
                                 </div>
                               } @else {
-                                <div class="flex items-center gap-2">
-                                  <span class="font-semibold text-secondary-900">{{ universe.name }}</span>
-                                  <span class="text-xs text-muted">({{ universe.characters.length }} character{{ universe.characters.length !== 1 ? 's' : '' }})</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                  <button
-                                    (click)="onEditUniverse(universe)"
-                                    class="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm transition-colors"
-                                  >Edit</button>
-                                  <button
-                                    (click)="onDeleteUniverse(universe)"
-                                    class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-sm transition-colors"
-                                  >Delete</button>
+                                <div class="flex items-center justify-between gap-3 flex-wrap">
+                                  <div class="flex flex-col">
+                                    <div class="flex items-center gap-2">
+                                      <span class="font-semibold text-secondary-900">{{ universe.name }}</span>
+                                      <span class="text-xs text-muted">({{ universe.characters.length }} character{{ universe.characters.length !== 1 ? 's' : '' }})</span>
+                                    </div>
+                                    @if (universe.description) {
+                                      <p class="text-xs text-muted mt-1 line-clamp-1 italic">{{ universe.description }}</p>
+                                    }
+                                  </div>
+                                  <div class="flex items-center gap-2">
+                                    <button
+                                      (click)="onEditUniverse(universe)"
+                                      class="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm transition-colors"
+                                    >Edit</button>
+                                    <button
+                                      (click)="onDeleteUniverse(universe)"
+                                      class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-sm transition-colors"
+                                    >Delete</button>
+                                  </div>
                                 </div>
                               }
                             </div>
@@ -404,8 +431,10 @@ export class AdminPageComponent {
   isLoadingUniverses = signal(false);
   universes = signal<Universe[]>([]);
   newUniverseName = '';
+  newUniverseDesc = '';
   editingUniverseId = signal<string | null>(null);
   editingUniverseName = '';
+  editingUniverseDesc = '';
   editingCharacterId = signal<string | null>(null);
   editingCharacterName = '';
   editingCharacterDesc = '';
@@ -542,26 +571,32 @@ export class AdminPageComponent {
     if (!this.adminPasswordHash || !this.newUniverseName.trim()) return;
     this.errorMessage.set(null);
     this.statusMessage.set(null);
-    const response = await this.adminService.createUniverse(this.newUniverseName.trim(), this.adminPasswordHash);
+    const response = await this.adminService.createUniverse(
+      this.newUniverseName.trim(), this.newUniverseDesc.trim(), this.adminPasswordHash
+    );
     if (!response.success) {
       this.errorMessage.set(response.error ?? 'Failed to create universe.');
       return;
     }
     this.statusMessage.set(`Universe "${this.newUniverseName.trim()}" created.`);
     this.newUniverseName = '';
+    this.newUniverseDesc = '';
     await this.loadUniverses(this.adminPasswordHash);
   }
 
   onEditUniverse(universe: Universe): void {
     this.editingUniverseId.set(universe.id);
     this.editingUniverseName = universe.name;
+    this.editingUniverseDesc = universe.description || '';
   }
 
   async onSaveUniverse(universeId: string): Promise<void> {
     if (!this.adminPasswordHash || !this.editingUniverseName.trim()) return;
     this.errorMessage.set(null);
     this.statusMessage.set(null);
-    const response = await this.adminService.updateUniverse(universeId, this.editingUniverseName.trim(), this.adminPasswordHash);
+    const response = await this.adminService.updateUniverse(
+      universeId, this.editingUniverseName.trim(), this.editingUniverseDesc.trim(), this.adminPasswordHash
+    );
     if (!response.success) {
       this.errorMessage.set(response.error ?? 'Failed to update universe.');
       return;

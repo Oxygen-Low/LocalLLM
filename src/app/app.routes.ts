@@ -72,6 +72,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/web-seo.page').then(m => m.WebSeoPageComponent),
         canActivate: [authGuard, riskyAppsGuard],
       },
+      {
+        path: 'app/roleplay',
+        loadComponent: () => import('./pages/roleplay.page').then(m => m.RoleplayPageComponent),
+        canActivate: [authGuard],
+      },
     ],
   },
   {
