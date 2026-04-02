@@ -17,6 +17,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const UNIVERSES_FILE = path.join(DATA_DIR, 'universes.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
+const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
@@ -636,6 +637,9 @@ if (!fs.existsSync(DATA_DIR)) {
 if (!fs.existsSync(CHATS_DIR)) {
   fs.mkdirSync(CHATS_DIR, { recursive: true });
 }
+if (!fs.existsSync(PERSONAS_DIR)) {
+  fs.mkdirSync(PERSONAS_DIR, { recursive: true });
+}
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
 }
@@ -1196,6 +1200,16 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
       fs.unlinkSync(oldApiKeysFile);
     }
 
+    // Re-encrypt persona file under the new username key
+    const personasData = readPersonas(oldUsername);
+    const oldPersonasFile = getPersonasFile(oldUsername);
+    if (personasData.length > 0) {
+      writePersonas(normalizedNew, personasData);
+    }
+    if (fs.existsSync(oldPersonasFile)) {
+      fs.unlinkSync(oldPersonasFile);
+    }
+
     // Re-encrypt chat files under the new username key (atomic: separate re-encrypt from delete)
     const oldChatsDir = path.join(CHATS_DIR, path.basename(sanitizeUsernameForPath(oldUsername)));
     const newChatsDir = path.join(CHATS_DIR, path.basename(sanitizeUsernameForPath(normalizedNew)));
@@ -1318,6 +1332,12 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     // Clean up all Local.LLM repositories owned by this user
     deleteAllUserRepos(normalizedUsername);
+
+    // Clean up personas file
+    const personaFile = getPersonasFile(normalizedUsername);
+    if (fs.existsSync(personaFile)) {
+      fs.unlinkSync(personaFile);
+    }
 
     auditLog({ event: 'ACCOUNT_DELETED', message: 'Account deleted', username: normalizedUsername, req });
 
@@ -1797,6 +1817,196 @@ app.put('/api/user/language', requireSession, (req, res) => {
     res.json({ success: true, language });
   } catch (err) {
     console.error('Set language error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Personas management – Encrypted per-user storage
+// ---------------------------------------------------------------------------
+
+const MAX_PERSONA_NAME_LENGTH = 100;
+const MAX_PERSONA_DESCRIPTION_LENGTH = 5000;
+
+function getPersonasFile(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(PERSONAS_DIR, `${safeUsername}.enc`);
+  return ensureWithinDir(PERSONAS_DIR, filePath);
+}
+
+function readPersonas(username) {
+  const file = getPersonasFile(username);
+  if (!fs.existsSync(file)) return [];
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return [];
+  }
+}
+
+function writePersonas(username, personas) {
+  const file = getPersonasFile(username);
+  const encrypted = encryptData(JSON.stringify(personas), username);
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
+}
+
+// GET /api/user/personas – List user's personas
+app.get('/api/user/personas', requireSession, (req, res) => {
+  try {
+    const personas = readPersonas(req.sessionUser);
+    res.json({ success: true, personas });
+  } catch (err) {
+    console.error('Get personas error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/user/personas – Create a new persona
+app.post('/api/user/personas', requireSession, (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Persona name is required' });
+    }
+    if (name.trim().length > MAX_PERSONA_NAME_LENGTH) {
+      return res.status(400).json({ success: false, error: `Persona name must be at most ${MAX_PERSONA_NAME_LENGTH} characters` });
+    }
+    if (!description || typeof description !== 'string' || !description.trim()) {
+      return res.status(400).json({ success: false, error: 'Persona description is required' });
+    }
+    if (description.trim().length > MAX_PERSONA_DESCRIPTION_LENGTH) {
+      return res.status(400).json({ success: false, error: `Persona description must be at most ${MAX_PERSONA_DESCRIPTION_LENGTH} characters` });
+    }
+
+    const personas = readPersonas(req.sessionUser);
+    const newPersona = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      description: description.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    personas.push(newPersona);
+    writePersonas(req.sessionUser, personas);
+
+    auditLog({ event: 'PERSONA_CREATED', message: `Persona "${newPersona.name}" created`, username: req.sessionUser, req });
+    res.status(201).json({ success: true, persona: newPersona });
+  } catch (err) {
+    console.error('Create persona error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/personas/:id – Update a persona
+app.put('/api/user/personas/:id', requireSession, (req, res) => {
+  try {
+    const { name, description } = req.body;
+    const personaId = req.params.id;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Persona name is required' });
+    }
+    if (name.trim().length > MAX_PERSONA_NAME_LENGTH) {
+      return res.status(400).json({ success: false, error: `Persona name must be at most ${MAX_PERSONA_NAME_LENGTH} characters` });
+    }
+    if (!description || typeof description !== 'string' || !description.trim()) {
+      return res.status(400).json({ success: false, error: 'Persona description is required' });
+    }
+    if (description.trim().length > MAX_PERSONA_DESCRIPTION_LENGTH) {
+      return res.status(400).json({ success: false, error: `Persona description must be at most ${MAX_PERSONA_DESCRIPTION_LENGTH} characters` });
+    }
+
+    const personas = readPersonas(req.sessionUser);
+    const index = personas.findIndex((p) => p.id === personaId);
+    if (index === -1) {
+      return res.status(404).json({ success: false, error: 'Persona not found' });
+    }
+
+    personas[index] = {
+      ...personas[index],
+      name: name.trim(),
+      description: description.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    writePersonas(req.sessionUser, personas);
+
+    auditLog({ event: 'PERSONA_UPDATED', message: `Persona "${name.trim()}" updated`, username: req.sessionUser, req });
+    res.json({ success: true, persona: personas[index] });
+  } catch (err) {
+    console.error('Update persona error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/user/personas/:id – Delete a persona
+app.delete('/api/user/personas/:id', requireSession, (req, res) => {
+  try {
+    const personaId = req.params.id;
+    const personas = readPersonas(req.sessionUser);
+    const index = personas.findIndex((p) => p.id === personaId);
+    if (index === -1) {
+      return res.status(404).json({ success: false, error: 'Persona not found' });
+    }
+
+    const removed = personas.splice(index, 1)[0];
+    writePersonas(req.sessionUser, personas);
+
+    // If default persona is deleted, clear it from user settings
+    const user = findUser(req.sessionUser);
+    if (user && user.defaultPersonaId === personaId) {
+      const users = readUsers();
+      const uIndex = users.findIndex(u => u.username === req.sessionUser);
+      if (uIndex !== -1) {
+        users[uIndex].defaultPersonaId = null;
+        writeUsers(users);
+      }
+    }
+
+    auditLog({ event: 'PERSONA_DELETED', message: `Persona "${removed.name}" deleted`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete persona error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/settings/default-persona – Set default persona
+app.put('/api/user/settings/default-persona', requireSession, (req, res) => {
+  try {
+    const { personaId } = req.body;
+    const personas = readPersonas(req.sessionUser);
+
+    if (personaId && !personas.some(p => p.id === personaId)) {
+      return res.status(400).json({ success: false, error: 'Invalid persona ID' });
+    }
+
+    const users = readUsers();
+    const index = users.findIndex(u => u.username === req.sessionUser);
+    if (index === -1) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    users[index].defaultPersonaId = personaId || null;
+    writeUsers(users);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Set default persona error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/user/settings/default-persona – Get default persona ID
+app.get('/api/user/settings/default-persona', requireSession, (req, res) => {
+  try {
+    const user = findUser(req.sessionUser);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    res.json({ success: true, defaultPersonaId: user.defaultPersonaId || null });
+  } catch (err) {
+    console.error('Get default persona error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -4248,6 +4458,8 @@ app.post('/api/chats', requireSession, (req, res) => {
       updatedAt: now,
       provider: req.body.provider || null,
       model: req.body.model || null,
+      characterId: req.body.characterId || null,
+      personaId: req.body.personaId || null,
     };
     writeChat(req.sessionUser, chatId, chatData);
     res.status(201).json({ success: true, chat: chatData });
@@ -4314,6 +4526,8 @@ app.put('/api/chats/:id', requireSession, (req, res) => {
       messages: validatedMessages,
       provider: req.body.provider ?? existing.provider,
       model: req.body.model ?? existing.model,
+      characterId: req.body.characterId ?? existing.characterId,
+      personaId: req.body.personaId ?? existing.personaId,
       updatedAt: new Date().toISOString(),
     };
     writeChat(req.sessionUser, chatId, updated);
@@ -4865,6 +5079,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     const webSearch = req.body.webSearch === true;
     const think = req.body.think === true;
     const characterId = typeof req.body.characterId === 'string' ? req.body.characterId : null;
+    const personaId = typeof req.body.personaId === 'string' ? req.body.personaId : null;
     const options = { webSearch, think };
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -4889,9 +5104,12 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       }
     }
 
-    // If a characterId is provided, look up the character and inject its description
-    // into the first system message so the AI adopts that persona.
+    // If a characterId or personaId is provided, look up their details and inject them
+    // into the first system message so the AI adopts that role and understands who it's talking to.
     let processedMessages = messages;
+    let characterPrompt = '';
+    let personaPrompt = '';
+
     if (characterId) {
       const universes = readUniverses();
       let character = null;
@@ -4900,30 +5118,44 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
         if (character) break;
       }
       if (character && character.description) {
-        processedMessages = messages.map((msg, idx) => {
-          if (msg.role === 'system' && idx === 0) {
-          const charPrompt = `You are playing the role of "${character.name}". ${character.description}\n\n`;
+        characterPrompt = `You are playing the role of "${character.name}". ${character.description}\n\n`;
+      }
+    }
+
+    if (personaId) {
+      const personas = readPersonas(req.sessionUser);
+      const persona = personas.find(p => p.id === personaId);
+      if (persona) {
+        personaPrompt = `You are talking to "${persona.name}". Their persona description is: ${persona.description}\n\n`;
+      }
+    }
+
+    if (characterPrompt || personaPrompt) {
+      const combinedPrompt = characterPrompt + personaPrompt;
+      let systemFound = false;
+      processedMessages = messages.map((msg, idx) => {
+        if (msg.role === 'system' && idx === 0) {
+          systemFound = true;
           if (typeof msg.content === 'string') {
-            return { ...msg, content: charPrompt + msg.content };
+            return { ...msg, content: combinedPrompt + msg.content };
           } else {
             return {
               ...msg,
               content: [
-                { type: 'text', text: charPrompt },
+                { type: 'text', text: combinedPrompt },
                 ...msg.content
               ]
             };
           }
-          }
-          return msg;
-        });
-        // If there's no system message, prepend one
-        if (!processedMessages.some((m) => m.role === 'system')) {
-          processedMessages = [
-            { role: 'system', content: `You are playing the role of "${character.name}". ${character.description}` },
-            ...processedMessages,
-          ];
         }
+        return msg;
+      });
+
+      if (!systemFound) {
+        processedMessages = [
+          { role: 'system', content: combinedPrompt.trim() },
+          ...processedMessages,
+        ];
       }
     }
 

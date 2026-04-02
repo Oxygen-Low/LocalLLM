@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { LlmService, type ProviderKeyStatus } from '../services/llm.service';
+import { LlmService, type ProviderKeyStatus, type Persona } from '../services/llm.service';
 import { CodingAgentService } from '../services/coding-agent.service';
 
 interface ProviderConfig {
@@ -57,6 +57,48 @@ interface ProviderConfig {
               <div>
                 <p class="font-semibold text-secondary-900 text-lg">{{ authService.username() }}</p>
                 <p class="text-sm text-muted">Local.LLM account</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Persona Settings -->
+          <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
+            <div class="flex items-center justify-between mb-2">
+              <h2 class="text-xl font-semibold text-secondary-900">Persona Settings</h2>
+              <a routerLink="/personas" class="text-sm text-primary-600 hover:text-primary-700 font-medium">Manage Personas →</a>
+            </div>
+            <p class="text-sm text-muted mb-6">Choose which persona the AI should use by default for new chats.</p>
+
+            @if (personaSuccessMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {{ personaSuccessMessage() }}
+              </div>
+            }
+
+            <div class="space-y-4">
+              <div>
+                <label for="defaultPersona" class="block text-sm font-medium text-secondary-700 mb-2">
+                  Default Persona
+                </label>
+                <div class="flex gap-3">
+                  <select
+                    id="defaultPersona"
+                    [(ngModel)]="defaultPersonaId"
+                    class="flex-1 px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all bg-white text-sm"
+                  >
+                    <option [value]="null">No default persona</option>
+                    @for (persona of personas(); track persona.id) {
+                      <option [value]="persona.id">{{ persona.name }}</option>
+                    }
+                  </select>
+                  <button
+                    (click)="saveDefaultPersona()"
+                    [disabled]="isSavingPersona()"
+                    class="btn-primary whitespace-nowrap"
+                  >
+                    {{ isSavingPersona() ? 'Saving...' : 'Save Default' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -495,6 +537,12 @@ export class SettingsPageComponent implements OnInit {
   isDeletingAccount = signal(false);
   deleteErrorMessage = signal<string | null>(null);
 
+  // Persona fields
+  personas = signal<Persona[]>([]);
+  defaultPersonaId: string | null = null;
+  isSavingPersona = signal(false);
+  personaSuccessMessage = signal<string | null>(null);
+
   // API Key fields
   apiKeyStatus = signal<Record<string, ProviderKeyStatus>>({});
   editingProvider = signal<string | null>(null);
@@ -561,7 +609,37 @@ export class SettingsPageComponent implements OnInit {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    await Promise.all([this.loadApiKeyStatus(), this.loadGitHubStatus()]);
+    await Promise.all([
+      this.loadApiKeyStatus(),
+      this.loadGitHubStatus(),
+      this.loadPersonaData()
+    ]);
+  }
+
+  async loadPersonaData(): Promise<void> {
+    try {
+      const [personas, defaultId] = await Promise.all([
+        this.llmService.getPersonas(),
+        this.llmService.getDefaultPersonaId()
+      ]);
+      this.personas.set(personas);
+      this.defaultPersonaId = defaultId;
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async saveDefaultPersona(): Promise<void> {
+    this.isSavingPersona.set(true);
+    try {
+      await this.llmService.setDefaultPersonaId(this.defaultPersonaId);
+      this.personaSuccessMessage.set('Default persona saved successfully');
+      setTimeout(() => this.personaSuccessMessage.set(null), 3000);
+    } catch {
+      // Silent failure
+    } finally {
+      this.isSavingPersona.set(false);
+    }
   }
 
   async loadApiKeyStatus(): Promise<void> {
