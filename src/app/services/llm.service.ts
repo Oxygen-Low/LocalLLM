@@ -38,6 +38,8 @@ export interface Chat {
   updatedAt: string;
   provider: string | null;
   model: string | null;
+  characterId?: string | null;
+  personaId?: string | null;
 }
 
 export interface ChatSummary {
@@ -47,6 +49,8 @@ export interface ChatSummary {
   updatedAt: string;
   provider: string | null;
   model: string | null;
+  characterId?: string | null;
+  personaId?: string | null;
 }
 
 export interface ProviderInfo {
@@ -61,6 +65,7 @@ export interface SendMessageOptions {
   webSearch?: boolean;
   think?: boolean;
   characterId?: string;
+  personaId?: string;
 }
 
 export interface ProviderKeyStatus {
@@ -97,6 +102,14 @@ export interface UniverseSummary {
   id: string;
   name: string;
   characters: UniverseCharacterSummary[];
+}
+
+export interface Persona {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 @Injectable({
@@ -184,6 +197,60 @@ export class LlmService {
     return res.universes || [];
   }
 
+  // --- Personas ---
+
+  async getPersonas(): Promise<Persona[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; personas: Persona[] }>(
+        `${environment.apiUrl}/api/user/personas`
+      )
+    );
+    return res.personas || [];
+  }
+
+  async createPersona(name: string, description: string): Promise<Persona> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; persona: Persona }>(
+        `${environment.apiUrl}/api/user/personas`,
+        { name, description }
+      )
+    );
+    return res.persona;
+  }
+
+  async updatePersona(id: string, name: string, description: string): Promise<Persona> {
+    const res = await firstValueFrom(
+      this.http.put<{ success: boolean; persona: Persona }>(
+        `${environment.apiUrl}/api/user/personas/${id}`,
+        { name, description }
+      )
+    );
+    return res.persona;
+  }
+
+  async deletePersona(id: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`${environment.apiUrl}/api/user/personas/${id}`)
+    );
+  }
+
+  async getDefaultPersonaId(): Promise<string | null> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; defaultPersonaId: string | null }>(
+        `${environment.apiUrl}/api/user/settings/default-persona`
+      )
+    );
+    return res.defaultPersonaId;
+  }
+
+  async setDefaultPersonaId(personaId: string | null): Promise<void> {
+    await firstValueFrom(
+      this.http.put(`${environment.apiUrl}/api/user/settings/default-persona`, {
+        personaId,
+      })
+    );
+  }
+
   // --- Chats ---
 
   async listChats(): Promise<ChatSummary[]> {
@@ -195,11 +262,11 @@ export class LlmService {
     return res.chats || [];
   }
 
-  async createChat(provider?: string, model?: string): Promise<Chat> {
+  async createChat(provider?: string, model?: string, characterId?: string, personaId?: string): Promise<Chat> {
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; chat: Chat }>(
         `${environment.apiUrl}/api/chats`,
-        { provider, model }
+        { provider, model, characterId, personaId }
       )
     );
     return res.chat;
@@ -244,6 +311,7 @@ export class LlmService {
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
     if (options?.characterId) body['characterId'] = options.characterId;
+    if (options?.personaId) body['personaId'] = options.personaId;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -347,6 +415,7 @@ export class LlmService {
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
     if (options?.characterId) body['characterId'] = options.characterId;
+    if (options?.personaId) body['personaId'] = options.personaId;
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; message: ChatMessage }>(
         `${environment.apiUrl}/api/chat/send`,

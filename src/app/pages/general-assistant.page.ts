@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { marked } from 'marked';
-import { LlmService, type Chat, type ChatMessage, type ChatSummary, type MessageAlternative, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary } from '../services/llm.service';
+import { LlmService, type Chat, type ChatMessage, type ChatSummary, type MessageAlternative, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary, type Persona } from '../services/llm.service';
 
 @Component({
   selector: 'app-general-assistant',
@@ -470,7 +470,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    {{ selectedCharacter()?.name || 'Character' }}
+                    <span class="max-w-[100px] truncate">{{ selectedCharacter()?.name || 'Character' }}</span>
                     <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                     </svg>
@@ -506,6 +506,58 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                   }
                 </div>
               }
+
+              <!-- Persona Selector -->
+              <div class="relative" #personaDropdown>
+                <button
+                  type="button"
+                  (click)="togglePersonaDropdown($event)"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                  [ngClass]="selectedPersona()
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span class="max-w-[100px] truncate">{{ selectedPersona()?.name || 'Persona' }}</span>
+                  <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                @if (showPersonaDropdown()) {
+                  <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-64 overflow-y-auto">
+                    <button
+                      (click)="selectPersona(null)"
+                      class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors"
+                      [ngClass]="!selectedPersona() ? 'bg-blue-50 text-blue-700' : 'text-secondary-700'"
+                    >
+                      <div class="font-medium">No persona</div>
+                      <div class="text-xs text-secondary-400">AI sees you as a default user</div>
+                    </button>
+                    @if (personas().length > 0) {
+                      <div class="px-4 py-1.5 text-xs font-semibold text-secondary-400 uppercase tracking-wider bg-secondary-50">
+                        Your Personas
+                      </div>
+                      @for (p of personas(); track p.id) {
+                        <button
+                          (click)="selectPersona(p)"
+                          class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                          [ngClass]="selectedPersona()?.id === p.id ? 'bg-blue-50 text-blue-700' : 'text-secondary-700'"
+                        >
+                          <span class="font-medium">{{ p.name }}</span>
+                        </button>
+                      }
+                    }
+                    <div class="border-t border-secondary-100 p-2">
+                      <a routerLink="/personas" class="block w-full text-center px-3 py-1.5 rounded-lg bg-secondary-50 hover:bg-secondary-100 text-xs font-medium text-secondary-600 transition-colors">
+                        Manage Personas
+                      </a>
+                    </div>
+                  </div>
+                }
+              </div>
             </div>
 
             <!-- Text Input -->
@@ -545,6 +597,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   @ViewChild('messagesContainer') messagesContainer!: ElementRef;
   @ViewChild('providerDropdown') providerDropdown!: ElementRef;
   @ViewChild('characterDropdown') characterDropdown!: ElementRef;
+  @ViewChild('personaDropdown') personaDropdown!: ElementRef;
 
   private llmService = inject(LlmService);
 
@@ -566,6 +619,11 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   universes = signal<UniverseSummary[]>([]);
   selectedCharacter = signal<UniverseCharacterSummary | null>(null);
   showCharacterDropdown = signal(false);
+
+  // Persona selection state
+  personas = signal<Persona[]>([]);
+  selectedPersona = signal<Persona | null>(null);
+  showPersonaDropdown = signal(false);
 
   // Streaming state
   streamingThinking = signal('');
@@ -595,6 +653,10 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
           !this.characterDropdown.nativeElement.contains(e.target as Node)) {
         this.showCharacterDropdown.set(false);
       }
+      if (this.showPersonaDropdown() && this.personaDropdown &&
+          !this.personaDropdown.nativeElement.contains(e.target as Node)) {
+        this.showPersonaDropdown.set(false);
+      }
     };
     document.addEventListener('click', this.clickOutsideListener);
 
@@ -602,6 +664,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       this.loadProvidersWithRetry(),
       this.loadChatList(),
       this.loadUniverses(),
+      this.loadPersonas(),
     ]);
 
     // Poll for providers periodically if no local model was detected
@@ -687,9 +750,21 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   async createNewChat(): Promise<void> {
     try {
       const provider = this.selectedProvider();
+
+      // If we don't have a persona selected, try to use the default one
+      if (!this.selectedPersona()) {
+        const defaultId = await this.llmService.getDefaultPersonaId();
+        if (defaultId) {
+          const persona = this.personas().find(p => p.id === defaultId);
+          if (persona) this.selectedPersona.set(persona);
+        }
+      }
+
       const chat = await this.llmService.createChat(
         provider?.id || undefined,
-        provider?.model || undefined
+        provider?.model || undefined,
+        this.selectedCharacter()?.id || undefined,
+        this.selectedPersona()?.id || undefined
       );
       this.currentChat.set(chat);
       this.currentChatId.set(chat.id);
@@ -704,6 +779,27 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       const chat = await this.llmService.getChat(chatId);
       this.currentChat.set(chat);
       this.currentChatId.set(chatId);
+
+      // Restore character selection
+      if (chat.characterId) {
+        let foundChar: UniverseCharacterSummary | null = null;
+        for (const u of this.universes()) {
+          foundChar = u.characters.find(c => c.id === chat.characterId) || null;
+          if (foundChar) break;
+        }
+        this.selectedCharacter.set(foundChar);
+      } else {
+        this.selectedCharacter.set(null);
+      }
+
+      // Restore persona selection
+      if (chat.personaId) {
+        const persona = this.personas().find(p => p.id === chat.personaId) || null;
+        this.selectedPersona.set(persona);
+      } else {
+        this.selectedPersona.set(null);
+      }
+
       this.scrollToBottom();
     } catch {
       this.errorMessage.set('Failed to load chat');
@@ -762,6 +858,41 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   selectCharacter(character: UniverseCharacterSummary | null): void {
     this.selectedCharacter.set(character);
     this.showCharacterDropdown.set(false);
+    this.updateCurrentChatSettings();
+  }
+
+  async loadPersonas(): Promise<void> {
+    try {
+      const personas = await this.llmService.getPersonas();
+      this.personas.set(personas);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  togglePersonaDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showPersonaDropdown.set(!this.showPersonaDropdown());
+  }
+
+  selectPersona(persona: Persona | null): void {
+    this.selectedPersona.set(persona);
+    this.showPersonaDropdown.set(false);
+    this.updateCurrentChatSettings();
+  }
+
+  private async updateCurrentChatSettings(): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat) return;
+
+    try {
+      await this.llmService.updateChat(chat.id, {
+        characterId: this.selectedCharacter()?.id || null,
+        personaId: this.selectedPersona()?.id || null
+      });
+    } catch {
+      // Silent failure
+    }
   }
 
   toggleSidebar(): void {
@@ -1080,6 +1211,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     if (this.webSearchEnabled()) options.webSearch = true;
     if (this.thinkEnabled()) options.think = true;
     if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
+    if (this.selectedPersona()) options.personaId = this.selectedPersona()?.id;
 
     try {
       return await this.llmService.sendMessageStream(
