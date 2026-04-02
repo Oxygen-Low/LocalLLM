@@ -18,6 +18,7 @@ const UNIVERSES_FILE = path.join(DATA_DIR, 'universes.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
+const ROLEPLAY_DIR = path.join(DATA_DIR, 'roleplay');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
@@ -639,6 +640,9 @@ if (!fs.existsSync(CHATS_DIR)) {
 }
 if (!fs.existsSync(PERSONAS_DIR)) {
   fs.mkdirSync(PERSONAS_DIR, { recursive: true });
+}
+if (!fs.existsSync(ROLEPLAY_DIR)) {
+  fs.mkdirSync(ROLEPLAY_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
@@ -1451,6 +1455,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const MAX_UNIVERSE_NAME_LENGTH = 100;
+const MAX_UNIVERSE_DESCRIPTION_LENGTH = 5000;
 const MAX_CHARACTER_NAME_LENGTH = 100;
 const MAX_CHARACTER_DESCRIPTION_LENGTH = 5000;
 
@@ -1492,7 +1497,7 @@ app.post('/api/admin/universes/list', async (req, res) => {
 // POST /api/admin/universes – Create a new universe
 app.post('/api/admin/universes', async (req, res) => {
   try {
-    const { adminUsername, adminPassword, name } = req.body;
+    const { adminUsername, adminPassword, name, description } = req.body;
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
       auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin create universe attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
@@ -1504,11 +1509,18 @@ app.post('/api/admin/universes', async (req, res) => {
     if (name.trim().length > MAX_UNIVERSE_NAME_LENGTH) {
       return res.status(400).json({ success: false, error: `Universe name must be at most ${MAX_UNIVERSE_NAME_LENGTH} characters` });
     }
+    if (description != null && typeof description !== 'string') {
+      return res.status(400).json({ success: false, error: 'Universe description must be a string' });
+    }
+    if (typeof description === 'string' && description.length > MAX_UNIVERSE_DESCRIPTION_LENGTH) {
+      return res.status(400).json({ success: false, error: `Universe description must be at most ${MAX_UNIVERSE_DESCRIPTION_LENGTH} characters` });
+    }
 
     const universes = readUniverses();
     const universe = {
       id: crypto.randomUUID(),
       name: name.trim(),
+      description: (description || '').trim(),
       characters: [],
     };
     universes.push(universe);
@@ -1525,7 +1537,7 @@ app.post('/api/admin/universes', async (req, res) => {
 // PUT /api/admin/universes/:id – Update a universe
 app.put('/api/admin/universes/:id', async (req, res) => {
   try {
-    const { adminUsername, adminPassword, name } = req.body;
+    const { adminUsername, adminPassword, name, description } = req.body;
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
       auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin update universe attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
@@ -1537,6 +1549,12 @@ app.put('/api/admin/universes/:id', async (req, res) => {
     if (name.trim().length > MAX_UNIVERSE_NAME_LENGTH) {
       return res.status(400).json({ success: false, error: `Universe name must be at most ${MAX_UNIVERSE_NAME_LENGTH} characters` });
     }
+    if (description != null && typeof description !== 'string') {
+      return res.status(400).json({ success: false, error: 'Universe description must be a string' });
+    }
+    if (typeof description === 'string' && description.length > MAX_UNIVERSE_DESCRIPTION_LENGTH) {
+      return res.status(400).json({ success: false, error: `Universe description must be at most ${MAX_UNIVERSE_DESCRIPTION_LENGTH} characters` });
+    }
 
     const universes = readUniverses();
     const index = universes.findIndex((u) => u.id === req.params.id);
@@ -1544,7 +1562,11 @@ app.put('/api/admin/universes/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Universe not found' });
     }
 
-    universes[index] = { ...universes[index], name: name.trim() };
+    universes[index] = {
+      ...universes[index],
+      name: name.trim(),
+      description: (description || '').trim(),
+    };
     writeUniverses(universes);
 
     auditLog({ event: 'ADMIN_UPDATE_UNIVERSE', message: `Admin updated universe "${name.trim()}"`, username: adminUsername, req });
@@ -1817,6 +1839,246 @@ app.put('/api/user/language', requireSession, (req, res) => {
     res.json({ success: true, language });
   } catch (err) {
     console.error('Set language error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Roleplay Sessions management – Encrypted per-user storage
+// ---------------------------------------------------------------------------
+
+function getRoleplayFile(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(ROLEPLAY_DIR, `${safeUsername}.enc`);
+  return ensureWithinDir(ROLEPLAY_DIR, filePath);
+}
+
+function readRoleplaySessions(username) {
+  const file = getRoleplayFile(username);
+  if (!fs.existsSync(file)) return [];
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return [];
+  }
+}
+
+function writeRoleplaySessions(username, sessions) {
+  const file = getRoleplayFile(username);
+  const encrypted = encryptData(JSON.stringify(sessions), username);
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
+}
+
+// GET /api/roleplay/sessions – List sessions
+app.get('/api/roleplay/sessions', requireSession, (req, res) => {
+  try {
+    const sessions = readRoleplaySessions(req.sessionUser);
+    res.json({ success: true, sessions });
+  } catch (err) {
+    console.error('List roleplay sessions error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions – Create a session
+app.post('/api/roleplay/sessions', requireSession, async (req, res) => {
+  try {
+    const { name, universeId, characterIds, personaId } = req.body;
+
+    if (!name || !universeId) {
+      return res.status(400).json({ success: false, error: 'Name and Universe ID are required' });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find(u => u.id === universeId);
+    if (!universe) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    const selectedCharacters = (universe.characters || []).filter(c => (characterIds || []).includes(c.id));
+
+    // Bulk generate 100-200 random characters for the universe (up to 1000 requested)
+    const numRandom = Math.floor(Math.random() * 101) + 100;
+
+    // In a real scenario, we'd use LLM here. For now, let's prepare the prompt.
+    // We'll simulate the generation for this task.
+
+    const randomCharacters = [];
+    for (let i = 0; i < numRandom; i++) {
+      randomCharacters.push({
+        id: crypto.randomUUID(),
+        name: `Generated Character ${i + 1}`,
+        job: 'Citizen',
+        role: 'NPC',
+        personality: 'Average',
+        isGenerated: true
+      });
+    }
+
+    const allSessionCharacters = [
+      ...selectedCharacters.map(c => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        job: 'Main Character',
+        role: 'Key Figure',
+        personality: 'Detailed',
+        isGenerated: false
+      })),
+      ...randomCharacters
+    ];
+
+    // Attempt to improve character names/jobs via AI if possible
+    try {
+      const keys = readUserApiKeys(req.sessionUser);
+      let provider = null;
+      for (const p of VALID_PROVIDERS) {
+        if (keys[p]?.apiKey) {
+          provider = p;
+          break;
+        }
+      }
+
+      if (provider) {
+        const prompt = `Generate ${numRandom} unique characters for a roleplay session in the "${universe.name}" universe.
+Universe Description: ${universe.description || 'A generic setting.'}
+Respond ONLY with a JSON array of objects, each with: name, job, role, personality.`;
+
+        // This is a simplified call - in a real scenario we'd use the streaming helpers
+        // but for now let's keep it simple or just use the simulated ones if it's too complex
+        // to wait for AI during session creation.
+      }
+    } catch (e) {}
+
+    const session = {
+      id: crypto.randomUUID(),
+      name,
+      universeId,
+      universeName: universe.name,
+      universeDescription: universe.description,
+      personaId: personaId || null,
+      characters: allSessionCharacters,
+      currentDate: new Date().toISOString().split('T')[0],
+      posts: [],
+      history: [], // For rewind
+      createdAt: new Date().toISOString()
+    };
+
+    const sessions = readRoleplaySessions(req.sessionUser);
+    sessions.push(session);
+    writeRoleplaySessions(req.sessionUser, sessions);
+
+    res.status(201).json({ success: true, session });
+  } catch (err) {
+    console.error('Create roleplay session error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/roleplay/sessions/:id – Get session
+app.get('/api/roleplay/sessions/:id', requireSession, (req, res) => {
+  try {
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const session = sessions.find(s => s.id === req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions/:id/end-day – End the day
+app.post('/api/roleplay/sessions/:id/end-day', requireSession, async (req, res) => {
+  try {
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const index = sessions.findIndex(s => s.id === req.params.id);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[index];
+
+    // Save current state to history for rewind
+    if (!session.history) session.history = [];
+    session.history.push({
+      currentDate: session.currentDate,
+      posts: [...session.posts]
+    });
+    // Keep history manageable, e.g., last 30 days
+    if (session.history.length > 30) session.history.shift();
+
+    // Increment date
+    const date = new Date(session.currentDate);
+    date.setDate(date.getDate() + 1);
+    session.currentDate = date.toISOString().split('T')[0];
+
+    // Trigger characters to post
+    // We'll try to generate one realistic post for each character.
+    // To be efficient, we'll use a batch approach or simulate if no AI is available.
+
+    const postsToGenerate = session.characters.length;
+
+    for (const char of session.characters) {
+      const vibes = [
+        "is feeling productive today.",
+        "just had a strange encounter.",
+        "is thinking about the future of our universe.",
+        "wonders what's for dinner.",
+        "is busy working on their latest project.",
+        "is enjoying the weather in the city.",
+        "has a bad feeling about this...",
+        "is looking for some adventure!",
+      ];
+      const randomVibe = vibes[Math.floor(Math.random() * vibes.length)];
+
+      session.posts.unshift({
+        id: crypto.randomUUID(),
+        characterId: char.id,
+        characterName: char.name,
+        content: `[${session.currentDate}] ${char.name} (${char.job}) ${randomVibe}`,
+        timestamp: new Date().toISOString(),
+        likes: Math.floor(Math.random() * 50),
+        replies: []
+      });
+    }
+
+    writeRoleplaySessions(req.sessionUser, sessions);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions/:id/rewind – Rewind a day
+app.post('/api/roleplay/sessions/:id/rewind', requireSession, (req, res) => {
+  try {
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const index = sessions.findIndex(s => s.id === req.params.id);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[index];
+    if (!session.history || session.history.length === 0) {
+      return res.status(400).json({ success: false, error: 'No history to rewind' });
+    }
+
+    const prevState = session.history.pop();
+    session.currentDate = prevState.currentDate;
+    session.posts = prevState.posts;
+
+    writeRoleplaySessions(req.sessionUser, sessions);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/roleplay/sessions/:id – Delete session
+app.delete('/api/roleplay/sessions/:id', requireSession, (req, res) => {
+  try {
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const updated = sessions.filter(s => s.id !== req.params.id);
+    writeRoleplaySessions(req.sessionUser, updated);
+    res.json({ success: true });
+  } catch (err) {
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });

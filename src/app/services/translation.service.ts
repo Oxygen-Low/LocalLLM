@@ -350,8 +350,20 @@ const translations: TranslationDictionary = {
   'apps.web-seo.description': {
     en: 'Analyze websites and repositories for SEO optimizations using AI. Automatically creates containers to build and check your web applications.',
     ko: 'AI를 사용하여 웹사이트 및 저장소의 SEO 최적화를 분석합니다. 웹 애플리케이션을 빌드하고 확인하기 위해 자동으로 컨테이너를 생성합니다.',
-    ja: 'AIを使用してウェブサイトやリポジトリのSEO最適化を分析します。ウェブアプリケーションをビル드して確認するために、自動的にコンテナを作成します。',
+    ja: 'AIを使用してウェブサイトやリポジトリのSEO最適化を分析します。ウェブアプリケーションをビル드하여 확인하기 위해, 자동으로 컨테이너를 생성합니다.',
     ru: 'Анализ веб-сайтов и репозиториев на предмет SEO-оптимизации с помощью ИИ. Автоматически создает контейнеры для сборки и проверки ваших веб-приложений.',
+  },
+  'apps.roleplay.name': {
+    en: 'Roleplay',
+    ko: '롤플레잉',
+    ja: 'ロールプレイ',
+    ru: 'Ролевая игра',
+  },
+  'apps.roleplay.description': {
+    en: 'Immerse yourself in different universes with custom and automatically generated characters. Experience a life-simulator with social media interactions.',
+    ko: '커스텀 및 자동 생성된 캐릭터와 함께 다양한 세계관에 몰입해 보세요. 소셜 미디어 상호작용이 있는 라이프 시뮬레이터를 경험하세요.',
+    ja: 'カスタムおよび自動生成されたキャラクターと共に、さまざまな世界観に没入しましょう。ソーシャルメディアでの交流があるライフシミュレーターを体験してください。',
+    ru: 'Погрузитесь в различные вселенные с созданными и автоматически сгенерированными персонажами. Испытайте симулятор жизни с взаимодействием в социальных сетях.',
   },
   'apps.category.assistant': {
     en: 'Assistant',
@@ -376,6 +388,12 @@ const translations: TranslationDictionary = {
     ko: 'SEO',
     ja: 'SEO',
     ru: 'SEO',
+  },
+  'apps.category.creative': {
+    en: 'Creative',
+    ko: '크리에이티브',
+    ja: 'クリエイティブ',
+    ru: 'Творчество',
   },
   'apps.status.risky': {
     en: 'Risky',
