@@ -935,11 +935,6 @@ function runCommandAsync(command, args, options = {}) {
       });
     }
 
-    if (options.input) {
-      proc.stdin.write(options.input);
-      proc.stdin.end();
-    }
-
     proc.on('close', (code) => {
       if (code === 0) {
         resolve(stdout);
@@ -5520,11 +5515,10 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
 
 /**
  * Perform a web search using a temporary Docker container with Playwright.
- * Note: If Docker fails with overlayfs mount issues, it might fall back to local execution.
  */
 async function performWebSearch(query, username) {
   const containerId = crypto.randomUUID();
-  const containerName = `search-${sanitizeUsernameForPath(username || 'anonymous')}-${containerId.slice(0, 8)}`;
+  const containerName = `search-${sanitizeUsernameForPath(username)}-${containerId.slice(0, 8)}`;
 
   try {
     // Read the search script
@@ -5543,30 +5537,8 @@ async function performWebSearch(query, username) {
       'bash', '-c', `npm install playwright-core@1.45.0 > /dev/null 2>&1 && echo '${b64Script}' | base64 -d > /tmp/search.js && echo '${b64Query}' | base64 -d | node /tmp/search.js`
     ];
 
-    try {
-      const resultRaw = await runCommandAsync('docker', dockerArgs, { timeout: 120000 });
-      return JSON.parse(resultRaw);
-    } catch (dockerErr) {
-      // Fallback for environments with Docker limitations (like some sandboxes)
-      if (dockerErr.message.includes('overlayfs') || dockerErr.message.includes('mount') || dockerErr.message.includes('operation not permitted')) {
-        console.warn('WARNING: Docker failed, falling back to local search execution:', dockerErr.message);
-        const scriptPath = path.join(__dirname, 'search-tool.js');
-        const resultRaw = await runCommandAsync('node', [scriptPath], {
-          input: query,
-          timeout: 60000
-        });
-        const parsed = JSON.parse(resultRaw);
-        if (Array.isArray(parsed)) {
-          parsed.push({
-            title: '⚠️ System Warning',
-            url: '#',
-            snippet: 'Search performed via local fallback due to environment limitations.'
-          });
-        }
-        return parsed;
-      }
-      throw dockerErr;
-    }
+    const resultRaw = await runCommandAsync('docker', dockerArgs, { timeout: 120000 });
+    return JSON.parse(resultRaw);
   } catch (err) {
     console.error('Web search error:', err.message);
     throw new Error('Web search failed: ' + err.message);
@@ -5579,6 +5551,10 @@ app.post('/api/search', requireSession, async (req, res) => {
     const { query } = req.body;
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ success: false, error: 'Query is required' });
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available' });
     }
 
     const results = await performWebSearch(query, req.sessionUser);
