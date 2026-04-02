@@ -1870,22 +1870,36 @@ app.post('/api/roleplay/sessions', requireSession, async (req, res) => {
 
     const selectedCharacters = (universe.characters || []).filter(c => (characterIds || []).includes(c.id));
 
-    // Bulk generate 100-200 random characters for the universe (up to 1000 requested)
+    // Bulk generate 100-200 random characters for the universe
     const numRandom = Math.floor(Math.random() * 101) + 100;
+    let randomCharacters = [];
 
-    // In a real scenario, we'd use LLM here. For now, let's prepare the prompt.
-    // We'll simulate the generation for this task.
+    // Attempt to generate character names/jobs via AI
+    try {
+      const prompt = `Generate ${numRandom} unique background characters for a roleplay session in the "${universe.name}" universe.
+Universe Description: ${universe.description || 'A generic setting.'}
+Respond ONLY with a JSON array of objects, each with: name, job, role, personality. Ensure they are diverse and fit the universe setting.`;
 
-    const randomCharacters = [];
-    for (let i = 0; i < numRandom; i++) {
-      randomCharacters.push({
+      const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }]);
+      // Clean the response in case it has markdown blocks
+      const cleanedResponse = response.replace(/```json\n?|\n?```/g, '').trim();
+      randomCharacters = JSON.parse(cleanedResponse).map(c => ({
+        ...c,
         id: crypto.randomUUID(),
-        name: `Generated Character ${i + 1}`,
-        job: 'Citizen',
-        role: 'NPC',
-        personality: 'Average',
         isGenerated: true
-      });
+      }));
+    } catch (e) {
+      console.error('Failed to generate characters via LLM, falling back to simulated ones:', e);
+      for (let i = 0; i < numRandom; i++) {
+        randomCharacters.push({
+          id: crypto.randomUUID(),
+          name: `Generated Character ${i + 1}`,
+          job: 'Citizen',
+          role: 'NPC',
+          personality: 'Average',
+          isGenerated: true
+        });
+      }
     }
 
     const allSessionCharacters = [
@@ -1893,39 +1907,20 @@ app.post('/api/roleplay/sessions', requireSession, async (req, res) => {
         id: c.id,
         name: c.name,
         description: c.description,
-        job: 'Main Character',
-        role: 'Key Figure',
-        personality: 'Detailed',
+        job: c.job || 'Main Character',
+        role: c.role || 'Key Figure',
+        personality: c.personality || 'Detailed',
         isGenerated: false
       })),
       ...randomCharacters
     ];
 
-    // Attempt to improve character names/jobs via AI if possible
-    try {
-      const keys = readUserApiKeys(req.sessionUser);
-      let provider = null;
-      for (const p of VALID_PROVIDERS) {
-        if (keys[p]?.apiKey) {
-          provider = p;
-          break;
-        }
-      }
-
-      if (provider) {
-        const prompt = `Generate ${numRandom} unique characters for a roleplay session in the "${universe.name}" universe.
-Universe Description: ${universe.description || 'A generic setting.'}
-Respond ONLY with a JSON array of objects, each with: name, job, role, personality.`;
-
-        // This is a simplified call - in a real scenario we'd use the streaming helpers
-        // but for now let's keep it simple or just use the simulated ones if it's too complex
-        // to wait for AI during session creation.
-      }
-    } catch (e) {}
+    const timestamp = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const sessionName = `${universe.name} - ${timestamp}`;
 
     const session = {
       id: crypto.randomUUID(),
-      name,
+      name: sessionName,
       universeId,
       universeName: universe.name,
       universeDescription: universe.description,
@@ -1984,34 +1979,235 @@ app.post('/api/roleplay/sessions/:id/end-day', requireSession, async (req, res) 
     session.currentDate = date.toISOString().split('T')[0];
 
     // Trigger characters to post
-    // We'll try to generate one realistic post for each character.
-    // To be efficient, we'll use a batch approach or simulate if no AI is available.
+    const mainCharacters = session.characters.filter(c => !c.isGenerated);
+    const generatedCharacters = session.characters.filter(c => c.isGenerated);
 
-    const postsToGenerate = session.characters.length;
-
-    for (const char of session.characters) {
-      const vibes = [
-        "is feeling productive today.",
-        "just had a strange encounter.",
-        "is thinking about the future of our universe.",
-        "wonders what's for dinner.",
-        "is busy working on their latest project.",
-        "is enjoying the weather in the city.",
-        "has a bad feeling about this...",
-        "is looking for some adventure!",
-      ];
-      const randomVibe = vibes[Math.floor(Math.random() * vibes.length)];
-
-      session.posts.unshift({
-        id: crypto.randomUUID(),
-        characterId: char.id,
-        characterName: char.name,
-        content: `[${session.currentDate}] ${char.name} (${char.job}) ${randomVibe}`,
-        timestamp: new Date().toISOString(),
-        likes: Math.floor(Math.random() * 50),
-        replies: []
-      });
+    // Pick 4 random generated characters
+    const randomNPCs = [];
+    if (generatedCharacters.length > 0) {
+      const shuffled = [...generatedCharacters].sort(() => 0.5 - Math.random());
+      randomNPCs.push(...shuffled.slice(0, Math.min(4, shuffled.length)));
     }
+
+    const charactersToPost = [...mainCharacters, ...randomNPCs];
+    const recentPosts = (session.posts || []).slice(0, 10);
+    const userInvolvedThreads = new Set();
+
+    // Check if user replied in the last day's posts
+    const lastDayPosts = session.history?.[session.history.length - 1]?.posts || [];
+    const lastDayPostIds = new Set(lastDayPosts.map(p => p.id));
+
+    for (const post of (session.posts || [])) {
+      if (lastDayPostIds.has(post.id)) {
+        const hasUserReply = (post.replies || []).some(r => r.characterId === 'user' || r.personaId);
+        if (hasUserReply) userInvolvedThreads.add(post.id);
+      }
+    }
+
+    // Generate posts via LLM
+    try {
+      const prompt = `It is currently ${session.currentDate} in the "${session.universeName}" universe.
+Setting: ${session.universeDescription || 'N/A'}
+The following characters are going to post on a Twitter-like social media platform.
+Characters:
+${charactersToPost.map(c => `- ${c.name} (Job: ${c.job}, Personality: ${c.personality})`).join('\n')}
+
+Recent feed context:
+${recentPosts.map(p => `[${p.characterName}]: ${p.content}`).join('\n')}
+
+Task: Generate one short, Twitter-style post for each character.
+Also, for each post, decide if another character should reply to it.
+Main characters should only reply to other main characters or to the user's previous posts if the user was involved in that thread.
+Respond ONLY with a JSON array of objects: { characterId, content, replyToPostId (optional), replyFromCharacterId (optional), replyContent (optional) }.`;
+
+      const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }]);
+      const cleanedResponse = response.replace(/```json\n?|\n?```/g, '').trim();
+      const generatedActions = JSON.parse(cleanedResponse);
+
+      for (const action of generatedActions) {
+        const char = charactersToPost.find(c => c.id === action.characterId);
+        if (!char) continue;
+
+        const newPostId = crypto.randomUUID();
+        const newPost = {
+          id: newPostId,
+          characterId: char.id,
+          characterName: char.name,
+          content: action.content,
+          timestamp: new Date().toISOString(),
+          likes: Math.floor(Math.random() * 20),
+          replies: []
+        };
+
+        if (action.replyFromCharacterId && action.replyContent) {
+          const replyingChar = session.characters.find(c => c.id === action.replyFromCharacterId);
+          if (replyingChar) {
+            newPost.replies.push({
+              id: crypto.randomUUID(),
+              characterId: replyingChar.id,
+              characterName: replyingChar.name,
+              content: action.replyContent,
+              timestamp: new Date().toISOString(),
+              likes: Math.floor(Math.random() * 10)
+            });
+          }
+        }
+        session.posts.unshift(newPost);
+      }
+    } catch (e) {
+      console.error('Failed to generate posts via LLM:', e);
+      // Fallback
+      for (const char of charactersToPost) {
+        session.posts.unshift({
+          id: crypto.randomUUID(),
+          characterId: char.id,
+          characterName: char.name,
+          content: `[${session.currentDate}] ${char.name} is active in ${session.universeName}.`,
+          timestamp: new Date().toISOString(),
+          likes: Math.floor(Math.random() * 5),
+          replies: []
+        });
+      }
+    }
+
+    writeRoleplaySessions(req.sessionUser, sessions);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions/:id/post – User creates a post
+app.post('/api/roleplay/sessions/:id/post', requireSession, (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ success: false, error: 'Content is required' });
+
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const index = sessions.findIndex(s => s.id === req.params.id);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[index];
+
+    let authorName = 'You';
+    if (session.personaId) {
+      const personas = readPersonas(req.sessionUser);
+      const persona = personas.find(p => p.id === session.personaId);
+      if (persona) authorName = persona.name;
+    }
+
+    const newPost = {
+      id: crypto.randomUUID(),
+      characterId: 'user',
+      personaId: session.personaId,
+      characterName: authorName,
+      content,
+      timestamp: new Date().toISOString(),
+      likes: 0,
+      replies: []
+    };
+
+    session.posts.unshift(newPost);
+    writeRoleplaySessions(req.sessionUser, sessions);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions/:id/reply – User replies to a post
+app.post('/api/roleplay/sessions/:id/reply', requireSession, (req, res) => {
+  try {
+    const { postId, content } = req.body;
+    if (!postId || !content) return res.status(400).json({ success: false, error: 'Post ID and Content are required' });
+
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const index = sessions.findIndex(s => s.id === req.params.id);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[index];
+    const post = session.posts.find(p => p.id === postId);
+    if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+    let authorName = 'You';
+    if (session.personaId) {
+      const personas = readPersonas(req.sessionUser);
+      const persona = personas.find(p => p.id === session.personaId);
+      if (persona) authorName = persona.name;
+    }
+
+    const reply = {
+      id: crypto.randomUUID(),
+      characterId: 'user',
+      personaId: session.personaId,
+      characterName: authorName,
+      content,
+      timestamp: new Date().toISOString(),
+      likes: 0
+    };
+
+    if (!post.replies) post.replies = [];
+    post.replies.push(reply);
+
+    writeRoleplaySessions(req.sessionUser, sessions);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions/:id/like – User likes a post
+app.post('/api/roleplay/sessions/:id/like', requireSession, (req, res) => {
+  try {
+    const { postId } = req.body;
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const index = sessions.findIndex(s => s.id === req.params.id);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[index];
+    const post = session.posts.find(p => p.id === postId);
+    if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+    post.likes = (post.likes || 0) + 1;
+
+    writeRoleplaySessions(req.sessionUser, sessions);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/roleplay/sessions/:id/repost – User reposts a post
+app.post('/api/roleplay/sessions/:id/repost', requireSession, (req, res) => {
+  try {
+    const { postId } = req.body;
+    const sessions = readRoleplaySessions(req.sessionUser);
+    const index = sessions.findIndex(s => s.id === req.params.id);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[index];
+    const post = session.posts.find(p => p.id === postId);
+    if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+    let authorName = 'You';
+    if (session.personaId) {
+      const personas = readPersonas(req.sessionUser);
+      const persona = personas.find(p => p.id === session.personaId);
+      if (persona) authorName = persona.name;
+    }
+
+    const repost = {
+      id: crypto.randomUUID(),
+      characterId: 'user',
+      personaId: session.personaId,
+      characterName: authorName,
+      content: `RT @${post.characterName}: ${post.content}`,
+      timestamp: new Date().toISOString(),
+      likes: 0,
+      replies: []
+    };
+
+    session.posts.unshift(repost);
 
     writeRoleplaySessions(req.sessionUser, sessions);
     res.json({ success: true, session });
@@ -4825,6 +5021,82 @@ function sendSSE(res, event, data) {
     if (err && err.code === 'ERR_STREAM_WRITE_AFTER_END') {
       return;
     }
+    throw err;
+  }
+}
+
+/**
+ * Simple non-streaming LLM completion helper for background tasks.
+ * Tries to find any available provider for the user.
+ */
+async function getLLMCompletion(username, messages, options = {}) {
+  const keys = readUserApiKeys(username);
+  let provider = null;
+  for (const p of VALID_PROVIDERS) {
+    if (keys[p]?.apiKey) {
+      provider = p;
+      break;
+    }
+  }
+
+  if (!provider) {
+    throw new Error('No AI provider configured. Please add an API key in Settings.');
+  }
+
+  const providerKeys = keys[provider];
+  const model = options.model || providerKeys.selectedModel;
+  if (!model) {
+    throw new Error(`No model selected for provider ${provider}.`);
+  }
+
+  const config = AI_PROVIDERS[provider];
+  const baseUrl = config.baseUrl;
+  const chatEndpoint = config.chatEndpoint;
+
+  const body = {
+    model,
+    messages: messages.map(m => {
+      if (m.role === 'system' && Array.isArray(m.content)) {
+        return { ...m, content: m.content.map(p => p.text || '').join('\n') };
+      }
+      return m;
+    }),
+    max_tokens: options.max_tokens || 2048,
+    temperature: options.temperature || 0.7,
+    stream: false,
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000); // 1 minute timeout for background tasks
+
+  try {
+    const response = await fetch(`${baseUrl}${chatEndpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${providerKeys.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`API error ${response.status}: ${errorBody}`);
+    }
+
+    const data = await response.json();
+
+    // Handle different provider response formats
+    if (provider === 'anthropic') {
+      return data.content[0].text;
+    } else {
+      // OpenAI-compatible
+      return data.choices[0].message.content;
+    }
+  } catch (err) {
+    clearTimeout(timeout);
     throw err;
   }
 }

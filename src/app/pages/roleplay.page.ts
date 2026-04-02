@@ -84,10 +84,8 @@ type RoleplayView = 'list' | 'create' | 'session';
           <div class="max-w-2xl mx-auto bg-white rounded-xl border border-secondary-200 shadow-sm p-6">
             <h2 class="text-xl font-bold text-secondary-900 mb-6">Create New Session</h2>
             <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-secondary-700 mb-1">Session Name *</label>
-                <input [(ngModel)]="newSessionName" type="text" placeholder="e.g. My Adventure"
-                       class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"/>
+              <div class="p-4 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 mb-4">
+                <p><strong>Note:</strong> The session name will be automatically generated as "Universe Name - Timestamp".</p>
               </div>
               <div>
                 <label class="block text-sm font-medium text-secondary-700 mb-1">Universe *</label>
@@ -121,7 +119,7 @@ type RoleplayView = 'list' | 'create' | 'session';
                 </select>
               </div>
               <div class="pt-4 flex gap-3">
-                <button (click)="createSession()" [disabled]="isCreating() || !newSessionName.trim() || !selectedUniverseId"
+                <button (click)="createSession()" [disabled]="isCreating() || !selectedUniverseId"
                         class="btn-primary flex-1 disabled:opacity-50">
                   @if (isCreating()) { Creating... } @else { Start Roleplay }
                 </button>
@@ -172,6 +170,17 @@ type RoleplayView = 'list' | 'create' | 'session';
                 <h2 class="text-xl font-bold text-secondary-900 mb-4 flex items-center gap-2">
                   <span class="text-2xl">📱</span> Social Media
                 </h2>
+
+                <!-- User Post Box -->
+                <div class="mb-6 p-4 bg-secondary-50 rounded-xl border border-secondary-100">
+                  <textarea [(ngModel)]="newUserPostContent" placeholder="What's happening in this universe?"
+                            class="w-full p-3 rounded-lg border border-secondary-200 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 text-sm bg-white min-h-[80px] resize-none"></textarea>
+                  <div class="mt-2 flex justify-end">
+                    <button (click)="sendPost()" [disabled]="isLoading() || !newUserPostContent.trim()"
+                            class="btn-primary text-xs py-1.5 px-4 disabled:opacity-50">Post</button>
+                  </div>
+                </div>
+
                 <div class="space-y-4">
                   @if (currentSession()?.posts?.length === 0) {
                     <div class="text-center py-16">
@@ -190,20 +199,47 @@ type RoleplayView = 'list' | 'create' | 'session';
                           </div>
                         </div>
                         <p class="text-sm text-secondary-800 whitespace-pre-wrap leading-relaxed">{{ post.content }}</p>
+
+                        <!-- Replies -->
+                        @if (post.replies && post.replies.length > 0) {
+                          <div class="mt-4 ml-8 space-y-3 border-l-2 border-secondary-50 pl-4">
+                            @for (reply of post.replies; track reply.id) {
+                              <div class="text-xs">
+                                <span class="font-bold text-secondary-900">{{ reply.characterName }}</span>
+                                <p class="text-secondary-700 mt-0.5">{{ reply.content }}</p>
+                                <p class="text-[10px] text-muted mt-1">{{ reply.timestamp | date:'short' }}</p>
+                              </div>
+                            }
+                          </div>
+                        }
+
                         <div class="mt-4 pt-3 border-t border-secondary-50 flex items-center gap-6">
-                          <button class="flex items-center gap-1.5 text-xs text-muted hover:text-red-500 transition-colors">
+                          <button (click)="likePost(post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-red-500 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
                             {{ post.likes }}
                           </button>
-                          <button class="flex items-center gap-1.5 text-xs text-muted hover:text-primary-500 transition-colors">
+                          <button (click)="activeReplyId.set(activeReplyId() === post.id ? null : post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-primary-500 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                             Reply
                           </button>
-                          <button class="flex items-center gap-1.5 text-xs text-muted hover:text-green-500 transition-colors">
+                          <button (click)="repost(post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-green-500 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
                             Repost
                           </button>
                         </div>
+
+                        <!-- Inline Reply Input -->
+                        @if (activeReplyId() === post.id) {
+                          <div class="mt-3 p-3 bg-secondary-50 rounded-lg">
+                            <textarea [(ngModel)]="replyContent" placeholder="Write a reply..."
+                                      class="w-full p-2 text-xs rounded border border-secondary-200 focus:outline-none focus:ring-1 focus:ring-primary-500 min-h-[60px] resize-none bg-white"></textarea>
+                            <div class="mt-2 flex justify-end gap-2">
+                              <button (click)="activeReplyId.set(null)" class="text-[10px] text-muted hover:text-secondary-800">Cancel</button>
+                              <button (click)="sendReply(post.id)" [disabled]="isLoading() || !replyContent.trim()"
+                                      class="btn-primary text-[10px] py-1 px-3 disabled:opacity-50">Reply</button>
+                            </div>
+                          </div>
+                        }
                       </div>
                     }
                   }
@@ -231,11 +267,15 @@ export class RoleplayPageComponent implements OnInit {
   errorMessage = signal('');
 
   // Creation State
-  newSessionName = '';
   selectedUniverseId = '';
   selectedCharacterIds = new Set<string>();
   selectedPersonaId: string | null = null;
   currentUniverseCharacters = signal<any[]>([]);
+
+  // Interaction State
+  newUserPostContent = '';
+  replyContent = '';
+  activeReplyId = signal<string | null>(null);
 
   async ngOnInit() {
     await this.loadData();
@@ -260,7 +300,6 @@ export class RoleplayPageComponent implements OnInit {
   }
 
   showCreate() {
-    this.newSessionName = '';
     this.selectedUniverseId = '';
     this.selectedCharacterIds.clear();
     this.selectedPersonaId = null;
@@ -286,11 +325,11 @@ export class RoleplayPageComponent implements OnInit {
   }
 
   async createSession() {
-    if (!this.newSessionName.trim() || !this.selectedUniverseId) return;
+    if (!this.selectedUniverseId) return;
     this.isCreating.set(true);
     try {
       const session = await this.roleplayService.createSession(
-        this.newSessionName.trim(),
+        'Auto Generated Name', // Backend will replace this
         this.selectedUniverseId,
         Array.from(this.selectedCharacterIds),
         this.selectedPersonaId
@@ -351,6 +390,58 @@ export class RoleplayPageComponent implements OnInit {
       await this.loadData();
     } catch {
       this.errorMessage.set('Failed to delete session');
+    }
+  }
+
+  async sendPost() {
+    if (!this.currentSession() || !this.newUserPostContent.trim()) return;
+    this.isLoading.set(true);
+    try {
+      const session = await this.roleplayService.post(this.currentSession()!.id, this.newUserPostContent.trim());
+      this.currentSession.set(session);
+      this.newUserPostContent = '';
+    } catch {
+      this.errorMessage.set('Failed to create post');
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  async sendReply(postId: string) {
+    if (!this.currentSession() || !this.replyContent.trim()) return;
+    this.isLoading.set(true);
+    try {
+      const session = await this.roleplayService.reply(this.currentSession()!.id, postId, this.replyContent.trim());
+      this.currentSession.set(session);
+      this.replyContent = '';
+      this.activeReplyId.set(null);
+    } catch {
+      this.errorMessage.set('Failed to send reply');
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  async likePost(postId: string) {
+    if (!this.currentSession()) return;
+    try {
+      const session = await this.roleplayService.like(this.currentSession()!.id, postId);
+      this.currentSession.set(session);
+    } catch {
+      this.errorMessage.set('Failed to like post');
+    }
+  }
+
+  async repost(postId: string) {
+    if (!this.currentSession()) return;
+    this.isLoading.set(true);
+    try {
+      const session = await this.roleplayService.repost(this.currentSession()!.id, postId);
+      this.currentSession.set(session);
+    } catch {
+      this.errorMessage.set('Failed to repost');
+    } finally {
+      this.isLoading.set(false);
     }
   }
 }
