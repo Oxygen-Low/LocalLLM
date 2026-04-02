@@ -1454,10 +1454,6 @@ app.post('/api/admin/users/delete', async (req, res) => {
 // Universes & Characters – Admin management endpoints
 // ---------------------------------------------------------------------------
 
-const MAX_UNIVERSE_NAME_LENGTH = 100;
-const MAX_UNIVERSE_DESCRIPTION_LENGTH = 5000;
-const MAX_CHARACTER_NAME_LENGTH = 100;
-const MAX_CHARACTER_DESCRIPTION_LENGTH = 5000;
 
 // GET /api/universes – List all universes with characters (names only for non-admin)
 app.get('/api/universes', requireSession, (req, res) => {
@@ -1506,14 +1502,8 @@ app.post('/api/admin/universes', async (req, res) => {
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Universe name is required' });
     }
-    if (name.trim().length > MAX_UNIVERSE_NAME_LENGTH) {
-      return res.status(400).json({ success: false, error: `Universe name must be at most ${MAX_UNIVERSE_NAME_LENGTH} characters` });
-    }
     if (description != null && typeof description !== 'string') {
       return res.status(400).json({ success: false, error: 'Universe description must be a string' });
-    }
-    if (typeof description === 'string' && description.length > MAX_UNIVERSE_DESCRIPTION_LENGTH) {
-      return res.status(400).json({ success: false, error: `Universe description must be at most ${MAX_UNIVERSE_DESCRIPTION_LENGTH} characters` });
     }
 
     const universes = readUniverses();
@@ -1546,14 +1536,8 @@ app.put('/api/admin/universes/:id', async (req, res) => {
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Universe name is required' });
     }
-    if (name.trim().length > MAX_UNIVERSE_NAME_LENGTH) {
-      return res.status(400).json({ success: false, error: `Universe name must be at most ${MAX_UNIVERSE_NAME_LENGTH} characters` });
-    }
     if (description != null && typeof description !== 'string') {
       return res.status(400).json({ success: false, error: 'Universe description must be a string' });
-    }
-    if (typeof description === 'string' && description.length > MAX_UNIVERSE_DESCRIPTION_LENGTH) {
-      return res.status(400).json({ success: false, error: `Universe description must be at most ${MAX_UNIVERSE_DESCRIPTION_LENGTH} characters` });
     }
 
     const universes = readUniverses();
@@ -1615,14 +1599,8 @@ app.post('/api/admin/universes/:universeId/characters', async (req, res) => {
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Character name is required' });
     }
-    if (name.trim().length > MAX_CHARACTER_NAME_LENGTH) {
-      return res.status(400).json({ success: false, error: `Character name must be at most ${MAX_CHARACTER_NAME_LENGTH} characters` });
-    }
     if (description != null && typeof description !== 'string') {
       return res.status(400).json({ success: false, error: 'Character description must be a string' });
-    }
-    if (typeof description === 'string' && description.length > MAX_CHARACTER_DESCRIPTION_LENGTH) {
-      return res.status(400).json({ success: false, error: `Character description must be at most ${MAX_CHARACTER_DESCRIPTION_LENGTH} characters` });
     }
 
     const universes = readUniverses();
@@ -1660,14 +1638,8 @@ app.put('/api/admin/universes/:universeId/characters/:characterId', async (req, 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Character name is required' });
     }
-    if (name.trim().length > MAX_CHARACTER_NAME_LENGTH) {
-      return res.status(400).json({ success: false, error: `Character name must be at most ${MAX_CHARACTER_NAME_LENGTH} characters` });
-    }
     if (description != null && typeof description !== 'string') {
       return res.status(400).json({ success: false, error: 'Character description must be a string' });
-    }
-    if (typeof description === 'string' && description.length > MAX_CHARACTER_DESCRIPTION_LENGTH) {
-      return res.status(400).json({ success: false, error: `Character description must be at most ${MAX_CHARACTER_DESCRIPTION_LENGTH} characters` });
     }
 
     const universes = readUniverses();
