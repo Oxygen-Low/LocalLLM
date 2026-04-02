@@ -5347,12 +5347,26 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     if (characterId) {
       const universes = readUniverses();
       let character = null;
+      let universe = null;
       for (const u of universes) {
         character = (u.characters || []).find((c) => c.id === characterId);
-        if (character) break;
+        if (character) {
+          universe = u;
+          break;
+        }
       }
-      if (character && character.description) {
-        characterPrompt = `You are playing the role of "${character.name}". ${character.description}\n\n`;
+      if (character) {
+        characterPrompt = `You are playing the role of "${character.name}".`;
+        if (universe) {
+          characterPrompt += ` This character is part of the universe "${universe.name}".`;
+          if (universe.description) {
+            characterPrompt += ` Universe description: ${universe.description}`;
+          }
+        }
+        if (character.description) {
+          characterPrompt += ` Character description: ${character.description}`;
+        }
+        characterPrompt += '\n\n';
       }
     }
 
