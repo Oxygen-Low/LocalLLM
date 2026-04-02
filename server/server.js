@@ -2934,12 +2934,14 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       const credentialHelperStep = gitToken
         ? 'git config --global credential.helper \'!f() { echo "password=$GIT_TOKEN"; }; f\''
         : null;
+      const b64Branch = Buffer.from(branchName).toString('base64');
+      const b64CloneUrl = Buffer.from(cloneUrl).toString('base64');
       const initScript = [
         'set -e',
         'mkdir -p /workspace',
         'apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1',
         ...(credentialHelperStep ? [credentialHelperStep] : []),
-        `git clone --branch "${branchName}" --single-branch "${cloneUrl}" /workspace 2>/dev/null || (echo "ERROR: Failed to clone repository. If this is a private repository, configure a Personal Access Token in Settings." >&2 && exit 1)`,
+        `git clone --branch "$(echo '${b64Branch}' | base64 -d)" --single-branch "$(echo '${b64CloneUrl}' | base64 -d)" /workspace 2>/dev/null || (echo "ERROR: Failed to clone repository. If this is a private repository, configure a Personal Access Token in Settings." >&2 && exit 1)`,
         'unset GIT_TOKEN',
         'cd /workspace',
         'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
@@ -3166,9 +3168,10 @@ app.get('/api/coding-agent/containers/:id/files', requireSession, (req, res) => 
 
     try {
       const { execFileSync } = require('child_process');
+      const b64DirPath = Buffer.from(dirPath).toString('base64');
       const output = execFileSync('docker', [
         'exec', container.dockerName,
-        'bash', '-c', `cd /workspace && find "${dirPath}" -maxdepth 1 -printf '%y %p\\n' 2>/dev/null | head -500`,
+        'bash', '-c', `cd /workspace && find "$(echo '${b64DirPath}' | base64 -d)" -maxdepth 1 -printf '%y %p\\n' 2>/dev/null | head -500`,
       ], { timeout: 10000, encoding: 'utf-8' });
 
       const files = output.trim().split('\n').filter(Boolean).map(line => {
