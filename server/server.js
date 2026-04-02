@@ -3368,10 +3368,10 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
       }
     }
 
-    sendProgress('analyze', 'Analyzing page with Playwright...');
+    sendProgress('analyze', 'Installing Playwright and analyzing page...');
 
     const playwrightScript = `
-const { chromium } = require('playwright');
+const { chromium } = require('playwright-core');
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
@@ -3426,7 +3426,7 @@ const { chromium } = require('playwright');
 })();
 `;
     const b64Script = Buffer.from(playwrightScript).toString('base64');
-    const playwrightResultRaw = await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', `echo '${b64Script}' | base64 -d > /tmp/check.js && node /tmp/check.js`], { timeout: 60000 });
+    const playwrightResultRaw = await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', `npm install playwright-core@1.45.0 > /dev/null 2>&1 && echo '${b64Script}' | base64 -d > /tmp/check.js && node /tmp/check.js`], { timeout: 120000 });
 
     let playwrightResult;
     try {
@@ -5230,6 +5230,11 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     });
     res.end();
   } catch (err) {
+    if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+      // Expected when client disconnects or request times out
+      if (!res.writableEnded) res.end();
+      return;
+    }
     const errorId = crypto.randomUUID();
     console.error(`Chat send error [${errorId}]:`, err);
     // If headers already sent (SSE started), send error as SSE event
@@ -5267,10 +5272,10 @@ async function performWebSearch(query, username) {
       '--cpus=1',
       '--network=bridge',
       'mcr.microsoft.com/playwright:v1.45.0-jammy',
-      'bash', '-c', `echo '${b64Script}' | base64 -d > /tmp/search.js && echo '${b64Query}' | base64 -d | node /tmp/search.js`
+      'bash', '-c', `npm install playwright-core@1.45.0 > /dev/null 2>&1 && echo '${b64Script}' | base64 -d > /tmp/search.js && echo '${b64Query}' | base64 -d | node /tmp/search.js`
     ];
 
-    const resultRaw = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+    const resultRaw = await runCommandAsync('docker', dockerArgs, { timeout: 120000 });
     return JSON.parse(resultRaw);
   } catch (err) {
     console.error('Web search error:', err.message);
