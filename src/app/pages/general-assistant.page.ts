@@ -1,8 +1,11 @@
 import { Component, inject, signal, ViewChild, ElementRef, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { marked } from 'marked';
+import { environment } from '../../environments/environment';
 import { LlmService, type Chat, type ChatMessage, type ChatSummary, type MessageAlternative, type ProviderInfo, type SendMessageOptions, type SearchEvent, type StreamResult, type UniverseSummary, type UniverseCharacterSummary, type Persona } from '../services/llm.service';
 
 @Component({
@@ -162,7 +165,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           [ngClass]="msg.role === 'user'
                             ? 'bg-primary-600 text-white rounded-br-md prose-invert'
                             : 'bg-white border border-secondary-200 text-secondary-800 rounded-bl-md shadow-sm'"
-                        ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(getContentAsString(msg.content))"></div></div>
+                        ><div class="prose prose-sm max-w-none" [ngClass]="msg.role === 'user' ? 'prose-invert' : 'prose-secondary'" [innerHTML]="renderMarkdown(getContentAsString(msg.displayContent ?? msg.content))"></div></div>
                         <!-- Per-message action buttons -->
                         <div
                           class="flex items-center gap-0.5"
@@ -426,20 +429,48 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                 }
               </div>
 
-              <!-- Web Search Toggle -->
-              <button
-                type="button"
-                (click)="webSearchEnabled.set(!webSearchEnabled())"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
-                [ngClass]="webSearchEnabled()
-                  ? 'border-primary-300 bg-primary-50 text-primary-700'
-                  : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
-              >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                Search
-              </button>
+              <!-- MCPs Dropdown -->
+              <div class="relative" #mcpDropdown>
+                <button
+                  type="button"
+                  (click)="toggleMcpDropdown($event)"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                  [ngClass]="webSearchEnabled()
+                    ? 'border-primary-300 bg-primary-50 text-primary-700'
+                    : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  MCPs
+                  <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                @if (showMcpDropdown()) {
+                  <div class="absolute bottom-full left-0 mb-1 w-48 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
+                    <button
+                      (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
+                      class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                      [ngClass]="webSearchEnabled() ? 'text-primary-700 font-medium' : 'text-secondary-700'"
+                    >
+                      <div class="flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        Web Search
+                      </div>
+                      @if (webSearchEnabled()) {
+                        <svg class="w-4 h-4 text-primary-600" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        </svg>
+                      }
+                    </button>
+                  </div>
+                }
+              </div>
 
               <!-- Think Toggle -->
               <button
@@ -598,8 +629,10 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   @ViewChild('providerDropdown') providerDropdown!: ElementRef;
   @ViewChild('characterDropdown') characterDropdown!: ElementRef;
   @ViewChild('personaDropdown') personaDropdown!: ElementRef;
+  @ViewChild('mcpDropdown') mcpDropdown!: ElementRef;
 
   private llmService = inject(LlmService);
+  private http = inject(HttpClient);
 
   sidebarOpen = signal(true);
   chatList = signal<ChatSummary[]>([]);
@@ -609,6 +642,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   selectedProvider = signal<ProviderInfo | null>(null);
   showProviderDropdown = signal(false);
   expandedProvider = signal<string | null>(null);
+  showMcpDropdown = signal(false);
   webSearchEnabled = signal(false);
   thinkEnabled = signal(false);
   userMessage = '';
@@ -630,6 +664,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   streamingContent = signal('');
   streamingSearches = signal<SearchEvent[]>([]);
   thinkingDone = signal(false);
+  toolIterationCount = signal(0);
 
   // Edit state
   editingMessageIndex = signal<number | null>(null);
@@ -656,6 +691,10 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       if (this.showPersonaDropdown() && this.personaDropdown &&
           !this.personaDropdown.nativeElement.contains(e.target as Node)) {
         this.showPersonaDropdown.set(false);
+      }
+      if (this.showMcpDropdown() && this.mcpDropdown &&
+          !this.mcpDropdown.nativeElement.contains(e.target as Node)) {
+        this.showMcpDropdown.set(false);
       }
     };
     document.addEventListener('click', this.clickOutsideListener);
@@ -736,6 +775,11 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     if (!opening) {
       this.expandedProvider.set(null);
     }
+  }
+
+  toggleMcpDropdown(event: Event): void {
+    event.stopPropagation();
+    this.showMcpDropdown.set(!this.showMcpDropdown());
   }
 
   async loadChatList(): Promise<void> {
@@ -946,9 +990,22 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
     }
 
+    if (this.webSearchEnabled()) {
+      await this.runAiLoop(updatedMessages, title);
+    } else {
+      await this.runNormalAssistantTurn(updatedMessages, title);
+    }
+  }
+
+  private async runNormalAssistantTurn(messages: ChatMessage[], title: string): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat) return;
+    const provider = this.selectedProvider();
+    if (!provider) return;
+
     let result: StreamResult;
     try {
-      result = await this.runStreamRequest(this.buildLlmMessages(updatedMessages));
+      result = await this.runStreamRequest(this.buildLlmMessages(messages));
     } catch (err: unknown) {
       if (err instanceof Error) {
         this.errorMessage.set(err.message);
@@ -967,7 +1024,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       timestamp: new Date().toISOString(),
     };
 
-    const finalMessages = [...updatedMessages, assistantMsg];
+    const finalMessages = [...messages, assistantMsg];
 
     try {
       // Save to server
@@ -1188,12 +1245,38 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   // ---------------------------------------------------------------------------
 
   /** Prepend the system prompt and strip any stored system messages from the chat history. */
-  private buildLlmMessages(chatMessages: ChatMessage[]): ChatMessage[] {
+  private buildLlmMessages(chatMessages: ChatMessage[], withTools = false): ChatMessage[] {
+    let systemContent = 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use markdown formatting like headings, lists, code blocks, and emphasis for readability.';
+
+    if (withTools) {
+      systemContent += `\n\nYou have access to the following tools. To use a tool, you MUST output the exact format below in your response. Do not use markdown blocks for tool calls.
+
+[TOOL: tool_name]
+{"param": "value"}
+[/TOOL]
+
+Available tools:
+
+1. web_search - Perform a web search to get up-to-date information. Params: {"query": "search query"}
+
+Guidelines for tool use:
+- **Think step-by-step.** Explain your reasoning before using tools.
+- **Verification.** After using a tool, analyze the output and decide on the next step.
+- **Continuity.** Only stop when the task is complete or you need user clarification.`;
+    }
+
     const systemPrompt: ChatMessage = {
       role: 'system',
-      content: 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use markdown formatting like headings, lists, code blocks, and emphasis for readability.',
+      content: systemContent,
     };
-    return [systemPrompt, ...chatMessages.filter(m => m.role !== 'system')];
+
+    const msgs: ChatMessage[] = [systemPrompt];
+    for (const m of chatMessages) {
+      if (m.role !== 'system') {
+        msgs.push(m);
+      }
+    }
+    return msgs;
   }
 
   /** Set up streaming state, call the LLM, and clean up when done. */
@@ -1208,7 +1291,6 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     this.thinkingDone.set(false);
 
     const options: SendMessageOptions = {};
-    if (this.webSearchEnabled()) options.webSearch = true;
     if (this.thinkEnabled()) options.think = true;
     if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
     if (this.selectedPersona()) options.personaId = this.selectedPersona()?.id;
@@ -1320,5 +1402,137 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
       return content.map(p => p.text || '').join('\n');
     }
     return '';
+  }
+
+  private async runAiLoop(initialMessages: ChatMessage[], title: string): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat) return;
+    const provider = this.selectedProvider();
+    if (!provider) return;
+
+    let currentMessages = [...initialMessages];
+    let aggregatedSearches: SearchEvent[] = [];
+
+    for (let iteration = 0; iteration < 10; iteration++) {
+      this.toolIterationCount.set(iteration);
+
+      const llmMessages = this.buildLlmMessages(currentMessages, true);
+      let result: StreamResult;
+      try {
+        result = await this.runStreamRequest(llmMessages);
+      } catch (err: unknown) {
+        if (err instanceof Error) this.errorMessage.set(err.message);
+        else this.errorMessage.set('Failed to get response');
+        return;
+      }
+
+      const fullContent = result.content;
+      const toolCalls = this.parseToolCalls(fullContent);
+      const cleanedContent = this.stripToolCalls(fullContent).trim();
+
+      // For assistant messages, we use displayContent to hide TOOL blocks
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: fullContent,
+        displayContent: cleanedContent || (toolCalls.length > 0 ? undefined : '...'),
+        thinking: result.thinking || undefined,
+        searches: aggregatedSearches.length > 0 ? [...aggregatedSearches] : undefined,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Add assistant message to UI immediately for this turn
+      currentMessages = [...currentMessages, assistantMsg];
+      this.currentChat.set({ ...chat, messages: currentMessages });
+      this.scrollToBottom();
+
+      if (toolCalls.length === 0) {
+        // Finalize and save
+        try {
+          const updated = await this.llmService.updateChat(chat.id, {
+            messages: currentMessages,
+            title,
+            provider: provider.id,
+            model: provider.model,
+          });
+          this.currentChat.set(updated);
+          await this.loadChatList();
+        } catch {
+          this.errorMessage.set('Failed to save chat');
+        }
+        return;
+      }
+
+      // Execute tool calls
+      for (const tc of toolCalls) {
+        if (tc.name === 'web_search') {
+          const query = tc.params['query'] as string;
+          if (query) {
+            // Show "Searching" in UI
+            this.streamingSearches.update(s => [...s, { status: 'searching', query }]);
+            this.scrollToBottom();
+
+            try {
+              const searchRes = await firstValueFrom(
+                this.http.post<{ success: boolean, results: any[] }>(
+                  `${environment.apiUrl}/api/search`,
+                  { query }
+                )
+              );
+
+              const resultsText = searchRes.results.map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}`).join('\n\n');
+              const toolResultMsg: ChatMessage = {
+                role: 'user', // Tool results are presented as user messages with context
+                content: `[TOOL_RESULT: web_search]\n${resultsText}\n[/TOOL_RESULT]`,
+                timestamp: new Date().toISOString(),
+              };
+              currentMessages = [...currentMessages, toolResultMsg];
+
+              // Update searching to searched
+              const searchResultEvent: SearchEvent = { status: 'searched', query, url: searchRes.results[0]?.url };
+              aggregatedSearches.push(searchResultEvent);
+
+              this.streamingSearches.update(s => {
+                const idx = s.findIndex(e => e.status === 'searching' && e.query === query);
+                if (idx >= 0) {
+                  const updated = [...s];
+                  updated[idx] = searchResultEvent;
+                  return updated;
+                }
+                return s;
+              });
+            } catch (err) {
+              const toolResultMsg: ChatMessage = {
+                role: 'user',
+                content: `[TOOL_RESULT: web_search]\nError: Failed to perform search\n[/TOOL_RESULT]`,
+                timestamp: new Date().toISOString(),
+              };
+              currentMessages = [...currentMessages, toolResultMsg];
+            }
+          }
+        }
+      }
+
+      this.currentChat.set({ ...chat, messages: currentMessages });
+      this.scrollToBottom();
+    }
+  }
+
+  private parseToolCalls(content: string): any[] {
+    const calls: any[] = [];
+    const regex = /\[TOOL:\s*(\w+)\]\s*\n([\s\S]*?)\n\[\/TOOL\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      try {
+        const params = JSON.parse(match[2].trim());
+        calls.push({ name: match[1], params });
+      } catch {
+        calls.push({ name: match[1], params: {} });
+      }
+    }
+    return calls;
+  }
+
+  private stripToolCalls(content: string): string {
+    return content.replace(/\[TOOL:\s*\w+\]\s*\n[\s\S]*?\n\[\/TOOL\]/g, '').trim();
   }
 }

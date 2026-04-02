@@ -5246,6 +5246,57 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
   }
 });
 
+/**
+ * Perform a web search using a temporary Docker container with Playwright.
+ */
+async function performWebSearch(query, username) {
+  const containerId = crypto.randomUUID();
+  const containerName = `search-${sanitizeUsernameForPath(username)}-${containerId.slice(0, 8)}`;
+
+  try {
+    // Read the search script
+    const searchScript = fs.readFileSync(path.join(__dirname, 'search-tool.js'), 'utf-8');
+    const b64Script = Buffer.from(searchScript).toString('base64');
+
+    // We use the same playwright image as for Web SEO
+    const b64Query = Buffer.from(query).toString('base64');
+    const dockerArgs = [
+      'run', '--rm', '-i',
+      '--name', containerName,
+      '--memory=1g',
+      '--cpus=1',
+      '--network=bridge',
+      'mcr.microsoft.com/playwright:v1.45.0-jammy',
+      'bash', '-c', `echo '${b64Script}' | base64 -d > /tmp/search.js && echo '${b64Query}' | base64 -d | node /tmp/search.js`
+    ];
+
+    const resultRaw = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+    return JSON.parse(resultRaw);
+  } catch (err) {
+    console.error('Web search error:', err.message);
+    throw new Error('Web search failed: ' + err.message);
+  }
+}
+
+// POST /api/search – Perform a web search
+app.post('/api/search', requireSession, async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ success: false, error: 'Query is required' });
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available' });
+    }
+
+    const results = await performWebSearch(query, req.sessionUser);
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/providers – List available providers and their status for user
 app.get('/api/providers', requireSession, async (req, res) => {
   try {

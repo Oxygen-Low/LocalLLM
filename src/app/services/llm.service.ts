@@ -21,6 +21,7 @@ export interface MessageContentPart {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string | MessageContentPart[];
+  displayContent?: string;
   timestamp?: string;
   thinking?: string;
   searches?: SearchEvent[];
