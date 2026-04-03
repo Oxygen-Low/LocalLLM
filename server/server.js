@@ -836,6 +836,10 @@ async function verifyAdminCredentials(adminUsername, adminPassword) {
     return false;
   }
 
+  if (!validatePasswordHash(adminPassword)) {
+    return false;
+  }
+
   const adminUser = findUser(adminUsername);
   if (!adminUser || adminUser.username !== ADMIN_USERNAME) {
     return false;
@@ -986,6 +990,10 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password is required' });
     }
 
+    if (!validatePasswordHash(password)) {
+      return res.status(400).json({ success: false, error: 'Invalid password format' });
+    }
+
     // A.8.25: Server-side username validation
     const usernameErrors = validateUsername(username);
     if (usernameErrors.length > 0) {
@@ -1033,6 +1041,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     if (!username || !password) {
       return res.status(400).json({ success: false, error: 'Username and password are required' });
+    }
+
+    if (!validatePasswordHash(password)) {
+      return res.status(400).json({ success: false, error: 'Invalid password format' });
     }
 
     const normalizedUsername = normalizeUsername(username);
@@ -1084,6 +1096,10 @@ app.put('/api/auth/change-password', authLimiter, requireSession, async (req, re
 
     if (!newPassword || typeof newPassword !== 'string') {
       return res.status(400).json({ success: false, error: 'New password is required' });
+    }
+
+    if (!validatePasswordHash(newPassword)) {
+      return res.status(400).json({ success: false, error: 'Invalid password format' });
     }
 
     // Enforce 3-minute cooldown between password changes
@@ -1308,6 +1324,10 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     if (!password || typeof password !== 'string') {
       return res.status(400).json({ success: false, error: 'Password is required' });
+    }
+
+    if (!validatePasswordHash(password)) {
+      return res.status(400).json({ success: false, error: 'Invalid password format' });
     }
 
     const users = readUsers();
