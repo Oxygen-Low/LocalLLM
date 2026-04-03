@@ -11,12 +11,14 @@ import { RepositoriesService } from './services/repositories.service';
 import { AdminService } from './services/admin.service';
 import { CodingAgentService } from './services/coding-agent.service';
 import { WebSeoService } from './services/web-seo.service';
+import { RoleplayService } from './services/roleplay.service';
 import { MockAuthService } from './services/mocks/mock-auth.service';
 import { MockLlmService } from './services/mocks/mock-llm.service';
 import { MockRepositoriesService } from './services/mocks/mock-repositories.service';
 import { MockAdminService } from './services/mocks/mock-admin.service';
 import { MockCodingAgentService } from './services/mocks/mock-coding-agent.service';
 import { MockWebSeoService } from './services/mocks/mock-web-seo.service';
+import { MockRoleplayService } from './services/mocks/mock-roleplay.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -32,6 +34,7 @@ export const appConfig: ApplicationConfig = {
           { provide: AdminService, useClass: MockAdminService },
           { provide: CodingAgentService, useClass: MockCodingAgentService },
           { provide: WebSeoService, useClass: MockWebSeoService },
+          { provide: RoleplayService, useClass: MockRoleplayService },
         ]
       : []),
   ]

@@ -10,6 +10,7 @@ import {
   StreamCallbacks,
   StreamResult,
   UniverseSummary,
+  Persona,
 } from '../llm.service';
 
 @Injectable({
@@ -43,7 +44,30 @@ export class MockLlmService {
   }
 
   async getUniverses(): Promise<UniverseSummary[]> {
-    return [];
+    return [
+      {
+        id: 'u1',
+        name: 'Cyberpunk 2077',
+        characters: [
+          { id: 'c1', name: 'Johnny Silverhand' },
+          { id: 'c2', name: 'V' }
+        ]
+      },
+      {
+        id: 'u2',
+        name: 'Middle-earth',
+        characters: [
+          { id: 'c3', name: 'Gandalf' },
+          { id: 'c4', name: 'Frodo' }
+        ]
+      }
+    ];
+  }
+
+  async getPersonas(): Promise<Persona[]> {
+    return [
+      { id: 'p1', name: 'Mercenary', description: 'A tough gun for hire', createdAt: new Date().toISOString() }
+    ];
   }
 
   async listChats(): Promise<ChatSummary[]> {

@@ -90,6 +90,46 @@ export class RoleplayService {
     return res.session;
   }
 
+  async post(id: string, content: string): Promise<RoleplaySession> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; session: RoleplaySession }>(
+        `${environment.apiUrl}/api/roleplay/sessions/${id}/post`,
+        { content }
+      )
+    );
+    return res.session;
+  }
+
+  async reply(id: string, postId: string, content: string): Promise<RoleplaySession> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; session: RoleplaySession }>(
+        `${environment.apiUrl}/api/roleplay/sessions/${id}/reply`,
+        { postId, content }
+      )
+    );
+    return res.session;
+  }
+
+  async like(id: string, postId: string): Promise<RoleplaySession> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; session: RoleplaySession }>(
+        `${environment.apiUrl}/api/roleplay/sessions/${id}/like`,
+        { postId }
+      )
+    );
+    return res.session;
+  }
+
+  async repost(id: string, postId: string): Promise<RoleplaySession> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; session: RoleplaySession }>(
+        `${environment.apiUrl}/api/roleplay/sessions/${id}/repost`,
+        { postId }
+      )
+    );
+    return res.session;
+  }
+
   async deleteSession(id: string): Promise<void> {
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/roleplay/sessions/${id}`)
