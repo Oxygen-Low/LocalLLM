@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const dns = require('dns');
+const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
 const selfsigned = require('selfsigned');
 
@@ -875,8 +876,6 @@ let pythonProcess = null;
  * terminated during graceful shutdown.
  */
 function startPythonProcess() {
-  const { execFileSync, spawn } = require('child_process');
-
   // Determine the system Python binary
   const pythonBin = process.platform === 'win32' ? 'python' : 'python3';
 
@@ -900,33 +899,44 @@ function startPythonProcess() {
   }
 
   // Spawn the service script inside the venv
-  try {
-    pythonProcess = spawn(venvPython, [PYTHON_SERVICE_SCRIPT], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  function spawnPython() {
+    try {
+      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-    pythonProcess.stdout.on('data', (data) => {
-      console.log(`[python] ${data.toString().trim()}`);
-    });
+      proc.stdout.on('data', (data) => {
+        console.log(`[python] ${data.toString().trim()}`);
+      });
 
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`[python] ${data.toString().trim()}`);
-    });
+      proc.stderr.on('data', (data) => {
+        console.error(`[python] ${data.toString().trim()}`);
+      });
 
-    pythonProcess.on('close', (code) => {
-      console.log(`[python] Process exited with code ${code}`);
-      pythonProcess = null;
-    });
+      proc.on('close', (code) => {
+        if (code !== 0 && code !== null) {
+          console.warn(`[python] Process exited unexpectedly with code ${code}, restarting...`);
+          pythonProcess = null;
+          setTimeout(spawnPython, 1000);
+        } else {
+          console.log(`[python] Process exited with code ${code}`);
+          pythonProcess = null;
+        }
+      });
 
-    pythonProcess.on('error', (err) => {
-      console.error('[python] Failed to start:', err.message);
-      pythonProcess = null;
-    });
+      proc.on('error', (err) => {
+        console.error('[python] Failed to start:', err.message);
+        pythonProcess = null;
+      });
 
-    console.log('Python service started (pid:', pythonProcess.pid + ')');
-  } catch (err) {
-    console.error('Failed to start Python service:', err.message);
+      pythonProcess = proc;
+      console.log('Python service started (pid:', proc.pid + ')');
+    } catch (err) {
+      console.error('Failed to start Python service:', err.message);
+    }
   }
+
+  spawnPython();
 }
 
 /**
@@ -935,8 +945,17 @@ function startPythonProcess() {
 function stopPythonProcess() {
   if (pythonProcess) {
     console.log('Stopping Python service...');
-    pythonProcess.kill('SIGTERM');
-    pythonProcess = null;
+    const proc = pythonProcess;
+    pythonProcess = null; // Prevent auto-restart in the close handler
+    proc.kill('SIGTERM');
+
+    // Force-kill if the process does not exit within 5 seconds
+    const killTimer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch { /* already exited */ }
+    }, 5000);
+    killTimer.unref();
+
+    proc.on('close', () => clearTimeout(killTimer));
   }
 }
 
