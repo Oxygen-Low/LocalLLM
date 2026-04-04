@@ -23,6 +23,15 @@ export interface Universe {
   characters: Character[];
 }
 
+export interface LocalModel {
+  id: string;
+  name: string;
+  filename: string;
+  originalFilename: string;
+  size: number;
+  uploadedAt: string;
+}
+
 interface AdminListResponse {
   success: boolean;
   error?: string;
@@ -231,6 +240,58 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update app settings' };
+    }
+  }
+
+  // --- LLM Models ---
+
+  async listModels(adminPasswordHash: string): Promise<{ success: boolean; error?: string; models?: LocalModel[] }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; models?: LocalModel[] }>(`${environment.apiUrl}/api/admin/models/list`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to load models' };
+    }
+  }
+
+  async uploadModel(file: File, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; model?: LocalModel }> {
+    try {
+      const formData = new FormData();
+      formData.append('model', file);
+      formData.append('name', name);
+
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(`${environment.apiUrl}/api/admin/models`, formData, {
+          headers: {
+            'X-Admin-Username': this.authService.username() ?? '',
+            'X-Admin-Password': adminPasswordHash,
+          },
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to upload model' };
+    }
+  }
+
+  async deleteModel(modelId: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<{ success: boolean; error?: string }>(`${environment.apiUrl}/api/admin/models/${modelId}`, {
+          body: {
+            adminUsername: this.authService.username(),
+            adminPassword: adminPasswordHash,
+          },
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete model' };
     }
   }
 }

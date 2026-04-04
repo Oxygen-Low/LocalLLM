@@ -9,6 +9,7 @@ const dns = require('dns');
 const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
 const selfsigned = require('selfsigned');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -93,93 +94,78 @@ function decryptData(encryptedStr, username) {
 }
 
 // ---------------------------------------------------------------------------
-// Kobold.cpp configuration
+// Local LLM model management (GGUF files via Python llama-cpp-python)
 // ---------------------------------------------------------------------------
-const KOBOLD_API_URL = process.env.KOBOLD_API_URL || 'http://localhost:5001';
-const KOBOLD_CHECK_TIMEOUT_MS = 5000; // 5-second timeout for kobold.cpp status checks
-const KOBOLD_CACHE_TTL_MS = 5000; // Cache kobold status for 5 seconds
+const MODELS_DIR = path.join(DATA_DIR, 'models');
+const MODELS_REGISTRY_FILE = path.join(DATA_DIR, 'models.json');
+const PYTHON_SERVICE_PORT = parseInt(process.env.PYTHON_SERVICE_PORT || '5555', 10);
+const PYTHON_SERVICE_URL = `http://127.0.0.1:${PYTHON_SERVICE_PORT}`;
 
-let koboldCache = { timestamp: 0, available: false, model: null };
-
-function resetKoboldCache() {
-  koboldCache = { timestamp: 0, available: false, model: null };
+// Ensure models directory exists
+if (!fs.existsSync(MODELS_DIR)) {
+  fs.mkdirSync(MODELS_DIR, { recursive: true });
 }
 
-async function checkKoboldStatus() {
-  const now = Date.now();
-  if (now - koboldCache.timestamp < KOBOLD_CACHE_TTL_MS) {
-    return { available: koboldCache.available, model: koboldCache.model };
+// In-process mutex for model registry mutations (prevents read-modify-write races)
+let _modelsRegistryLock = Promise.resolve();
+
+function withModelsLock(fn) {
+  const next = _modelsRegistryLock.then(fn, fn);
+  _modelsRegistryLock = next.catch(() => {});
+  return next;
+}
+
+/**
+ * Read the local models registry from disk.
+ * Returns an array of { id, name, filename, uploadedAt }.
+ */
+function readLocalModels() {
+  if (!fs.existsSync(MODELS_REGISTRY_FILE)) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync(MODELS_REGISTRY_FILE, 'utf-8'));
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
   }
-  let available = false;
-  let model = null;
+}
+
+/**
+ * Write the local models registry to disk.
+ */
+function writeLocalModels(models) {
+  fs.writeFileSync(MODELS_REGISTRY_FILE, JSON.stringify(models, null, 2), 'utf-8');
+}
+
+/**
+ * Get the absolute file path for a registered model.
+ */
+function getModelFilePath(model) {
+  const filePath = path.join(MODELS_DIR, model.filename);
+  ensureWithinDir(MODELS_DIR, filePath);
+  return filePath;
+}
+
+/**
+ * Check whether the Python LLM service is reachable.
+ */
+async function checkPythonServiceHealth() {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), KOBOLD_CHECK_TIMEOUT_MS);
-    const response = await fetch(`${KOBOLD_API_URL}/api/v1/model`, {
-      signal: controller.signal,
-    });
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${PYTHON_SERVICE_URL}/health`, { signal: controller.signal });
     clearTimeout(timeout);
-    if (response.ok) {
-      const data = await response.json();
-      available = true;
-      model = data.result || 'Server Model';
-    }
+    return res.ok;
   } catch {
-    // Kobold.cpp not reachable
+    return false;
   }
-  koboldCache = { timestamp: now, available, model };
-  return { available, model };
-}
-
-// ---------------------------------------------------------------------------
-// Ollama local LLM support
-// ---------------------------------------------------------------------------
-const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
-const OLLAMA_CHECK_TIMEOUT_MS = 5000;
-const OLLAMA_CACHE_TTL_MS = 5000;
-
-let ollamaCache = { timestamp: 0, available: false, models: [] };
-
-function resetOllamaCache() {
-  ollamaCache = { timestamp: 0, available: false, models: [] };
-}
-
-async function checkOllamaStatus() {
-  const now = Date.now();
-  if (now - ollamaCache.timestamp < OLLAMA_CACHE_TTL_MS) {
-    return { available: ollamaCache.available, models: ollamaCache.models };
-  }
-  let available = false;
-  let models = [];
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_CHECK_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${OLLAMA_API_URL}/api/tags`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data.models) && data.models.length > 0) {
-        available = true;
-        models = data.models.map(m => m.name).filter(Boolean);
-      }
-    }
-  } catch {
-    // Ollama not reachable
-  } finally {
-    clearTimeout(timeout);
-  }
-  ollamaCache = { timestamp: now, available, models };
-  return { available, models };
 }
 
 const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
+const LOCAL_MODEL_TIMEOUT_MULTIPLIER = 5; // Local models are slower, allow more time
 const LLM_DEFAULT_MAX_TOKENS = 4096;
 const THINK_MAX_TOKENS = 16000; // Higher limit to accommodate thinking + response tokens
 const ANTHROPIC_THINKING_BUDGET = 10000; // Budget tokens for Anthropic extended thinking
 const GOOGLE_THINKING_BUDGET = 8192; // Budget tokens for Google thinking mode
-const KOBOLD_STREAM_CHUNK_SIZE = 4; // Characters per simulated streaming chunk for Kobold
 
 // ---------------------------------------------------------------------------
 // Supported AI providers and their API configurations
@@ -871,9 +857,9 @@ function saveAllData() {
 let pythonProcess = null;
 
 /**
- * Ensures a Python venv exists and spawns the python_service.py script inside
- * it. The child process is kept alive for the lifetime of the server and is
- * terminated during graceful shutdown.
+ * Ensures a Python venv exists, installs llama-cpp-python, and spawns the
+ * python_service.py script inside it. The child process is kept alive for the
+ * lifetime of the server and is terminated during graceful shutdown.
  */
 function startPythonProcess() {
   // Determine the system Python binary
@@ -883,6 +869,10 @@ function startPythonProcess() {
   const venvPython = process.platform === 'win32'
     ? path.join(PYTHON_VENV_DIR, 'Scripts', 'python.exe')
     : path.join(PYTHON_VENV_DIR, 'bin', 'python3');
+
+  const venvPip = process.platform === 'win32'
+    ? path.join(PYTHON_VENV_DIR, 'Scripts', 'pip.exe')
+    : path.join(PYTHON_VENV_DIR, 'bin', 'pip');
 
   if (!fs.existsSync(venvPython)) {
     console.log('Creating Python virtual environment...');
@@ -898,10 +888,41 @@ function startPythonProcess() {
     }
   }
 
+  // Install llama-cpp-python only when explicitly allowed.
+  // Production deployments should preinstall this dependency at build/deploy time.
+  const llamaMarker = path.join(PYTHON_VENV_DIR, '.llama_cpp_installed');
+  const allowRuntimeLlamaInstall = process.env.ALLOW_RUNTIME_LLAMA_CPP_INSTALL === 'true';
+  const llamaCppPythonSpec = process.env.LLAMA_CPP_PYTHON_SPEC || 'llama-cpp-python==0.2.90';
+  if (!fs.existsSync(llamaMarker)) {
+    if (!allowRuntimeLlamaInstall) {
+      console.warn(
+        `Skipping runtime installation of ${llamaCppPythonSpec}. ` +
+        'Preinstall this dependency during build/deploy time, or set ' +
+        'ALLOW_RUNTIME_LLAMA_CPP_INSTALL=true to enable the one-time fallback installer.'
+      );
+      console.error('The local LLM feature will be unavailable until the dependency is installed.');
+      return;
+    }
+
+    console.log(`Installing ${llamaCppPythonSpec} (this may take a few minutes)...`);
+    try {
+      execFileSync(venvPip, ['install', llamaCppPythonSpec], {
+        timeout: 600000, // 10 minutes – compiling C++ can be slow
+        stdio: 'inherit', // show install progress in console for debugging
+      });
+      fs.writeFileSync(llamaMarker, new Date().toISOString(), 'utf-8');
+      console.log(`${llamaCppPythonSpec} installed successfully`);
+    } catch (err) {
+      console.error(`Failed to install ${llamaCppPythonSpec}:`, err.message);
+      console.error('The local LLM feature will be unavailable until the dependency is installed.');
+      return;
+    }
+  }
+
   // Spawn the service script inside the venv
   function spawnPython() {
     try {
-      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT], {
+      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT), MODELS_DIR], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -930,7 +951,7 @@ function startPythonProcess() {
       });
 
       pythonProcess = proc;
-      console.log('Python service started (pid:', proc.pid + ')');
+      console.log('Python LLM service started (pid:', proc.pid + ')');
     } catch (err) {
       console.error('Failed to start Python service:', err.message);
     }
@@ -4891,27 +4912,174 @@ app.get('/api/local-repositories', requireSession, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Kobold.cpp status check
+// Local LLM model endpoints (admin upload/delete, user list/status)
 // ---------------------------------------------------------------------------
-app.get('/api/kobold/status', requireSession, async (req, res) => {
-  const status = await checkKoboldStatus();
-  res.json({
-    success: true,
-    available: status.available,
-    model: status.model || 'Server Model',
-  });
+
+// Configure multer for GGUF file uploads (stored in data/models/)
+const modelUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, MODELS_DIR),
+    filename: (_req, file, cb) => {
+      // Use a safe filename: random UUID + sanitised original name to avoid collisions
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 200);
+      cb(null, `${crypto.randomUUID()}_${safeName}`);
+    },
+  }),
+  limits: { fileSize: parseInt(process.env.MODEL_UPLOAD_MAX_SIZE_BYTES || String(20 * 1024 * 1024 * 1024), 10) },
+  fileFilter: (_req, file, cb) => {
+    if (!file.originalname.toLowerCase().endsWith('.gguf')) {
+      return cb(new Error('Only .gguf files are supported'));
+    }
+    cb(null, true);
+  },
 });
 
-// ---------------------------------------------------------------------------
-// Ollama status & models check
-// ---------------------------------------------------------------------------
-app.get('/api/ollama/status', requireSession, async (req, res) => {
-  const status = await checkOllamaStatus();
-  res.json({
-    success: true,
-    available: status.available,
-    models: status.models,
-  });
+// Admin: upload a GGUF model
+// Admin credentials are sent via headers to authenticate BEFORE accepting the file upload.
+// This prevents unauthenticated users from uploading large files (DoS vector).
+app.post('/api/admin/models', async (req, res) => {
+  try {
+    // Authenticate via headers before accepting any file data
+    const adminUsername = typeof req.headers['x-admin-username'] === 'string' ? req.headers['x-admin-username'] : '';
+    const adminPassword = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'] : '';
+
+    if (!adminUsername || !adminPassword) {
+      return res.status(401).json({ success: false, error: 'Missing admin credentials' });
+    }
+
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized model upload attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    // Only accept file upload after authentication passes
+    modelUpload.single('model')(req, res, async (uploadErr) => {
+      try {
+        if (uploadErr) {
+          return res.status(400).json({ success: false, error: uploadErr.message || 'Upload failed' });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({ success: false, error: 'No file uploaded' });
+        }
+
+        // Construct and validate the expected path from our controlled filename
+        // (not req.file.path which is user-tainted). Store for reuse in error cleanup.
+        const safeFilename = path.basename(req.file.filename);
+        const expectedPath = path.join(path.resolve(MODELS_DIR), safeFilename);
+        ensureWithinDir(MODELS_DIR, expectedPath);
+
+        const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
+
+        // Use mutex to prevent read-modify-write race conditions
+        await withModelsLock(async () => {
+          const models = readLocalModels();
+          const newModel = {
+            id: crypto.randomUUID(),
+            name: displayName,
+            filename: safeFilename,
+            originalFilename: req.file.originalname,
+            size: req.file.size,
+            uploadedAt: new Date().toISOString(),
+          };
+          models.push(newModel);
+          writeLocalModels(models);
+
+          auditLog({ event: 'ADMIN_UPLOAD_MODEL', message: `Admin uploaded model: ${displayName}`, username: adminUsername, req });
+          res.json({ success: true, model: newModel });
+        });
+      } catch (err) {
+        console.error('Model upload error:', err);
+        // Remove the uploaded file on error using only the base filename in a controlled directory
+        if (req.file) {
+          try {
+            const safeCleanupName = path.basename(req.file.filename);
+            const cleanupPath = path.join(path.resolve(MODELS_DIR), safeCleanupName);
+            ensureWithinDir(MODELS_DIR, cleanupPath);
+            fs.unlinkSync(cleanupPath);
+          } catch { /* ignore */ }
+        }
+        res.status(500).json({ success: false, error: 'Internal server error' });
+      }
+    });
+  } catch (err) {
+    console.error('Model upload auth error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Admin: list all uploaded models
+app.post('/api/admin/models/list', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+    const models = readLocalModels();
+    res.json({ success: true, models });
+  } catch (err) {
+    console.error('Admin list models error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Admin: delete a model
+app.delete('/api/admin/models/:id', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const modelId = req.params.id;
+
+    // Use mutex to prevent read-modify-write race conditions
+    let notFound = false;
+    await withModelsLock(async () => {
+      const models = readLocalModels();
+      const idx = models.findIndex(m => m.id === modelId);
+      if (idx === -1) {
+        notFound = true;
+        return;
+      }
+
+      const model = models[idx];
+      // Remove the file from disk
+      const filePath = getModelFilePath(model);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      models.splice(idx, 1);
+      writeLocalModels(models);
+
+      auditLog({ event: 'ADMIN_DELETE_MODEL', message: `Admin deleted model: ${model.name}`, username: adminUsername, req });
+    });
+
+    if (notFound) {
+      return res.status(404).json({ success: false, error: 'Model not found' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete model error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// User: list available local models (requires session)
+app.get('/api/local-models', requireSession, (req, res) => {
+  try {
+    const models = readLocalModels().map(m => ({
+      id: m.id,
+      name: m.name,
+      size: m.size,
+      uploadedAt: m.uploadedAt,
+    }));
+    res.json({ success: true, models });
+  } catch (err) {
+    console.error('List local models error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -5258,79 +5426,51 @@ async function parseSSEStream(response, onEvent) {
   }
 }
 
-async function streamFromKobold(res, messages, options = {}, signal) {
+/**
+ * Stream a chat completion from the local Python LLM service.
+ * @param {object} res  Express response (SSE stream)
+ * @param {Array}  messages  Chat messages
+ * @param {string} modelId  The local model registry ID
+ * @param {object} options  { think }
+ * @param {AbortSignal} signal  Abort signal for client disconnect
+ */
+async function streamFromLocalModel(res, messages, modelId, options = {}, signal) {
   if (options.think) {
     messages = enhanceMessagesForThink(messages);
   }
 
-  const prompt = messages.map(m => {
-    const content = typeof m.content === 'string' ? m.content : m.content.map(p => p.text || '').join('\n');
-    if (m.role === 'system') return `### System:\n${content}`;
-    if (m.role === 'user') return `### User:\n${content}`;
-    return `### Assistant:\n${content}`;
-  }).join('\n\n') + '\n\n### Assistant:\n';
+  // Resolve the model file path from the registry
+  const models = readLocalModels();
+  const modelEntry = models.find(m => m.id === modelId);
+  if (!modelEntry) {
+    throw new Error('Local model not found');
+  }
+  const modelPath = getModelFilePath(modelEntry);
+  if (!fs.existsSync(modelPath)) {
+    throw new Error('Model file not found on disk');
+  }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
-  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
-  const response = await fetch(`${KOBOLD_API_URL}/api/v1/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, max_length: 2048, temperature: 0.7, top_p: 0.9 }),
-    signal: controller.signal,
+  // Prepare messages (flatten multimodal content to text)
+  const chatMessages = messages.map(m => {
+    if (typeof m.content === 'string') return { role: m.role, content: m.content };
+    const text = m.content.filter(p => p.type === 'text').map(p => p.text || '').join('\n');
+    return { role: m.role, content: text };
   });
-  clearTimeout(timeout);
-
-  if (!response.ok) {
-    throw new Error(`Kobold.cpp error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const content = data.results?.[0]?.text || '';
-
-  // Simulate streaming by sending content in small chunks
-  for (let i = 0; i < content.length; i += KOBOLD_STREAM_CHUNK_SIZE) {
-    if ((signal && signal.aborted) || res.writableEnded || res.destroyed) {
-      break;
-    }
-    sendSSE(res, 'content', { content: content.substring(i, i + KOBOLD_STREAM_CHUNK_SIZE) });
-  }
-
-  return { content, thinking: '' };
-}
-
-async function streamFromOllama(res, messages, model, options = {}, signal) {
-  if (options.think) {
-    messages = enhanceMessagesForThink(messages);
-  }
-
-  const body = {
-    model,
-    messages: messages.map(m => {
-      if (typeof m.content === 'string') return m;
-      const images = [];
-      let text = '';
-      for (const p of m.content) {
-        if (p.type === 'text') text += p.text;
-        else if (p.type === 'image_url' && p.image_url.url.startsWith('data:')) {
-          const base64 = p.image_url.url.split(',')[1];
-          if (base64) images.push(base64);
-        }
-      }
-      return { role: m.role, content: text, images: images.length > 0 ? images : undefined };
-    }),
-    stream: true,
-  };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
   if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+
   let response;
   try {
-    response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
+    response = await fetch(`${PYTHON_SERVICE_URL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        model_path: modelPath,
+        messages: chatMessages,
+        max_tokens: LLM_DEFAULT_MAX_TOKENS,
+      }),
       signal: controller.signal,
     });
   } finally {
@@ -5338,7 +5478,8 @@ async function streamFromOllama(res, messages, model, options = {}, signal) {
   }
 
   if (!response.ok) {
-    throw new Error(`Ollama error: ${response.status}`);
+    const errText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Local LLM service error: ${response.status} – ${errText}`);
   }
 
   let fullContent = '';
@@ -5359,26 +5500,43 @@ async function streamFromOllama(res, messages, model, options = {}, signal) {
         if (!line.trim()) continue;
         try {
           const parsed = JSON.parse(line);
-          const chunk = parsed.message?.content || '';
+          if (parsed.error) {
+            throw new Error(parsed.error);
+          }
+          if (parsed.done) {
+            fullContent = parsed.content || fullContent;
+            break;
+          }
+          const chunk = parsed.content || '';
           if (chunk) {
             fullContent += chunk;
             sendSSE(res, 'content', { content: chunk });
           }
-        } catch (_e) { /* skip unparseable lines */ }
+        } catch (e) {
+          // Only ignore JSON parse errors; rethrow everything else (e.g. explicit {error:...} payloads)
+          if (!(e instanceof SyntaxError)) throw e;
+        }
       }
     }
 
-    // Flush any remaining decoded text
+    // Flush remaining buffer
     buffer += decoder.decode();
     if (buffer.trim()) {
       try {
         const parsed = JSON.parse(buffer.trim());
-        const chunk = parsed.message?.content || '';
-        if (chunk) {
-          fullContent += chunk;
-          sendSSE(res, 'content', { content: chunk });
+        if (parsed.error) throw new Error(parsed.error);
+        if (!parsed.done) {
+          const chunk = parsed.content || '';
+          if (chunk) {
+            fullContent += chunk;
+            sendSSE(res, 'content', { content: chunk });
+          }
+        } else {
+          fullContent = parsed.content || fullContent;
         }
-      } catch (_e) { /* skip unparseable final buffer */ }
+      } catch (e) {
+        if (e.message && !e.message.includes('JSON')) throw e;
+      }
     }
   } finally {
     reader.releaseLock();
@@ -5808,19 +5966,16 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
 
     // Validate provider and API key before starting SSE stream
     let providerKeys, selectedModel, providerConfig;
-    if (provider === 'kobold') {
-      // kobold doesn't need API key validation
-    } else if (provider === 'ollama') {
-      // ollama doesn't need API key validation but requires a valid model string
-      if (typeof model !== 'string') {
-        return res.status(400).json({ success: false, error: 'Invalid model for Ollama: expected a string' });
+    if (provider === 'local') {
+      // Local model requires a valid model ID
+      if (typeof model !== 'string' || !model.trim()) {
+        return res.status(400).json({ success: false, error: 'No model selected for local provider' });
       }
       selectedModel = model.trim();
-      if (!selectedModel) {
-        return res.status(400).json({ success: false, error: 'No model selected for Ollama' });
-      }
-      if (selectedModel.length > 200) {
-        return res.status(400).json({ success: false, error: 'Model name too long for Ollama' });
+      // Verify the model exists in registry
+      const localModels = readLocalModels();
+      if (!localModels.some(m => m.id === selectedModel)) {
+        return res.status(400).json({ success: false, error: 'Selected local model not found' });
       }
     } else if (VALID_PROVIDERS.includes(provider)) {
       const keys = readUserApiKeys(req.sessionUser);
@@ -5855,10 +6010,8 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     }
 
     let result;
-    if (provider === 'kobold') {
-      result = await streamFromKobold(res, processedMessages, options, clientAbort.signal);
-    } else if (provider === 'ollama') {
-      result = await streamFromOllama(res, processedMessages, selectedModel, options, clientAbort.signal);
+    if (provider === 'local') {
+      result = await streamFromLocalModel(res, processedMessages, selectedModel, options, clientAbort.signal);
     } else if (provider === 'anthropic') {
       result = await streamFromAnthropic(res, processedMessages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else if (provider === 'google') {
@@ -5958,30 +6111,20 @@ app.get('/api/providers', requireSession, async (req, res) => {
     const keys = readUserApiKeys(req.sessionUser);
     const providers = [];
 
-    // Check kobold.cpp (cached)
-    const koboldStatus = await checkKoboldStatus();
-    if (koboldStatus.available) {
+    // Check local models (uploaded GGUF files served by Python service)
+    const localModels = readLocalModels();
+    if (localModels.length > 0) {
+      const serviceHealthy = await checkPythonServiceHealth();
       providers.push({
-        id: 'kobold',
-        name: 'Server Model',
-        model: koboldStatus.model,
-        available: true,
+        id: 'local',
+        name: 'Local Model',
+        model: localModels[0].id,
+        models: localModels.map(m => ({ id: m.id, name: m.name })),
+        available: serviceHealthy,
       });
     }
 
-    // Check Ollama (cached)
-    const ollamaStatus = await checkOllamaStatus();
-    if (ollamaStatus.available && ollamaStatus.models.length > 0) {
-      providers.push({
-        id: 'ollama',
-        name: 'Ollama',
-        model: ollamaStatus.models[0],
-        models: ollamaStatus.models,
-        available: true,
-      });
-    }
-
-    // Check configured providers
+    // Check configured cloud providers
     for (const [id, config] of Object.entries(AI_PROVIDERS)) {
       const providerKeys = keys[id];
       if (providerKeys?.apiKey) {
@@ -6042,4 +6185,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR };

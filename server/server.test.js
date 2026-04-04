@@ -5,7 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS } = require('./server');
+const { app, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS } = require('./server');
 
 // Utility: compute SHA-256 hex digest of a string (mirrors client-side password hashing)
 function sha256Hex(text) {
@@ -1889,24 +1889,23 @@ describe('POST /api/chat/send validation', () => {
     assert.match(res.body.error, /not configured/i);
   });
 
-  it('rejects ollama provider without model', async () => {
+  it('rejects local provider without model', async () => {
     const res = await request(server, 'POST', '/api/chat/send', {
       messages: [{ role: 'user', content: 'hi' }],
-      provider: 'ollama',
+      provider: 'local',
     }, sendToken);
     assert.equal(res.status, 400);
     assert.match(res.body.error, /model/i);
   });
 
-  it('accepts ollama as a valid provider (does not return invalid provider error)', async () => {
+  it('rejects local provider with non-existent model', async () => {
     const res = await request(server, 'POST', '/api/chat/send', {
       messages: [{ role: 'user', content: 'hi' }],
-      provider: 'ollama',
-      model: 'llama3.2',
+      provider: 'local',
+      model: 'non-existent-model-id',
     }, sendToken);
-    // It will fail because Ollama isn't running, but it should NOT be "Invalid provider"
-    // It should either start streaming (and fail connecting) or return a 502
-    assert.notEqual(res.body?.error, 'Invalid provider');
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not found/i);
   });
 
   it('injects character and universe descriptions into the system prompt', async () => {
@@ -2084,33 +2083,29 @@ describe('GET /api/providers', () => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/ollama/status tests
+// GET /api/local-models tests
 // ---------------------------------------------------------------------------
-describe('GET /api/ollama/status', { concurrency: false }, () => {
-  const testUsername = 'ollama_test_' + Date.now();
-  let ollamaToken = null;
+describe('GET /api/local-models', { concurrency: false }, () => {
+  const testUsername = 'localmodels_test_' + Date.now();
+  let localModelsToken = null;
 
   before(async () => {
-    resetOllamaCache();
-    // Create token directly to avoid rate limiter issues
-    ollamaToken = createSessionToken(testUsername);
+    localModelsToken = createSessionToken(testUsername);
   });
 
   after(() => {
-    resetOllamaCache();
-    invalidateSession(ollamaToken);
+    invalidateSession(localModelsToken);
   });
 
-  it('returns ollama status', async () => {
-    const res = await request(server, 'GET', '/api/ollama/status', null, ollamaToken);
+  it('returns local models list', async () => {
+    const res = await request(server, 'GET', '/api/local-models', null, localModelsToken);
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
-    assert.equal(typeof res.body.available, 'boolean');
     assert.ok(Array.isArray(res.body.models));
   });
 
   it('requires authentication', async () => {
-    const res = await request(server, 'GET', '/api/ollama/status', null);
+    const res = await request(server, 'GET', '/api/local-models', null);
     assert.equal(res.status, 401);
   });
 });

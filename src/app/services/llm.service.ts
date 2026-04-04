@@ -58,7 +58,7 @@ export interface ProviderInfo {
   id: string;
   name: string;
   model: string | null;
-  models?: string[];
+  models?: Array<string | { id: string; name: string }>;
   available: boolean;
 }
 
@@ -165,26 +165,15 @@ export class LlmService {
     );
   }
 
-  // --- Kobold.cpp ---
+  // --- Local Models ---
 
-  async getKoboldStatus(): Promise<{ available: boolean; model: string }> {
+  async getLocalModels(): Promise<{ id: string; name: string; size: number; uploadedAt: string }[]> {
     const res = await firstValueFrom(
-      this.http.get<{ success: boolean; available: boolean; model?: string }>(
-        `${environment.apiUrl}/api/kobold/status`
+      this.http.get<{ success: boolean; models: { id: string; name: string; size: number; uploadedAt: string }[] }>(
+        `${environment.apiUrl}/api/local-models`
       )
     );
-    return { available: res.available, model: res.model || '' };
-  }
-
-  // --- Ollama ---
-
-  async getOllamaStatus(): Promise<{ available: boolean; models: string[] }> {
-    const res = await firstValueFrom(
-      this.http.get<{ success: boolean; available: boolean; models?: string[] }>(
-        `${environment.apiUrl}/api/ollama/status`
-      )
-    );
-    return { available: res.available, models: res.models || [] };
+    return res.models || [];
   }
 
   // --- Universes ---
