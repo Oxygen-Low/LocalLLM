@@ -95,7 +95,17 @@ class _Handler(BaseHTTPRequestHandler):
         messages = data.get("messages", [])
         max_tokens = data.get("max_tokens", 2048)
 
-        if not model_path or not os.path.isfile(model_path):
+        if not model_path or not isinstance(model_path, str):
+            self._send_json(400, {"error": "model_path is required"})
+            return
+
+        # Resolve to absolute path and validate it ends with .gguf
+        model_path = os.path.realpath(model_path)
+        if not model_path.lower().endswith(".gguf"):
+            self._send_json(400, {"error": "Only .gguf model files are supported"})
+            return
+
+        if not os.path.isfile(model_path):
             self._send_json(400, {"error": "model_path is invalid or file does not exist"})
             return
 
@@ -116,7 +126,9 @@ class _Handler(BaseHTTPRequestHandler):
             content = m.get("content", "")
             if isinstance(content, list):
                 # Flatten multimodal content parts to text only
-                content = "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
+                content = "\n".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+            elif not isinstance(content, str):
+                content = str(content) if content is not None else ""
             chat_messages.append({"role": role, "content": content})
 
         # Stream the response

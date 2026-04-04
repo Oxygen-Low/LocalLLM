@@ -4920,7 +4920,10 @@ app.post('/api/admin/models', async (req, res) => {
       if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
         // Remove uploaded file if auth fails
         if (req.file) {
-          try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+          const cleanupPath = path.resolve(req.file.path);
+          if (cleanupPath.startsWith(path.resolve(MODELS_DIR))) {
+            try { fs.unlinkSync(cleanupPath); } catch { /* ignore */ }
+          }
         }
         return res.status(403).json({ success: false, error: 'Unauthorized' });
       }
@@ -4931,6 +4934,13 @@ app.post('/api/admin/models', async (req, res) => {
 
       if (!req.file) {
         return res.status(400).json({ success: false, error: 'No file uploaded' });
+      }
+
+      // Validate that the file was stored inside the models directory
+      const uploadedPath = path.resolve(req.file.path);
+      if (!uploadedPath.startsWith(path.resolve(MODELS_DIR))) {
+        try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+        return res.status(400).json({ success: false, error: 'Invalid upload path' });
       }
 
       const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
@@ -4953,7 +4963,10 @@ app.post('/api/admin/models', async (req, res) => {
       console.error('Model upload error:', err);
       // Remove the uploaded file on error
       if (req.file) {
-        try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+        const cleanupPath = path.resolve(req.file.path);
+        if (cleanupPath.startsWith(path.resolve(MODELS_DIR))) {
+          try { fs.unlinkSync(cleanupPath); } catch { /* ignore */ }
+        }
       }
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
