@@ -4950,12 +4950,9 @@ app.post('/api/admin/models', async (req, res) => {
           return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
-        // Validate that the file was stored inside the models directory
-        const uploadedPath = path.resolve(req.file.path);
-        if (!uploadedPath.startsWith(path.resolve(MODELS_DIR) + path.sep) && uploadedPath !== path.resolve(MODELS_DIR)) {
-          try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
-          return res.status(400).json({ success: false, error: 'Invalid upload path' });
-        }
+        // Construct the expected path from our controlled filename (not req.file.path which is user-tainted)
+        const expectedPath = path.join(path.resolve(MODELS_DIR), req.file.filename);
+        ensureWithinDir(MODELS_DIR, expectedPath);
 
         const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
 
@@ -4978,12 +4975,13 @@ app.post('/api/admin/models', async (req, res) => {
         });
       } catch (err) {
         console.error('Model upload error:', err);
-        // Remove the uploaded file on error
+        // Remove the uploaded file on error (use controlled filename, not user-tainted path)
         if (req.file) {
-          const cleanupPath = path.resolve(req.file.path);
-          if (cleanupPath.startsWith(path.resolve(MODELS_DIR) + path.sep)) {
-            try { fs.unlinkSync(cleanupPath); } catch { /* ignore */ }
-          }
+          try {
+            const cleanupPath = path.join(path.resolve(MODELS_DIR), req.file.filename);
+            ensureWithinDir(MODELS_DIR, cleanupPath);
+            fs.unlinkSync(cleanupPath);
+          } catch { /* ignore */ }
         }
         res.status(500).json({ success: false, error: 'Internal server error' });
       }
@@ -5020,11 +5018,13 @@ app.delete('/api/admin/models/:id', async (req, res) => {
     const modelId = req.params.id;
 
     // Use mutex to prevent read-modify-write race conditions
+    let notFound = false;
     await withModelsLock(async () => {
       const models = readLocalModels();
       const idx = models.findIndex(m => m.id === modelId);
       if (idx === -1) {
-        return res.status(404).json({ success: false, error: 'Model not found' });
+        notFound = true;
+        return;
       }
 
       const model = models[idx];
@@ -5038,8 +5038,12 @@ app.delete('/api/admin/models/:id', async (req, res) => {
       writeLocalModels(models);
 
       auditLog({ event: 'ADMIN_DELETE_MODEL', message: `Admin deleted model: ${model.name}`, username: adminUsername, req });
-      res.json({ success: true });
     });
+
+    if (notFound) {
+      return res.status(404).json({ success: false, error: 'Model not found' });
+    }
+    res.json({ success: true });
   } catch (err) {
     console.error('Delete model error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
