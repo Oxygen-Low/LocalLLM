@@ -4761,6 +4761,20 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
       const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
       return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
     }
+    // Additional hardening: ensure cloneUrl is a well-formed HTTPS URL and not an option-like argument
+    let parsedCloneUrl;
+    try {
+      parsedCloneUrl = new URL(cloneUrl);
+    } catch {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL: malformed URL' });
+    }
+    if (parsedCloneUrl.protocol !== 'https:' || !parsedCloneUrl.hostname) {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL: must be HTTPS with a valid host' });
+    }
+    // Disallow values that might be interpreted as git options or contain unsafe whitespace
+    if (/^\s*-/.test(cloneUrl) || /\s/.test(cloneUrl)) {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL: unsafe format' });
+    }
     const repoName = (name || cloneUrl.split('/').pop()?.replace(/\.git$/, '') || 'imported-repo')
       .replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100);
     if (!REPO_NAME_REGEX.test(repoName)) {
