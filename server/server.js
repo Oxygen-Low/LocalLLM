@@ -106,6 +106,15 @@ if (!fs.existsSync(MODELS_DIR)) {
   fs.mkdirSync(MODELS_DIR, { recursive: true });
 }
 
+// In-process mutex for model registry mutations (prevents read-modify-write races)
+let _modelsRegistryLock = Promise.resolve();
+
+function withModelsLock(fn) {
+  const next = _modelsRegistryLock.then(fn, fn);
+  _modelsRegistryLock = next.catch(() => {});
+  return next;
+}
+
 /**
  * Read the local models registry from disk.
  * Returns an array of { id, name, filename, uploadedAt }.
@@ -886,7 +895,7 @@ function startPythonProcess() {
     try {
       execFileSync(venvPip, ['install', 'llama-cpp-python'], {
         timeout: 600000, // 10 minutes – compiling C++ can be slow
-        stdio: 'pipe',
+        stdio: 'inherit', // show install progress in console for debugging
       });
       fs.writeFileSync(llamaMarker, new Date().toISOString(), 'utf-8');
       console.log('llama-cpp-python installed successfully');
@@ -900,7 +909,7 @@ function startPythonProcess() {
   // Spawn the service script inside the venv
   function spawnPython() {
     try {
-      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT)], {
+      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT), MODELS_DIR], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -4913,65 +4922,76 @@ const modelUpload = multer({
 });
 
 // Admin: upload a GGUF model
+// Admin credentials are sent via headers to authenticate BEFORE accepting the file upload.
+// This prevents unauthenticated users from uploading large files (DoS vector).
 app.post('/api/admin/models', async (req, res) => {
-  // We have to run multer manually so we can validate admin creds first from form fields
-  modelUpload.single('model')(req, res, async (uploadErr) => {
-    try {
-      const { adminUsername, adminPassword } = req.body;
-      if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
-        // Remove uploaded file if auth fails
+  try {
+    // Authenticate via headers before accepting any file data
+    const adminUsername = typeof req.headers['x-admin-username'] === 'string' ? req.headers['x-admin-username'] : '';
+    const adminPassword = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'] : '';
+
+    if (!adminUsername || !adminPassword) {
+      return res.status(401).json({ success: false, error: 'Missing admin credentials' });
+    }
+
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized model upload attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    // Only accept file upload after authentication passes
+    modelUpload.single('model')(req, res, async (uploadErr) => {
+      try {
+        if (uploadErr) {
+          return res.status(400).json({ success: false, error: uploadErr.message || 'Upload failed' });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({ success: false, error: 'No file uploaded' });
+        }
+
+        // Validate that the file was stored inside the models directory
+        const uploadedPath = path.resolve(req.file.path);
+        if (!uploadedPath.startsWith(path.resolve(MODELS_DIR) + path.sep) && uploadedPath !== path.resolve(MODELS_DIR)) {
+          try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
+          return res.status(400).json({ success: false, error: 'Invalid upload path' });
+        }
+
+        const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
+
+        // Use mutex to prevent read-modify-write race conditions
+        await withModelsLock(async () => {
+          const models = readLocalModels();
+          const newModel = {
+            id: crypto.randomUUID(),
+            name: displayName,
+            filename: req.file.filename,
+            originalFilename: req.file.originalname,
+            size: req.file.size,
+            uploadedAt: new Date().toISOString(),
+          };
+          models.push(newModel);
+          writeLocalModels(models);
+
+          auditLog({ event: 'ADMIN_UPLOAD_MODEL', message: `Admin uploaded model: ${displayName}`, username: adminUsername, req });
+          res.json({ success: true, model: newModel });
+        });
+      } catch (err) {
+        console.error('Model upload error:', err);
+        // Remove the uploaded file on error
         if (req.file) {
           const cleanupPath = path.resolve(req.file.path);
-          if (cleanupPath.startsWith(path.resolve(MODELS_DIR))) {
+          if (cleanupPath.startsWith(path.resolve(MODELS_DIR) + path.sep)) {
             try { fs.unlinkSync(cleanupPath); } catch { /* ignore */ }
           }
         }
-        return res.status(403).json({ success: false, error: 'Unauthorized' });
+        res.status(500).json({ success: false, error: 'Internal server error' });
       }
-
-      if (uploadErr) {
-        return res.status(400).json({ success: false, error: uploadErr.message || 'Upload failed' });
-      }
-
-      if (!req.file) {
-        return res.status(400).json({ success: false, error: 'No file uploaded' });
-      }
-
-      // Validate that the file was stored inside the models directory
-      const uploadedPath = path.resolve(req.file.path);
-      if (!uploadedPath.startsWith(path.resolve(MODELS_DIR))) {
-        try { fs.unlinkSync(uploadedPath); } catch { /* ignore */ }
-        return res.status(400).json({ success: false, error: 'Invalid upload path' });
-      }
-
-      const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
-
-      const models = readLocalModels();
-      const newModel = {
-        id: crypto.randomUUID(),
-        name: displayName,
-        filename: req.file.filename,
-        originalFilename: req.file.originalname,
-        size: req.file.size,
-        uploadedAt: new Date().toISOString(),
-      };
-      models.push(newModel);
-      writeLocalModels(models);
-
-      auditLog({ event: 'ADMIN_UPLOAD_MODEL', message: `Admin uploaded model: ${displayName}`, username: adminUsername, req });
-      res.json({ success: true, model: newModel });
-    } catch (err) {
-      console.error('Model upload error:', err);
-      // Remove the uploaded file on error
-      if (req.file) {
-        const cleanupPath = path.resolve(req.file.path);
-        if (cleanupPath.startsWith(path.resolve(MODELS_DIR))) {
-          try { fs.unlinkSync(cleanupPath); } catch { /* ignore */ }
-        }
-      }
-      res.status(500).json({ success: false, error: 'Internal server error' });
-    }
-  });
+    });
+  } catch (err) {
+    console.error('Model upload auth error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
 });
 
 // Admin: list all uploaded models
@@ -4998,24 +5018,28 @@ app.delete('/api/admin/models/:id', async (req, res) => {
     }
 
     const modelId = req.params.id;
-    const models = readLocalModels();
-    const idx = models.findIndex(m => m.id === modelId);
-    if (idx === -1) {
-      return res.status(404).json({ success: false, error: 'Model not found' });
-    }
 
-    const model = models[idx];
-    // Remove the file from disk
-    const filePath = getModelFilePath(model);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    // Use mutex to prevent read-modify-write race conditions
+    await withModelsLock(async () => {
+      const models = readLocalModels();
+      const idx = models.findIndex(m => m.id === modelId);
+      if (idx === -1) {
+        return res.status(404).json({ success: false, error: 'Model not found' });
+      }
 
-    models.splice(idx, 1);
-    writeLocalModels(models);
+      const model = models[idx];
+      // Remove the file from disk
+      const filePath = getModelFilePath(model);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
 
-    auditLog({ event: 'ADMIN_DELETE_MODEL', message: `Admin deleted model: ${model.name}`, username: adminUsername, req });
-    res.json({ success: true });
+      models.splice(idx, 1);
+      writeLocalModels(models);
+
+      auditLog({ event: 'ADMIN_DELETE_MODEL', message: `Admin deleted model: ${model.name}`, username: adminUsername, req });
+      res.json({ success: true });
+    });
   } catch (err) {
     console.error('Delete model error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -6069,12 +6093,13 @@ app.get('/api/providers', requireSession, async (req, res) => {
     // Check local models (uploaded GGUF files served by Python service)
     const localModels = readLocalModels();
     if (localModels.length > 0) {
+      const serviceHealthy = await checkPythonServiceHealth();
       providers.push({
         id: 'local',
         name: 'Local Model',
         model: localModels[0].id,
         models: localModels.map(m => ({ id: m.id, name: m.name })),
-        available: true,
+        available: serviceHealthy,
       });
     }
 

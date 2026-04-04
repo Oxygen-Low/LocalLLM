@@ -1,11 +1,13 @@
 """
 Python LLM inference service.
 
-Runs an HTTP server (using the built-in http.server module) that loads GGUF
-models via llama-cpp-python and exposes a streaming chat completion endpoint.
+Runs a threaded HTTP server that loads GGUF models via llama-cpp-python and
+exposes a streaming chat completion endpoint.
 
 The parent Node.js server communicates with this service over HTTP on a
 configurable port (default 5555).  The port is passed as the first CLI argument.
+An optional second CLI argument specifies the allowed models directory; only
+model files under that directory will be accepted for loading.
 
 Endpoints
 ---------
@@ -24,6 +26,7 @@ import signal
 import sys
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 
 # Global model cache: { path: model_instance }
 _model_cache = {}
@@ -31,6 +34,12 @@ _model_lock = threading.Lock()
 
 # Maximum number of cached models (to limit memory usage)
 MAX_CACHED_MODELS = 2
+
+# Maximum allowed POST body size (1 MB should be more than enough for chat messages)
+MAX_BODY_SIZE = 1 * 1024 * 1024
+
+# Allowed models directory (set from CLI arg or defaults to None = allow all)
+_allowed_models_dir = None
 
 
 def _get_model(model_path):
@@ -55,6 +64,11 @@ def _get_model(model_path):
         )
         _model_cache[model_path] = model
         return model
+
+
+class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Multi-threaded HTTP server so /health stays responsive during long /chat requests."""
+    daemon_threads = True
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -85,6 +99,9 @@ class _Handler(BaseHTTPRequestHandler):
 
         try:
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > MAX_BODY_SIZE:
+                self._send_json(413, {"error": f"Request body too large (max {MAX_BODY_SIZE} bytes)"})
+                return
             raw = self.rfile.read(content_length)
             data = json.loads(raw)
         except Exception:
@@ -104,6 +121,12 @@ class _Handler(BaseHTTPRequestHandler):
         if not model_path.lower().endswith(".gguf"):
             self._send_json(400, {"error": "Only .gguf model files are supported"})
             return
+
+        # Validate model_path is inside the allowed models directory
+        if _allowed_models_dir:
+            if not model_path.startswith(_allowed_models_dir + os.sep) and model_path != _allowed_models_dir:
+                self._send_json(403, {"error": "model_path is outside the allowed models directory"})
+                return
 
         if not os.path.isfile(model_path):
             self._send_json(400, {"error": "model_path is invalid or file does not exist"})
@@ -175,7 +198,14 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global _allowed_models_dir
+
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5555
+
+    # Optional: restrict model loading to a specific directory
+    if len(sys.argv) > 2:
+        _allowed_models_dir = os.path.realpath(sys.argv[2])
+        print(f"Restricting model loading to: {_allowed_models_dir}", flush=True)
 
     stop_event = threading.Event()
 
@@ -197,7 +227,7 @@ def main():
     stdin_thread = threading.Thread(target=_watch_stdin, daemon=True)
     stdin_thread.start()
 
-    server = HTTPServer(("127.0.0.1", port), _Handler)
+    server = _ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     server.timeout = 1  # so we can check stop_event periodically
 
     print(f"Python LLM service listening on http://127.0.0.1:{port}", flush=True)

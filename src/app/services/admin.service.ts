@@ -264,11 +264,14 @@ export class AdminService {
       const formData = new FormData();
       formData.append('model', file);
       formData.append('name', name);
-      formData.append('adminUsername', this.authService.username() ?? '');
-      formData.append('adminPassword', adminPasswordHash);
 
       const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(`${environment.apiUrl}/api/admin/models`, formData)
+        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(`${environment.apiUrl}/api/admin/models`, formData, {
+          headers: {
+            'X-Admin-Username': this.authService.username() ?? '',
+            'X-Admin-Password': adminPasswordHash,
+          },
+        })
       );
       return response;
     } catch (error: unknown) {
