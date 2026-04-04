@@ -65,7 +65,7 @@ jobs:
         run: |
           RESPONSE=$(curl -sk -X POST https://localhost:3000/api/auth/signup \
             -H "Content-Type: application/json" \
-            -d '{"username":"ci_test_user","password":"CITestPass123!"}')
+            -d '{"username":"ci_test_user","password":"b62715592f61546f7340d17ad2dfe0c570ecb8a61e98ca8615cf8bcc8852ab50"}')
           echo "Sign up response: $RESPONSE"
           echo "$RESPONSE" | grep -q '"success":true'
 
@@ -73,7 +73,7 @@ jobs:
         run: |
           RESPONSE=$(curl -sk -X POST https://localhost:3000/api/auth/login \
             -H "Content-Type: application/json" \
-            -d '{"username":"ci_test_user","password":"CITestPass123!"}')
+            -d '{"username":"ci_test_user","password":"b62715592f61546f7340d17ad2dfe0c570ecb8a61e98ca8615cf8bcc8852ab50"}')
           echo "Sign in response: $RESPONSE"
           echo "$RESPONSE" | grep -q '"success":true'
 
