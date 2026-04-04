@@ -781,14 +781,14 @@ interface ToolCall {
                                 </button>
                                 @if (expandedProvider() === p.id) {
                                   <div class="border-t border-secondary-100 bg-secondary-50">
-                                    @for (m of p.models; track m) {
+                                    @for (m of p.models; track getModelId(m)) {
                                       <button
                                         (click)="selectProviderModel(p, m)"
                                         class="w-full text-left pl-7 pr-3 py-1.5 text-xs hover:bg-secondary-100 transition-colors flex items-center gap-1.5"
-                                        [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === m ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
+                                        [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
                                       >
-                                        <span class="w-1 h-1 rounded-full" [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === m ? 'bg-primary-600' : 'bg-secondary-300'"></span>
-                                        <span class="truncate">{{ m }}</span>
+                                        <span class="w-1 h-1 rounded-full" [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-600' : 'bg-secondary-300'"></span>
+                                        <span class="truncate">{{ getModelDisplayName(m) }}</span>
                                       </button>
                                     }
                                   </div>
@@ -1314,7 +1314,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   // --- Provider/Model Selection ---
 
   private hasLocalProvider(): boolean {
-    return this.providers().some(p => p.id === 'kobold' || p.id === 'ollama');
+    return this.providers().some(p => p.id === 'local');
   }
 
   private startProviderPollingIfNeeded(): void {
@@ -1374,10 +1374,19 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
     this.expandedProvider.set(this.expandedProvider() === provider.id ? null : provider.id);
   }
 
-  selectProviderModel(provider: ProviderInfo, model: string): void {
-    this.selectedProvider.set({ ...provider, model });
+  selectProviderModel(provider: ProviderInfo, model: string | { id: string; name: string }): void {
+    const modelId = typeof model === 'string' ? model : model.id;
+    this.selectedProvider.set({ ...provider, model: modelId });
     this.showProviderDropdown.set(false);
     this.expandedProvider.set(null);
+  }
+
+  getModelId(model: string | { id: string; name: string }): string {
+    return typeof model === 'string' ? model : model.id;
+  }
+
+  getModelDisplayName(model: string | { id: string; name: string }): string {
+    return typeof model === 'string' ? model : model.name;
   }
 
   // --- Character Selection ---

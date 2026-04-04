@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { AdminService, AdminUserSummary, Universe, Character } from '../services/admin.service';
+import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from '../services/admin.service';
 
 @Component({
   selector: 'app-admin',
@@ -352,8 +352,91 @@ import { AdminService, AdminUserSummary, Universe, Character } from '../services
                   </div>
                 }
               </div>
+
+              <!-- LLM Models Management -->
+              <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div class="space-y-1">
+                    <h2 class="text-xl font-semibold text-secondary-900">LLM Models</h2>
+                    <p class="text-sm text-muted">
+                      Upload GGUF model files for local AI inference. Users can select from uploaded models.
+                    </p>
+                  </div>
+                  <button
+                    (click)="toggleModelMenu()"
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
+                  >
+                    {{ modelMenuOpen() ? 'Hide models' : 'Manage models' }}
+                  </button>
+                </div>
+
+                @if (modelMenuOpen()) {
+                  <div class="space-y-4">
+                    <!-- Upload Model -->
+                    <div class="space-y-3 p-4 border border-secondary-100 rounded-lg bg-secondary-50">
+                      <h4 class="text-sm font-semibold text-secondary-900">Upload new model</h4>
+                      <div class="space-y-2">
+                        <div>
+                          <label for="newModelName" class="block text-xs font-medium text-secondary-700 mb-1">Display name</label>
+                          <input
+                            id="newModelName"
+                            type="text"
+                            [(ngModel)]="newModelName"
+                            placeholder="e.g. Llama 3.2 7B"
+                            class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label for="modelFile" class="block text-xs font-medium text-secondary-700 mb-1">GGUF file</label>
+                          <input
+                            id="modelFile"
+                            type="file"
+                            accept=".gguf"
+                            (change)="onModelFileSelected($event)"
+                            class="w-full text-sm text-secondary-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border file:border-secondary-200 file:text-sm file:font-medium file:bg-white file:text-secondary-700 hover:file:bg-secondary-50 file:cursor-pointer"
+                          />
+                        </div>
+                        <button
+                          (click)="onUploadModel()"
+                          [disabled]="!selectedModelFile || isUploadingModel()"
+                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          {{ isUploadingModel() ? 'Uploading...' : 'Upload Model' }}
+                        </button>
+                      </div>
+                    </div>
+
+                    @if (isLoadingModels()) {
+                      <div class="text-sm text-muted">Loading models...</div>
+                    } @else if (localModels().length === 0) {
+                      <div class="text-sm text-muted">No models uploaded yet.</div>
+                    } @else {
+                      <div class="divide-y divide-secondary-100 border border-secondary-100 rounded-lg">
+                        @for (model of localModels(); track model.id) {
+                          <div class="p-4 flex items-center justify-between gap-4 flex-wrap">
+                            <div class="space-y-1">
+                              <div class="font-semibold text-secondary-900">{{ model.name }}</div>
+                              <p class="text-xs text-muted">
+                                {{ model.originalFilename }} · {{ formatFileSize(model.size) }} · Uploaded {{ model.uploadedAt | date: 'medium' }}
+                              </p>
+                            </div>
+                            <button
+                              (click)="onDeleteModel(model)"
+                              [disabled]="actionInProgress() === model.id"
+                              class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              {{ actionInProgress() === model.id ? 'Deleting...' : 'Delete' }}
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
             }
           </div>
+
 
           @if (isUnlocked()) {
             <!-- App Settings -->
@@ -444,6 +527,14 @@ export class AdminPageComponent {
   // App Settings state
   riskyAppsEnabled = signal<boolean>(true);
   isTogglingRiskyApps = signal(false);
+
+  // LLM Models state
+  modelMenuOpen = signal(false);
+  isLoadingModels = signal(false);
+  isUploadingModel = signal(false);
+  localModels = signal<LocalModel[]>([]);
+  newModelName = '';
+  selectedModelFile: File | null = null;
 
   constructor(
     private authService: AuthService,
@@ -704,5 +795,89 @@ export class AdminPageComponent {
     } finally {
       this.isTogglingRiskyApps.set(false);
     }
+  }
+
+  // --- LLM Models ---
+
+  toggleModelMenu(): void {
+    const wasOpen = this.modelMenuOpen();
+    this.modelMenuOpen.set(!wasOpen);
+    if (!wasOpen && this.adminPasswordHash) {
+      this.loadModels(this.adminPasswordHash);
+    }
+  }
+
+  private async loadModels(adminHash: string): Promise<void> {
+    this.isLoadingModels.set(true);
+    try {
+      const response = await this.adminService.listModels(adminHash);
+      if (!response.success || !response.models) {
+        this.errorMessage.set(response.error ?? 'Failed to load models.');
+        this.localModels.set([]);
+        return;
+      }
+      this.localModels.set(response.models);
+    } finally {
+      this.isLoadingModels.set(false);
+    }
+  }
+
+  onModelFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.selectedModelFile = input.files?.[0] ?? null;
+    if (this.selectedModelFile && !this.newModelName.trim()) {
+      this.newModelName = this.selectedModelFile.name.replace(/\.gguf$/i, '');
+    }
+  }
+
+  async onUploadModel(): Promise<void> {
+    if (!this.adminPasswordHash || !this.selectedModelFile) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isUploadingModel.set(true);
+    try {
+      const response = await this.adminService.uploadModel(
+        this.selectedModelFile,
+        this.newModelName.trim(),
+        this.adminPasswordHash
+      );
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to upload model.');
+        return;
+      }
+      this.statusMessage.set(`Model "${this.newModelName.trim() || this.selectedModelFile.name}" uploaded.`);
+      this.newModelName = '';
+      this.selectedModelFile = null;
+      await this.loadModels(this.adminPasswordHash);
+    } finally {
+      this.isUploadingModel.set(false);
+    }
+  }
+
+  async onDeleteModel(model: LocalModel): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    const confirmed = window.confirm(`Delete model "${model.name}"? This action cannot be undone.`);
+    if (!confirmed) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.actionInProgress.set(model.id);
+    try {
+      const response = await this.adminService.deleteModel(model.id, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to delete model.');
+        return;
+      }
+      this.statusMessage.set(`Model "${model.name}" deleted.`);
+      await this.loadModels(this.adminPasswordHash);
+    } finally {
+      this.actionInProgress.set(null);
+    }
+  }
+
+  formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
   }
 }
