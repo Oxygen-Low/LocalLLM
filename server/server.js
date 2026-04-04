@@ -3907,11 +3907,13 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
 
       if (appEntry.buildCommand) {
         sendProgress('build', `Running build command: ${appEntry.buildCommand}...`);
-        await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', `cd /workspace && ${appEntry.buildCommand}`], { timeout: 300000 });
+        const b64Build = Buffer.from(appEntry.buildCommand).toString('base64');
+        await runCommandAsync('docker', ['exec', containerName, 'bash', '-c', `cd /workspace && echo '${b64Build}' | base64 -d | bash`], { timeout: 300000 });
       }
 
       sendProgress('start', `Starting application: ${appEntry.startCommand}...`);
-      await runCommandAsync('docker', ['exec', '-d', containerName, 'bash', '-c', `cd /workspace && ${appEntry.startCommand}`], { timeout: 30000 });
+      const b64Start = Buffer.from(appEntry.startCommand).toString('base64');
+      await runCommandAsync('docker', ['exec', '-d', containerName, 'bash', '-c', `cd /workspace && echo '${b64Start}' | base64 -d | bash`], { timeout: 30000 });
 
       sendProgress('wait', 'Waiting for application to respond...');
       let ready = false;
