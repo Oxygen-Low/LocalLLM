@@ -888,19 +888,32 @@ function startPythonProcess() {
     }
   }
 
-  // Install llama-cpp-python if not already installed
+  // Install llama-cpp-python only when explicitly allowed.
+  // Production deployments should preinstall this dependency at build/deploy time.
   const llamaMarker = path.join(PYTHON_VENV_DIR, '.llama_cpp_installed');
+  const allowRuntimeLlamaInstall = process.env.ALLOW_RUNTIME_LLAMA_CPP_INSTALL === 'true';
+  const llamaCppPythonSpec = process.env.LLAMA_CPP_PYTHON_SPEC || 'llama-cpp-python==0.2.90';
   if (!fs.existsSync(llamaMarker)) {
-    console.log('Installing llama-cpp-python (this may take a few minutes)...');
+    if (!allowRuntimeLlamaInstall) {
+      console.warn(
+        `Skipping runtime installation of ${llamaCppPythonSpec}. ` +
+        'Preinstall this dependency during build/deploy time, or set ' +
+        'ALLOW_RUNTIME_LLAMA_CPP_INSTALL=true to enable the one-time fallback installer.'
+      );
+      console.error('The local LLM feature will be unavailable until the dependency is installed.');
+      return;
+    }
+
+    console.log(`Installing ${llamaCppPythonSpec} (this may take a few minutes)...`);
     try {
-      execFileSync(venvPip, ['install', 'llama-cpp-python'], {
+      execFileSync(venvPip, ['install', llamaCppPythonSpec], {
         timeout: 600000, // 10 minutes – compiling C++ can be slow
         stdio: 'inherit', // show install progress in console for debugging
       });
       fs.writeFileSync(llamaMarker, new Date().toISOString(), 'utf-8');
-      console.log('llama-cpp-python installed successfully');
+      console.log(`${llamaCppPythonSpec} installed successfully`);
     } catch (err) {
-      console.error('Failed to install llama-cpp-python:', err.message);
+      console.error(`Failed to install ${llamaCppPythonSpec}:`, err.message);
       console.error('The local LLM feature will be unavailable until the dependency is installed.');
       return;
     }
@@ -4907,12 +4920,12 @@ const modelUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, MODELS_DIR),
     filename: (_req, file, cb) => {
-      // Use a safe filename: timestamp + sanitised original name
+      // Use a safe filename: random UUID + sanitised original name to avoid collisions
       const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 200);
-      cb(null, `${Date.now()}_${safeName}`);
+      cb(null, `${crypto.randomUUID()}_${safeName}`);
     },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 * 1024 }, // 20 GB max
+  limits: { fileSize: parseInt(process.env.MODEL_UPLOAD_MAX_SIZE_BYTES || String(20 * 1024 * 1024 * 1024), 10) },
   fileFilter: (_req, file, cb) => {
     if (!file.originalname.toLowerCase().endsWith('.gguf')) {
       return cb(new Error('Only .gguf files are supported'));
@@ -4950,8 +4963,10 @@ app.post('/api/admin/models', async (req, res) => {
           return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
-        // Construct the expected path from our controlled filename (not req.file.path which is user-tainted)
-        const expectedPath = path.join(path.resolve(MODELS_DIR), req.file.filename);
+        // Construct and validate the expected path from our controlled filename
+        // (not req.file.path which is user-tainted). Store for reuse in error cleanup.
+        const safeFilename = path.basename(req.file.filename);
+        const expectedPath = path.join(path.resolve(MODELS_DIR), safeFilename);
         ensureWithinDir(MODELS_DIR, expectedPath);
 
         const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
@@ -4962,7 +4977,7 @@ app.post('/api/admin/models', async (req, res) => {
           const newModel = {
             id: crypto.randomUUID(),
             name: displayName,
-            filename: req.file.filename,
+            filename: safeFilename,
             originalFilename: req.file.originalname,
             size: req.file.size,
             uploadedAt: new Date().toISOString(),
@@ -4975,10 +4990,11 @@ app.post('/api/admin/models', async (req, res) => {
         });
       } catch (err) {
         console.error('Model upload error:', err);
-        // Remove the uploaded file on error (use controlled filename, not user-tainted path)
+        // Remove the uploaded file on error using only the base filename in a controlled directory
         if (req.file) {
           try {
-            const cleanupPath = path.join(path.resolve(MODELS_DIR), req.file.filename);
+            const safeCleanupName = path.basename(req.file.filename);
+            const cleanupPath = path.join(path.resolve(MODELS_DIR), safeCleanupName);
             ensureWithinDir(MODELS_DIR, cleanupPath);
             fs.unlinkSync(cleanupPath);
           } catch { /* ignore */ }
@@ -5497,7 +5513,8 @@ async function streamFromLocalModel(res, messages, modelId, options = {}, signal
             sendSSE(res, 'content', { content: chunk });
           }
         } catch (e) {
-          if (e.message && !e.message.includes('JSON')) throw e;
+          // Only ignore JSON parse errors; rethrow everything else (e.g. explicit {error:...} payloads)
+          if (!(e instanceof SyntaxError)) throw e;
         }
       }
     }

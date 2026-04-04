@@ -74,6 +74,9 @@ class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 class _Handler(BaseHTTPRequestHandler):
     """HTTP request handler for the LLM service."""
 
+    # Use HTTP/1.1 to support chunked transfer encoding
+    protocol_version = "HTTP/1.1"
+
     # Silence default access logging
     def log_message(self, fmt, *args):
         pass
@@ -123,10 +126,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         # Validate model_path is inside the allowed models directory
-        if _allowed_models_dir:
-            if not model_path.startswith(_allowed_models_dir + os.sep) and model_path != _allowed_models_dir:
-                self._send_json(403, {"error": "model_path is outside the allowed models directory"})
-                return
+        if not _allowed_models_dir:
+            self._send_json(500, {"error": "No allowed models directory configured"})
+            return
+        if not model_path.startswith(_allowed_models_dir + os.sep):
+            self._send_json(403, {"error": "model_path is outside the allowed models directory"})
+            return
 
         if not os.path.isfile(model_path):
             self._send_json(400, {"error": "model_path is invalid or file does not exist"})
@@ -158,6 +163,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
         self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Connection", "keep-alive")
         self.end_headers()
 
         full_content = ""
