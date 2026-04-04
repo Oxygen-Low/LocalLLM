@@ -20,6 +20,8 @@ const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
 const ROLEPLAY_DIR = path.join(DATA_DIR, 'roleplay');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
+const PYTHON_VENV_DIR = path.join(DATA_DIR, 'python_env');
+const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
@@ -862,6 +864,82 @@ function saveAllData() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Python virtual-environment process management
+// ---------------------------------------------------------------------------
+let pythonProcess = null;
+
+/**
+ * Ensures a Python venv exists and spawns the python_service.py script inside
+ * it. The child process is kept alive for the lifetime of the server and is
+ * terminated during graceful shutdown.
+ */
+function startPythonProcess() {
+  const { execFileSync, spawn } = require('child_process');
+
+  // Determine the system Python binary
+  const pythonBin = process.platform === 'win32' ? 'python' : 'python3';
+
+  // Create the virtual environment if it does not already exist
+  const venvPython = process.platform === 'win32'
+    ? path.join(PYTHON_VENV_DIR, 'Scripts', 'python.exe')
+    : path.join(PYTHON_VENV_DIR, 'bin', 'python3');
+
+  if (!fs.existsSync(venvPython)) {
+    console.log('Creating Python virtual environment...');
+    try {
+      execFileSync(pythonBin, ['-m', 'venv', PYTHON_VENV_DIR], {
+        timeout: 60000,
+        stdio: 'pipe',
+      });
+      console.log('Python virtual environment created at', PYTHON_VENV_DIR);
+    } catch (err) {
+      console.error('Failed to create Python venv:', err.message);
+      return;
+    }
+  }
+
+  // Spawn the service script inside the venv
+  try {
+    pythonProcess = spawn(venvPython, [PYTHON_SERVICE_SCRIPT], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    pythonProcess.stdout.on('data', (data) => {
+      console.log(`[python] ${data.toString().trim()}`);
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      console.error(`[python] ${data.toString().trim()}`);
+    });
+
+    pythonProcess.on('close', (code) => {
+      console.log(`[python] Process exited with code ${code}`);
+      pythonProcess = null;
+    });
+
+    pythonProcess.on('error', (err) => {
+      console.error('[python] Failed to start:', err.message);
+      pythonProcess = null;
+    });
+
+    console.log('Python service started (pid:', pythonProcess.pid + ')');
+  } catch (err) {
+    console.error('Failed to start Python service:', err.message);
+  }
+}
+
+/**
+ * Terminate the Python child process (if running).
+ */
+function stopPythonProcess() {
+  if (pythonProcess) {
+    console.log('Stopping Python service...');
+    pythonProcess.kill('SIGTERM');
+    pythonProcess = null;
+  }
+}
+
 // Register SIGTERM / SIGINT handlers so all data is persisted before exit
 function setupGracefulShutdown(server) {
   let shuttingDown = false;
@@ -884,6 +962,9 @@ function setupGracefulShutdown(server) {
 
     // Persist data first to guarantee nothing is lost
     saveAllData();
+
+    // Terminate the managed Python process
+    stopPythonProcess();
 
     // Stop accepting new connections and wait for in-flight requests
     server.close(() => {
@@ -5936,9 +6017,10 @@ if (require.main === module) {
   createHttpsServer().then((server) => {
     server.listen(PORT, () => {
       console.log(`Server running on HTTPS port ${PORT}`);
+      startPythonProcess();
     });
     setupGracefulShutdown(server);
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, resetKoboldCache, resetOllamaCache, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR };
