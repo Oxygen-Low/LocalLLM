@@ -1,0 +1,3 @@
+## 2026-04-04 - [Accessibility] Focus visible on opacity-0 elements
+**Learning:** Elements hidden using `opacity-0 group-hover:opacity-100` are completely invisible to keyboard users who navigate via the Tab key because focusing on them does not trigger the hover state. This is an accessibility issue pattern specific to list actions or hidden settings in this app's components.
+**Action:** When creating or modifying elements that appear on hover via `opacity-0`, always apply `focus-visible:opacity-100` alongside existing focus styling (e.g. `focus-visible:underline` or `focus-visible:ring-2`) to guarantee keyboard accessibility. Additionally, ensure they have proper ARIA attributes if they are icon-only buttons.
