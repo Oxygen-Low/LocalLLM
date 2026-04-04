@@ -152,6 +152,7 @@ async function checkPythonServiceHealth() {
 }
 
 const LLM_PROXY_TIMEOUT_MS = 60000; // 60-second timeout for LLM proxy requests
+const LOCAL_MODEL_TIMEOUT_MULTIPLIER = 5; // Local models are slower, allow more time
 const LLM_DEFAULT_MAX_TOKENS = 4096;
 const THINK_MAX_TOKENS = 16000; // Higher limit to accommodate thinking + response tokens
 const ANTHROPIC_THINKING_BUDGET = 10000; // Budget tokens for Anthropic extended thinking
@@ -4902,7 +4903,7 @@ const modelUpload = multer({
       cb(null, `${Date.now()}_${safeName}`);
     },
   }),
-  limits: { fileSize: 50 * 1024 * 1024 * 1024 }, // 50 GB max
+  limits: { fileSize: 20 * 1024 * 1024 * 1024 }, // 20 GB max
   fileFilter: (_req, file, cb) => {
     if (!file.originalname.toLowerCase().endsWith('.gguf')) {
       return cb(new Error('Only .gguf files are supported'));
@@ -5413,7 +5414,7 @@ async function streamFromLocalModel(res, messages, modelId, options = {}, signal
   });
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * 5); // longer timeout for local models
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
   if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
 
   let response;
