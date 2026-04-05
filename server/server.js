@@ -94,10 +94,11 @@ function decryptData(encryptedStr, username) {
 }
 
 // ---------------------------------------------------------------------------
-// Local LLM model management (HuggingFace models via Python transformers)
+// Local LLM model management (HuggingFace models and GGUF uploads)
 // ---------------------------------------------------------------------------
 const MODELS_DIR = path.join(DATA_DIR, 'models');
 const MODELS_REGISTRY_FILE = path.join(DATA_DIR, 'models.json');
+const MAX_GGUF_FILE_SIZE = 20 * 1024 * 1024 * 1024; // 20 GB max upload
 const PYTHON_SERVICE_PORT = parseInt(process.env.PYTHON_SERVICE_PORT || '5555', 10);
 const PYTHON_SERVICE_URL = `http://127.0.0.1:${PYTHON_SERVICE_PORT}`;
 
@@ -930,6 +931,27 @@ function startPythonProcess() {
       console.error('Failed to install Python dependencies:', err.message);
       console.error('The local LLM feature will be unavailable until the dependencies are installed.');
       return;
+    }
+  }
+
+  // Install llama-cpp-python for GGUF model support (separate marker so it
+  // does not block the service if the installation fails – GGUF will simply
+  // be unavailable until the user installs it manually).
+  const llamaCppMarker = path.join(PYTHON_VENV_DIR, '.llama_cpp_installed');
+  if (!fs.existsSync(llamaCppMarker) && allowRuntimeInstall) {
+    console.log('Installing llama-cpp-python for GGUF model support...');
+    try {
+      execFileSync(venvPip, [
+        'install', 'llama-cpp-python',
+      ], {
+        timeout: 600000, // 10 minutes (compilation may be slow)
+        stdio: 'inherit',
+      });
+      fs.writeFileSync(llamaCppMarker, new Date().toISOString(), 'utf-8');
+      console.log('llama-cpp-python installed successfully');
+    } catch (err) {
+      console.warn('Failed to install llama-cpp-python:', err.message);
+      console.warn('GGUF model support will be unavailable. You can install it manually with: pip install llama-cpp-python');
     }
   }
 
@@ -5037,6 +5059,111 @@ app.post('/api/admin/models', async (req, res) => {
   }
 });
 
+// Admin: upload a GGUF model file
+// Uses multipart/form-data with admin credentials in headers (X-Admin-Username,
+// X-Admin-Password) since the body is consumed by multer for the file upload.
+const ggufUploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const modelId = crypto.randomUUID();
+    req._ggufModelId = modelId;
+    const targetDir = path.join(path.resolve(MODELS_DIR), modelId);
+    ensureWithinDir(MODELS_DIR, targetDir);
+    fs.mkdirSync(targetDir, { recursive: true });
+    req._ggufTargetDir = targetDir;
+    cb(null, targetDir);
+  },
+  filename: (req, file, cb) => {
+    // Sanitize filename: only allow alphanumeric, hyphens, underscores, dots
+    // Prevent hidden files (starting with dot) and path traversal
+    let sanitized = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Remove leading dots to prevent hidden files
+    sanitized = sanitized.replace(/^\.+/, '');
+    const safeName = sanitized.length > 0 ? sanitized : 'model.gguf';
+    req._ggufFilename = safeName;
+    cb(null, safeName);
+  },
+});
+
+const ggufUpload = multer({
+  storage: ggufUploadStorage,
+  limits: { fileSize: MAX_GGUF_FILE_SIZE },
+  fileFilter: (req, file, cb) => {
+    if (!file.originalname.toLowerCase().endsWith('.gguf')) {
+      return cb(new Error('Only .gguf files are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+app.post('/api/admin/models/upload', async (req, res) => {
+  try {
+    // Authenticate via headers before processing the file upload
+    const adminUsername = req.headers['x-admin-username'];
+    const adminPassword = req.headers['x-admin-password'];
+
+    if (!adminUsername || !adminPassword) {
+      return res.status(401).json({ success: false, error: 'Missing admin credentials' });
+    }
+
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized model upload attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    // Process the file upload via multer
+    await new Promise((resolve, reject) => {
+      ggufUpload.single('model')(req, res, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No .gguf file uploaded' });
+    }
+
+    const modelId = req._ggufModelId;
+    const displayName = (req.body.name?.trim() || req._ggufFilename.replace(/\.gguf$/i, '')).substring(0, 200);
+    const fileSize = req.file.size;
+
+    // Register the model
+    await withModelsLock(async () => {
+      const models = readLocalModels();
+      const newModel = {
+        id: modelId,
+        name: displayName,
+        huggingFaceId: '',
+        directory: modelId,
+        filename: req._ggufFilename,
+        type: 'gguf',
+        size: fileSize,
+        downloadedAt: new Date().toISOString(),
+      };
+      models.push(newModel);
+      writeLocalModels(models);
+
+      auditLog({ event: 'ADMIN_UPLOAD_MODEL', message: `Admin uploaded GGUF model: ${displayName} (${req._ggufFilename})`, username: adminUsername, req });
+      res.json({ success: true, model: newModel });
+    });
+  } catch (err) {
+    // Clean up uploaded files on error
+    if (req._ggufTargetDir) {
+      try { fs.rmSync(req._ggufTargetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    if (err.message === 'Only .gguf files are allowed') {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ success: false, error: 'File too large. Maximum size is 20 GB.' });
+    }
+    console.error('Model upload error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // Admin: list all uploaded models
 app.post('/api/admin/models/list', async (req, res) => {
   try {
@@ -5101,7 +5228,8 @@ app.get('/api/local-models', requireSession, (req, res) => {
     const models = readLocalModels().map(m => ({
       id: m.id,
       name: m.name,
-      huggingFaceId: m.huggingFaceId,
+      huggingFaceId: m.huggingFaceId || '',
+      type: m.type || 'transformers',
       size: m.size,
       downloadedAt: m.downloadedAt,
     }));

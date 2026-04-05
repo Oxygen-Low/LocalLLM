@@ -28,6 +28,8 @@ export interface LocalModel {
   name: string;
   huggingFaceId: string;
   directory: string;
+  filename?: string;
+  type?: 'transformers' | 'gguf';
   size: number;
   downloadedAt: string;
 }
@@ -288,6 +290,31 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete model' };
+    }
+  }
+
+  async uploadModel(file: File, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; model?: LocalModel }> {
+    try {
+      const formData = new FormData();
+      formData.append('model', file);
+      if (name) {
+        formData.append('name', name);
+      }
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(
+          `${environment.apiUrl}/api/admin/models/upload`,
+          formData,
+          {
+            headers: {
+              'X-Admin-Username': this.authService.username() ?? '',
+              'X-Admin-Password': adminPasswordHash,
+            },
+          }
+        )
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to upload model' };
     }
   }
 }
