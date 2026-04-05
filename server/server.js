@@ -888,17 +888,18 @@ function startPythonProcess() {
     }
   }
 
-  // Install llama-cpp-python only when explicitly allowed.
-  // Production deployments should preinstall this dependency at build/deploy time.
+  // Install llama-cpp-python automatically on first run.
+  // Set ALLOW_RUNTIME_LLAMA_CPP_INSTALL=false to skip runtime installation
+  // (e.g. when the dependency is preinstalled at build/deploy time).
   const llamaMarker = path.join(PYTHON_VENV_DIR, '.llama_cpp_installed');
-  const allowRuntimeLlamaInstall = process.env.ALLOW_RUNTIME_LLAMA_CPP_INSTALL === 'true';
+  const allowRuntimeLlamaInstall = process.env.ALLOW_RUNTIME_LLAMA_CPP_INSTALL !== 'false';
   const llamaCppPythonSpec = process.env.LLAMA_CPP_PYTHON_SPEC || 'llama-cpp-python==0.2.90';
   if (!fs.existsSync(llamaMarker)) {
     if (!allowRuntimeLlamaInstall) {
       console.warn(
         `Skipping runtime installation of ${llamaCppPythonSpec}. ` +
-        'Preinstall this dependency during build/deploy time, or set ' +
-        'ALLOW_RUNTIME_LLAMA_CPP_INSTALL=true to enable the one-time fallback installer.'
+        'Preinstall this dependency during build/deploy time, or remove ' +
+        'ALLOW_RUNTIME_LLAMA_CPP_INSTALL=false to re-enable the automatic installer.'
       );
       console.error('The local LLM feature will be unavailable until the dependency is installed.');
       return;
