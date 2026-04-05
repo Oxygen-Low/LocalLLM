@@ -907,14 +907,49 @@ function startPythonProcess() {
 
     console.log(`Installing ${llamaCppPythonSpec} (this may take a few minutes)...`);
     try {
-      execFileSync(venvPip, ['install', llamaCppPythonSpec], {
-        timeout: 600000, // 10 minutes – compiling C++ can be slow
-        stdio: 'inherit', // show install progress in console for debugging
-      });
+      // First, attempt to install a pre-built binary wheel (fast, no compiler needed).
+      // Falls back to building from source only if no wheel is available.
+      let installedFromWheel = false;
+      try {
+        console.log('Attempting to install pre-built wheel...');
+        execFileSync(venvPip, ['install', '--only-binary', ':all:', llamaCppPythonSpec], {
+          timeout: 120000, // 2 minutes should be enough for downloading a wheel
+          stdio: 'inherit',
+        });
+        installedFromWheel = true;
+      } catch (wheelErr) {
+        // No pre-built wheel available for this platform – fall back to source build
+        console.log(`No pre-built wheel available (${wheelErr.message || 'install failed'}), attempting to build from source...`);
+        console.log('Note: building from source requires a C/C++ compiler and CMake.');
+        execFileSync(venvPip, ['install', llamaCppPythonSpec], {
+          timeout: 600000, // 10 minutes – compiling C++ can be slow
+          stdio: 'inherit',
+        });
+      }
       fs.writeFileSync(llamaMarker, new Date().toISOString(), 'utf-8');
-      console.log(`${llamaCppPythonSpec} installed successfully`);
+      console.log(`${llamaCppPythonSpec} installed successfully ${installedFromWheel ? '(from pre-built wheel)' : '(built from source)'}`);
     } catch (err) {
       console.error(`Failed to install ${llamaCppPythonSpec}:`, err.message);
+      if (process.platform === 'win32') {
+        console.error(
+          'On Windows, building from source requires the Visual Studio Build Tools\n' +
+          'with the "Desktop development with C++" workload.\n' +
+          'Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/\n' +
+          'Alternatively, use a Python version (e.g. 3.10-3.12) that has pre-built\n' +
+          'wheels available on PyPI.'
+        );
+      } else if (process.platform === 'darwin') {
+        console.error(
+          'On macOS, install Xcode Command Line Tools: xcode-select --install\n' +
+          'Also ensure CMake is installed: brew install cmake'
+        );
+      } else {
+        console.error(
+          'On Linux, install build dependencies:\n' +
+          '  sudo apt-get install build-essential cmake  (Debian/Ubuntu)\n' +
+          '  sudo dnf install gcc gcc-c++ cmake          (Fedora/RHEL)'
+        );
+      }
       console.error('The local LLM feature will be unavailable until the dependency is installed.');
       return;
     }
