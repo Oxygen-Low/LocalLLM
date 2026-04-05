@@ -94,7 +94,7 @@ function decryptData(encryptedStr, username) {
 }
 
 // ---------------------------------------------------------------------------
-// Local LLM model management (GGUF files via Python llama-cpp-python)
+// Local LLM model management (HuggingFace models via Python transformers)
 // ---------------------------------------------------------------------------
 const MODELS_DIR = path.join(DATA_DIR, 'models');
 const MODELS_REGISTRY_FILE = path.join(DATA_DIR, 'models.json');
@@ -137,12 +137,12 @@ function writeLocalModels(models) {
 }
 
 /**
- * Get the absolute file path for a registered model.
+ * Get the absolute directory path for a registered model.
  */
-function getModelFilePath(model) {
-  const filePath = path.join(MODELS_DIR, model.filename);
-  ensureWithinDir(MODELS_DIR, filePath);
-  return filePath;
+function getModelDirPath(model) {
+  const dirPath = path.join(MODELS_DIR, model.directory);
+  ensureWithinDir(MODELS_DIR, dirPath);
+  return dirPath;
 }
 
 /**
@@ -857,7 +857,7 @@ function saveAllData() {
 let pythonProcess = null;
 
 /**
- * Ensures a Python venv exists, installs llama-cpp-python, and spawns the
+ * Ensures a Python venv exists, installs transformers + torch, and spawns the
  * python_service.py script inside it. The child process is kept alive for the
  * lifetime of the server and is terminated during graceful shutdown.
  */
@@ -888,69 +888,47 @@ function startPythonProcess() {
     }
   }
 
-  // Install llama-cpp-python automatically on first run.
-  // Set ALLOW_RUNTIME_LLAMA_CPP_INSTALL=false to skip runtime installation
-  // (e.g. when the dependency is preinstalled at build/deploy time).
-  const llamaMarker = path.join(PYTHON_VENV_DIR, '.llama_cpp_installed');
-  const allowRuntimeLlamaInstall = process.env.ALLOW_RUNTIME_LLAMA_CPP_INSTALL !== 'false';
-  const llamaCppPythonSpec = process.env.LLAMA_CPP_PYTHON_SPEC || 'llama-cpp-python==0.2.90';
-  if (!fs.existsSync(llamaMarker)) {
-    if (!allowRuntimeLlamaInstall) {
+  // Install transformers, torch and huggingface_hub automatically on first run.
+  // Set ALLOW_RUNTIME_TRANSFORMERS_INSTALL=false to skip runtime installation
+  // (e.g. when the dependencies are preinstalled at build/deploy time).
+  const transformersMarker = path.join(PYTHON_VENV_DIR, '.transformers_installed');
+  const allowRuntimeInstall = process.env.ALLOW_RUNTIME_TRANSFORMERS_INSTALL !== 'false';
+  if (!fs.existsSync(transformersMarker)) {
+    if (!allowRuntimeInstall) {
       console.warn(
-        `Skipping runtime installation of ${llamaCppPythonSpec}. ` +
-        'Preinstall this dependency during build/deploy time, or remove ' +
-        'ALLOW_RUNTIME_LLAMA_CPP_INSTALL=false to re-enable the automatic installer.'
+        'Skipping runtime installation of transformers/torch. ' +
+        'Preinstall these dependencies during build/deploy time, or remove ' +
+        'ALLOW_RUNTIME_TRANSFORMERS_INSTALL=false to re-enable the automatic installer.'
       );
-      console.error('The local LLM feature will be unavailable until the dependency is installed.');
+      console.error('The local LLM feature will be unavailable until the dependencies are installed.');
       return;
     }
 
-    console.log(`Installing ${llamaCppPythonSpec} (this may take a few minutes)...`);
+    console.log('Installing transformers, torch, and huggingface_hub (this may take a few minutes)...');
     try {
-      // First, attempt to install a pre-built binary wheel (fast, no compiler needed).
-      // Falls back to building from source only if no wheel is available.
-      let installedFromWheel = false;
-      try {
-        console.log('Attempting to install pre-built wheel...');
-        execFileSync(venvPip, ['install', '--only-binary', ':all:', llamaCppPythonSpec], {
-          timeout: 120000, // 2 minutes should be enough for downloading a wheel
-          stdio: 'inherit',
-        });
-        installedFromWheel = true;
-      } catch (wheelErr) {
-        // No pre-built wheel available for this platform – fall back to source build
-        console.log(`No pre-built wheel available (${wheelErr.message || 'install failed'}), attempting to build from source...`);
-        console.log('Note: building from source requires a C/C++ compiler and CMake.');
-        execFileSync(venvPip, ['install', llamaCppPythonSpec], {
-          timeout: 600000, // 10 minutes – compiling C++ can be slow
-          stdio: 'inherit',
-        });
-      }
-      fs.writeFileSync(llamaMarker, new Date().toISOString(), 'utf-8');
-      console.log(`${llamaCppPythonSpec} installed successfully ${installedFromWheel ? '(from pre-built wheel)' : '(built from source)'}`);
+      // Install CPU-only torch first (much smaller than full CUDA torch)
+      console.log('Installing PyTorch (CPU-only)...');
+      execFileSync(venvPip, [
+        'install', 'torch', '--index-url', 'https://download.pytorch.org/whl/cpu',
+      ], {
+        timeout: 600000, // 10 minutes
+        stdio: 'inherit',
+      });
+
+      // Install transformers and huggingface_hub
+      console.log('Installing transformers and huggingface_hub...');
+      execFileSync(venvPip, [
+        'install', 'transformers', 'huggingface_hub', 'accelerate',
+      ], {
+        timeout: 300000, // 5 minutes
+        stdio: 'inherit',
+      });
+
+      fs.writeFileSync(transformersMarker, new Date().toISOString(), 'utf-8');
+      console.log('transformers, torch, and huggingface_hub installed successfully');
     } catch (err) {
-      console.error(`Failed to install ${llamaCppPythonSpec}:`, err.message);
-      if (process.platform === 'win32') {
-        console.error(
-          'On Windows, building from source requires the Visual Studio Build Tools\n' +
-          'with the "Desktop development with C++" workload.\n' +
-          'Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/\n' +
-          'Alternatively, use a Python version (e.g. 3.10-3.12) that has pre-built\n' +
-          'wheels available on PyPI.'
-        );
-      } else if (process.platform === 'darwin') {
-        console.error(
-          'On macOS, install Xcode Command Line Tools: xcode-select --install\n' +
-          'Also ensure CMake is installed: brew install cmake'
-        );
-      } else {
-        console.error(
-          'On Linux, install build dependencies:\n' +
-          '  sudo apt-get install build-essential cmake  (Debian/Ubuntu)\n' +
-          '  sudo dnf install gcc gcc-c++ cmake          (Fedora/RHEL)'
-        );
-      }
-      console.error('The local LLM feature will be unavailable until the dependency is installed.');
+      console.error('Failed to install Python dependencies:', err.message);
+      console.error('The local LLM feature will be unavailable until the dependencies are installed.');
       return;
     }
   }
@@ -4964,98 +4942,96 @@ app.get('/api/local-repositories', requireSession, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Local LLM model endpoints (admin upload/delete, user list/status)
+// Local LLM model endpoints (admin download/delete, user list/status)
 // ---------------------------------------------------------------------------
 
-// Configure multer for GGUF file uploads (stored in data/models/)
-const modelUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, MODELS_DIR),
-    filename: (_req, file, cb) => {
-      // Use a safe filename: random UUID + sanitised original name to avoid collisions
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 200);
-      cb(null, `${crypto.randomUUID()}_${safeName}`);
-    },
-  }),
-  limits: { fileSize: parseInt(process.env.MODEL_UPLOAD_MAX_SIZE_BYTES || String(20 * 1024 * 1024 * 1024), 10) },
-  fileFilter: (_req, file, cb) => {
-    if (!file.originalname.toLowerCase().endsWith('.gguf')) {
-      return cb(new Error('Only .gguf files are supported'));
-    }
-    cb(null, true);
-  },
-});
+// Maximum allowed model download timeout (30 minutes – large models take time)
+const MODEL_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 
-// Admin: upload a GGUF model
-// Admin credentials are sent via headers to authenticate BEFORE accepting the file upload.
-// This prevents unauthenticated users from uploading large files (DoS vector).
+// Admin: download a HuggingFace model
 app.post('/api/admin/models', async (req, res) => {
   try {
-    // Authenticate via headers before accepting any file data
-    const adminUsername = typeof req.headers['x-admin-username'] === 'string' ? req.headers['x-admin-username'] : '';
-    const adminPassword = typeof req.headers['x-admin-password'] === 'string' ? req.headers['x-admin-password'] : '';
+    const { adminUsername, adminPassword, repoId, name } = req.body;
 
     if (!adminUsername || !adminPassword) {
       return res.status(401).json({ success: false, error: 'Missing admin credentials' });
     }
 
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
-      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized model upload attempt', username: adminUsername, req });
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized model download attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
     }
 
-    // Only accept file upload after authentication passes
-    modelUpload.single('model')(req, res, async (uploadErr) => {
-      try {
-        if (uploadErr) {
-          return res.status(400).json({ success: false, error: uploadErr.message || 'Upload failed' });
-        }
+    if (!repoId || typeof repoId !== 'string' || !repoId.trim()) {
+      return res.status(400).json({ success: false, error: 'repoId is required (e.g. "TinyLlama/TinyLlama-1.1B-Chat-v1.0")' });
+    }
 
-        if (!req.file) {
-          return res.status(400).json({ success: false, error: 'No file uploaded' });
-        }
+    // Validate repoId format (must be "owner/model" style)
+    const trimmedRepoId = repoId.trim();
+    if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(trimmedRepoId)) {
+      return res.status(400).json({ success: false, error: 'Invalid repoId format. Expected "owner/model" (e.g. "TinyLlama/TinyLlama-1.1B-Chat-v1.0")' });
+    }
 
-        // Construct and validate the expected path from our controlled filename
-        // (not req.file.path which is user-tainted). Store for reuse in error cleanup.
-        const safeFilename = path.basename(req.file.filename);
-        const expectedPath = path.join(path.resolve(MODELS_DIR), safeFilename);
-        ensureWithinDir(MODELS_DIR, expectedPath);
+    // Check Python service is healthy before starting download
+    const serviceHealthy = await checkPythonServiceHealth();
+    if (!serviceHealthy) {
+      return res.status(503).json({ success: false, error: 'Python LLM service is not running. Please wait for it to start.' });
+    }
 
-        const displayName = (req.body.name || req.file.originalname.replace(/\.gguf$/i, '')).trim().substring(0, 200);
+    const modelId = crypto.randomUUID();
+    const modelDirName = modelId;
+    const targetDir = path.join(path.resolve(MODELS_DIR), modelDirName);
+    ensureWithinDir(MODELS_DIR, targetDir);
 
-        // Use mutex to prevent read-modify-write race conditions
-        await withModelsLock(async () => {
-          const models = readLocalModels();
-          const newModel = {
-            id: crypto.randomUUID(),
-            name: displayName,
-            filename: safeFilename,
-            originalFilename: req.file.originalname,
-            size: req.file.size,
-            uploadedAt: new Date().toISOString(),
-          };
-          models.push(newModel);
-          writeLocalModels(models);
+    const displayName = (name?.trim() || trimmedRepoId.split('/').pop() || trimmedRepoId).substring(0, 200);
 
-          auditLog({ event: 'ADMIN_UPLOAD_MODEL', message: `Admin uploaded model: ${displayName}`, username: adminUsername, req });
-          res.json({ success: true, model: newModel });
-        });
-      } catch (err) {
-        console.error('Model upload error:', err);
-        // Remove the uploaded file on error using only the base filename in a controlled directory
-        if (req.file) {
-          try {
-            const safeCleanupName = path.basename(req.file.filename);
-            const cleanupPath = path.join(path.resolve(MODELS_DIR), safeCleanupName);
-            ensureWithinDir(MODELS_DIR, cleanupPath);
-            fs.unlinkSync(cleanupPath);
-          } catch { /* ignore */ }
-        }
-        res.status(500).json({ success: false, error: 'Internal server error' });
+    // Request the Python service to download the model
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), MODEL_DOWNLOAD_TIMEOUT_MS);
+
+      const downloadRes = await fetch(`${PYTHON_SERVICE_URL}/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_id: trimmedRepoId, target_dir: targetDir }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      const downloadResult = await downloadRes.json();
+      if (!downloadRes.ok || downloadResult.error) {
+        // Cleanup the directory on failure
+        try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        return res.status(500).json({ success: false, error: downloadResult.error || 'Download failed' });
       }
-    });
+
+      // Register the model
+      await withModelsLock(async () => {
+        const models = readLocalModels();
+        const newModel = {
+          id: modelId,
+          name: displayName,
+          huggingFaceId: trimmedRepoId,
+          directory: modelDirName,
+          size: downloadResult.size || 0,
+          downloadedAt: new Date().toISOString(),
+        };
+        models.push(newModel);
+        writeLocalModels(models);
+
+        auditLog({ event: 'ADMIN_DOWNLOAD_MODEL', message: `Admin downloaded model: ${displayName} (${trimmedRepoId})`, username: adminUsername, req });
+        res.json({ success: true, model: newModel });
+      });
+    } catch (downloadErr) {
+      // Cleanup the directory on failure
+      try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      if (downloadErr.name === 'AbortError') {
+        return res.status(504).json({ success: false, error: 'Model download timed out' });
+      }
+      return res.status(500).json({ success: false, error: `Download failed: ${downloadErr.message}` });
+    }
   } catch (err) {
-    console.error('Model upload auth error:', err);
+    console.error('Model download error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -5096,10 +5072,10 @@ app.delete('/api/admin/models/:id', async (req, res) => {
       }
 
       const model = models[idx];
-      // Remove the file from disk
-      const filePath = getModelFilePath(model);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      // Remove the model directory from disk
+      const modelDir = getModelDirPath(model);
+      if (fs.existsSync(modelDir)) {
+        fs.rmSync(modelDir, { recursive: true, force: true });
       }
 
       models.splice(idx, 1);
@@ -5124,8 +5100,9 @@ app.get('/api/local-models', requireSession, (req, res) => {
     const models = readLocalModels().map(m => ({
       id: m.id,
       name: m.name,
+      huggingFaceId: m.huggingFaceId,
       size: m.size,
-      uploadedAt: m.uploadedAt,
+      downloadedAt: m.downloadedAt,
     }));
     res.json({ success: true, models });
   } catch (err) {
@@ -5491,15 +5468,15 @@ async function streamFromLocalModel(res, messages, modelId, options = {}, signal
     messages = enhanceMessagesForThink(messages);
   }
 
-  // Resolve the model file path from the registry
+  // Resolve the model directory path from the registry
   const models = readLocalModels();
   const modelEntry = models.find(m => m.id === modelId);
   if (!modelEntry) {
     throw new Error('Local model not found');
   }
-  const modelPath = getModelFilePath(modelEntry);
-  if (!fs.existsSync(modelPath)) {
-    throw new Error('Model file not found on disk');
+  const modelDir = getModelDirPath(modelEntry);
+  if (!fs.existsSync(modelDir)) {
+    throw new Error('Model directory not found on disk');
   }
 
   // Prepare messages (flatten multimodal content to text)
@@ -5519,7 +5496,7 @@ async function streamFromLocalModel(res, messages, modelId, options = {}, signal
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model_path: modelPath,
+        model_dir: modelDir,
         messages: chatMessages,
         max_tokens: LLM_DEFAULT_MAX_TOKENS,
       }),
@@ -6163,7 +6140,7 @@ app.get('/api/providers', requireSession, async (req, res) => {
     const keys = readUserApiKeys(req.sessionUser);
     const providers = [];
 
-    // Check local models (uploaded GGUF files served by Python service)
+    // Check local models (HuggingFace models served by Python service)
     const localModels = readLocalModels();
     if (localModels.length > 0) {
       const serviceHealthy = await checkPythonServiceHealth();
