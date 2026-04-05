@@ -167,9 +167,9 @@ export class LlmService {
 
   // --- Local Models ---
 
-  async getLocalModels(): Promise<{ id: string; name: string; size: number; uploadedAt: string }[]> {
+  async getLocalModels(): Promise<{ id: string; name: string; huggingFaceId: string; size: number; downloadedAt: string }[]> {
     const res = await firstValueFrom(
-      this.http.get<{ success: boolean; models: { id: string; name: string; size: number; uploadedAt: string }[] }>(
+      this.http.get<{ success: boolean; models: { id: string; name: string; huggingFaceId: string; size: number; downloadedAt: string }[] }>(
         `${environment.apiUrl}/api/local-models`
       )
     );

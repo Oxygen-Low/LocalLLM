@@ -226,7 +226,7 @@ describe('LlmService', () => {
       const promise = service.getLocalModels();
       const req = httpMock.expectOne('/api/local-models');
       expect(req.request.method).toBe('GET');
-      req.flush({ success: true, models: [{ id: 'abc', name: 'Test Model', size: 1024, uploadedAt: '2025-01-01' }] });
+      req.flush({ success: true, models: [{ id: 'abc', name: 'Test Model', huggingFaceId: 'test/model', size: 1024, downloadedAt: '2025-01-01' }] });
       const result = await promise;
       expect(result.length).toBe(1);
       expect(result[0].name).toBe('Test Model');
