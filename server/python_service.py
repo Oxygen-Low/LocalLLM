@@ -91,7 +91,7 @@ def _get_model(model_dir):
 
     print(f"Loading model from {model_dir} ...", flush=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -100,7 +100,6 @@ def _get_model(model_dir):
         torch_dtype="auto",
         device_map="cpu",
         low_cpu_mem_usage=True,
-        trust_remote_code=True,
     )
     model.eval()
 
@@ -115,11 +114,19 @@ def _download_model(repo_id, target_dir):
     """Download a HuggingFace model into *target_dir*."""
     from huggingface_hub import snapshot_download  # noqa: E402
 
-    snapshot_download(
-        repo_id=repo_id,
-        local_dir=target_dir,
-        local_dir_use_symlinks=False,
-    )
+    try:
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=target_dir,
+            local_dir_use_symlinks=False,
+        )
+    except Exception as exc:
+        error_msg = str(exc)
+        if "404" in error_msg or "not found" in error_msg.lower():
+            raise ValueError(f"Model '{repo_id}' not found on HuggingFace Hub") from exc
+        if "401" in error_msg or "403" in error_msg:
+            raise ValueError(f"Access denied for model '{repo_id}'. It may be private or gated.") from exc
+        raise
 
 
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):

@@ -4983,7 +4983,7 @@ app.post('/api/admin/models', async (req, res) => {
     const targetDir = path.join(path.resolve(MODELS_DIR), modelDirName);
     ensureWithinDir(MODELS_DIR, targetDir);
 
-    const displayName = (name || trimmedRepoId.split('/').pop()).trim().substring(0, 200);
+    const displayName = (name?.trim() || trimmedRepoId.split('/').pop() || trimmedRepoId).substring(0, 200);
 
     // Request the Python service to download the model
     try {
