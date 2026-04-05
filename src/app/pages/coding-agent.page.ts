@@ -741,6 +741,8 @@ interface ToolCall {
                         class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-xs transition-colors"
                         aria-label="Select AI provider"
                         title="Select AI provider"
+                        aria-haspopup="listbox"
+                        [attr.aria-expanded]="showProviderDropdown()"
                       >
                         <span class="w-1.5 h-1.5 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
                         <span class="text-secondary-700 max-w-[120px] truncate">
@@ -823,6 +825,10 @@ interface ToolCall {
                           [ngClass]="selectedCharacter()
                             ? 'border-purple-300 bg-purple-50 text-purple-700'
                             : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                          aria-label="Select roleplay character"
+                          title="Select roleplay character"
+                          aria-haspopup="listbox"
+                          [attr.aria-expanded]="showCharacterDropdown()"
                         >
                           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -868,6 +874,10 @@ interface ToolCall {
                         [ngClass]="webSearchEnabled()
                           ? 'border-primary-300 bg-primary-50 text-primary-700'
                           : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                        aria-label="Toggle MCPs"
+                        title="Toggle MCPs"
+                        aria-haspopup="menu"
+                        [attr.aria-expanded]="showMcpDropdown()"
                       >
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -909,6 +919,9 @@ interface ToolCall {
                       [ngClass]="thinkEnabled()
                         ? 'border-primary-300 bg-primary-50 text-primary-700'
                         : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
+                      aria-label="Toggle think mode"
+                      title="Toggle think mode"
+                      [attr.aria-pressed]="thinkEnabled()"
                     >
                       💡 Think
                     </button>
