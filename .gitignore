@@ -46,3 +46,4 @@ Thumbs.db
 
 # Server data
 /data
+server/__pycache__/
