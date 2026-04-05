@@ -3902,9 +3902,10 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
       const integrations = readUserIntegrations(req.sessionUser);
       const gitToken = integrations.github?.token || null;
 
+      const b64CloneUrl = Buffer.from(appEntry.cloneUrl).toString('base64');
       const cloneCmd = gitToken
-        ? `git config --global credential.helper '!f() { echo "password=$GIT_TOKEN"; }; f' && git clone "${appEntry.cloneUrl}" /workspace`
-        : `git clone "${appEntry.cloneUrl}" /workspace`;
+        ? `git config --global credential.helper '!f() { echo "password=$GIT_TOKEN"; }; f' && git clone "$(echo '${b64CloneUrl}' | base64 -d)" /workspace`
+        : `git clone "$(echo '${b64CloneUrl}' | base64 -d)" /workspace`;
 
       const cloneArgs = [
         'exec',
