@@ -15,7 +15,9 @@ If you lose the password to the admin account, just stop the server and run "npm
 If you want the ai to act like one of your favourite characters, just go create a universe and that character in the admin panel.
 
 ## Local Models
-Local Models are supported, and certain apps will be automatically detected if installed on the server:
+Local Models are supported via HuggingFace transformers. Download models directly from the HuggingFace Hub through the admin panel — no C/C++ build tools required.
+
+Additionally, certain external apps will be automatically detected if installed on the server:
 
 - [Kobold.cpp](https://github.com/LostRuins/koboldcpp)
 - [Ollama](https://ollama.com)

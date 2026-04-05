@@ -26,10 +26,10 @@ export interface Universe {
 export interface LocalModel {
   id: string;
   name: string;
-  filename: string;
-  originalFilename: string;
+  huggingFaceId: string;
+  directory: string;
   size: number;
-  uploadedAt: string;
+  downloadedAt: string;
 }
 
 interface AdminListResponse {
@@ -259,23 +259,19 @@ export class AdminService {
     }
   }
 
-  async uploadModel(file: File, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; model?: LocalModel }> {
+  async downloadModel(repoId: string, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; model?: LocalModel }> {
     try {
-      const formData = new FormData();
-      formData.append('model', file);
-      formData.append('name', name);
-
       const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(`${environment.apiUrl}/api/admin/models`, formData, {
-          headers: {
-            'X-Admin-Username': this.authService.username() ?? '',
-            'X-Admin-Password': adminPasswordHash,
-          },
+        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(`${environment.apiUrl}/api/admin/models`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          repoId,
+          name,
         })
       );
       return response;
     } catch (error: unknown) {
-      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to upload model' };
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to download model' };
     }
   }
 
