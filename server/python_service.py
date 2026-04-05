@@ -2,8 +2,8 @@
 Python LLM inference service.
 
 Runs a threaded HTTP server that loads HuggingFace models via the transformers
-library (or GGUF models via llama-cpp-python) and exposes a streaming chat
-completion endpoint.
+library (including GGUF models via the transformers gguf_file parameter) and
+exposes a streaming chat completion endpoint.
 
 The parent Node.js server communicates with this service over HTTP on a
 configurable port (default 5555).  The port is passed as the first CLI argument.
@@ -15,8 +15,7 @@ Endpoints
 POST /chat
     JSON body: { "model_dir": "<abs path to model directory>",
                  "messages": [...], "max_tokens": 2048 }
-    If a .gguf file is found in the model directory, uses llama-cpp-python
-    for inference; otherwise falls back to HuggingFace transformers.
+    Loads the model using HuggingFace transformers (including GGUF files).
     Returns newline-delimited JSON stream of { "content": "..." } chunks,
     terminated by { "done": true, "content": "<full>" }.
 
@@ -38,17 +37,12 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 
-# Global model cache: { model_dir: (model, tokenizer) } for transformers,
-# or { model_dir: llama_instance } for GGUF
+# Global model cache: { model_dir: (model, tokenizer) }
 _model_cache = {}
 _model_lock = threading.Lock()
 
 # Maximum number of cached models (to limit memory usage)
 MAX_CACHED_MODELS = 2
-
-# GGUF model cache: { gguf_path: Llama instance }
-_gguf_cache = {}
-_gguf_lock = threading.Lock()
 
 # Maximum allowed POST body size (1 MB should be more than enough for chat messages)
 MAX_BODY_SIZE = 1 * 1024 * 1024
@@ -81,8 +75,22 @@ def _validate_path_within_models_dir(target_path):
     return resolved
 
 
+def _find_gguf_file(model_dir):
+    """Return the filename of the first .gguf file in *model_dir*, or None."""
+    if not os.path.isdir(model_dir):
+        return None
+    for entry in os.listdir(model_dir):
+        if entry.lower().endswith(".gguf"):
+            return entry
+    return None
+
+
 def _get_model(model_dir):
-    """Return a cached (model, tokenizer) tuple, loading if necessary."""
+    """Return a cached (model, tokenizer) tuple, loading if necessary.
+
+    If a .gguf file is found in the model directory, the model is loaded
+    via the transformers ``gguf_file`` parameter (no llama-cpp-python needed).
+    """
     with _model_lock:
         if model_dir in _model_cache:
             return _model_cache[model_dir]
@@ -95,18 +103,31 @@ def _get_model(model_dir):
     # Import here so the modules are only required when actually used
     from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 
-    print(f"Loading model from {model_dir} ...", flush=True)
+    gguf_filename = _find_gguf_file(model_dir)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    if gguf_filename:
+        print(f"Loading GGUF model from {model_dir}/{gguf_filename} via transformers ...", flush=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_dir,
+            gguf_file=gguf_filename,
+            torch_dtype="auto",
+            device_map="cpu",
+            low_cpu_mem_usage=True,
+        )
+    else:
+        print(f"Loading model from {model_dir} ...", flush=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_dir,
+            torch_dtype="auto",
+            device_map="cpu",
+            low_cpu_mem_usage=True,
+        )
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_dir,
-        torch_dtype="auto",
-        device_map="cpu",
-        low_cpu_mem_usage=True,
-    )
     model.eval()
 
     pair = (model, tokenizer)
@@ -133,50 +154,6 @@ def _download_model(repo_id, target_dir):
         if "401" in error_msg or "403" in error_msg:
             raise ValueError(f"Access denied for model '{repo_id}'. It may be private or gated.") from exc
         raise
-
-
-def _find_gguf_file(model_dir):
-    """Return the path to the first .gguf file in *model_dir*, or None."""
-    if not os.path.isdir(model_dir):
-        return None
-    for entry in os.listdir(model_dir):
-        if entry.lower().endswith(".gguf"):
-            return os.path.join(model_dir, entry)
-    return None
-
-
-def _get_gguf_model(gguf_path):
-    """Return a cached Llama instance for the given GGUF file, loading if necessary."""
-    with _gguf_lock:
-        if gguf_path in _gguf_cache:
-            return _gguf_cache[gguf_path]
-
-        # Evict oldest cached GGUF models if at capacity
-        while len(_gguf_cache) >= MAX_CACHED_MODELS:
-            oldest_key = next(iter(_gguf_cache))
-            del _gguf_cache[oldest_key]
-
-    try:
-        from llama_cpp import Llama  # noqa: E402
-    except ImportError:
-        raise RuntimeError(
-            "GGUF model support requires llama-cpp-python. "
-            "Install it with: pip install llama-cpp-python"
-        )
-
-    print(f"Loading GGUF model from {gguf_path} ...", flush=True)
-
-    llm = Llama(
-        model_path=gguf_path,
-        n_ctx=4096,
-        n_threads=max(1, (os.cpu_count() or 4) // 2),
-        verbose=False,
-    )
-
-    with _gguf_lock:
-        _gguf_cache[gguf_path] = llm
-    print(f"GGUF model loaded successfully from {gguf_path}", flush=True)
-    return llm
 
 
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
@@ -301,71 +278,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "messages must be a non-empty list"})
             return
 
-        # Check if this is a GGUF model directory
-        gguf_path = _find_gguf_file(resolved_model_dir)
-        if gguf_path:
-            self._handle_chat_gguf(gguf_path, messages, max_tokens)
-        else:
-            self._handle_chat_transformers(resolved_model_dir, messages, max_tokens)
-
-    def _handle_chat_gguf(self, gguf_path, messages, max_tokens):
-        """Handle chat using a GGUF model via llama-cpp-python."""
-        try:
-            llm = _get_gguf_model(gguf_path)
-        except Exception as exc:
-            self._send_json(500, {"error": f"Failed to load GGUF model: {exc}"})
-            return
-
-        # Prepare messages
-        chat_messages = []
-        for m in messages:
-            role = m.get("role", "user")
-            content = m.get("content", "")
-            if isinstance(content, list):
-                content = "\n".join(
-                    p.get("text", "") for p in content
-                    if isinstance(p, dict) and p.get("type") == "text"
-                )
-            elif not isinstance(content, str):
-                content = str(content) if content is not None else ""
-            chat_messages.append({"role": role, "content": content})
-
-        # Stream the response
-        self.send_response(200)
-        self.send_header("Content-Type", "application/x-ndjson")
-        self.send_header("Transfer-Encoding", "chunked")
-        self.send_header("Connection", "keep-alive")
-        self.end_headers()
-
-        full_content = ""
-        try:
-            stream = llm.create_chat_completion(
-                messages=chat_messages,
-                max_tokens=max_tokens,
-                temperature=0.7,
-                top_p=0.9,
-                stream=True,
-            )
-
-            for chunk in stream:
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                text = delta.get("content", "")
-                if text:
-                    full_content += text
-                    line = json.dumps({"content": text}) + "\n"
-                    self._write_chunk(line.encode())
-
-            # Final done message
-            done_line = json.dumps({"done": True, "content": full_content}) + "\n"
-            self._write_chunk(done_line.encode())
-            self._write_chunk(b"")  # zero-length chunk to signal end
-        except Exception as exc:
-            err_line = json.dumps({"error": str(exc)}) + "\n"
-            try:
-                self._write_chunk(err_line.encode())
-                self._write_chunk(b"")
-            except Exception:
-                pass
+        self._handle_chat_transformers(resolved_model_dir, messages, max_tokens)
 
     def _handle_chat_transformers(self, resolved_model_dir, messages, max_tokens):
         """Handle chat using a HuggingFace transformers model."""
