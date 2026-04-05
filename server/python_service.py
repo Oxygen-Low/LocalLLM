@@ -42,7 +42,7 @@ _model_cache = {}
 _model_lock = threading.Lock()
 
 # Maximum number of cached models (to limit memory usage)
-MAX_CACHED_MODELS = 1
+MAX_CACHED_MODELS = 2
 
 # Maximum allowed POST body size (1 MB should be more than enough for chat messages)
 MAX_BODY_SIZE = 1 * 1024 * 1024
@@ -62,6 +62,19 @@ _DEFAULT_CHAT_TEMPLATE = (
 )
 
 
+def _validate_path_within_models_dir(target_path):
+    """Validate that *target_path* resolves to a path strictly inside
+    ``_allowed_models_dir``.  Returns the resolved absolute path on
+    success, or ``None`` if the path is outside the allowed directory."""
+    if not _allowed_models_dir:
+        return None
+    resolved = os.path.realpath(target_path)
+    # Must start with the allowed directory followed by the OS separator
+    if not resolved.startswith(_allowed_models_dir + os.sep):
+        return None
+    return resolved
+
+
 def _get_model(model_dir):
     """Return a cached (model, tokenizer) tuple, loading if necessary."""
     with _model_lock:
@@ -74,7 +87,6 @@ def _get_model(model_dir):
             del _model_cache[oldest_key]
 
     # Import here so the modules are only required when actually used
-    import torch  # noqa: E402
     from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 
     print(f"Loading model from {model_dir} ...", flush=True)
@@ -85,7 +97,7 @@ def _get_model(model_dir):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_dir,
-        torch_dtype=torch.float32,
+        torch_dtype="auto",
         device_map="cpu",
         low_cpu_mem_usage=True,
         trust_remote_code=True,
@@ -179,22 +191,20 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "target_dir is required"})
             return
 
-        target_dir = os.path.realpath(target_dir)
-
-        # Validate target_dir is inside the allowed models directory
-        if not _allowed_models_dir:
-            self._send_json(500, {"error": "No allowed models directory configured"})
-            return
-        if not target_dir.startswith(_allowed_models_dir + os.sep) and target_dir != _allowed_models_dir:
-            self._send_json(403, {"error": "target_dir is outside the allowed models directory"})
+        resolved_target = _validate_path_within_models_dir(target_dir)
+        if resolved_target is None:
+            if not _allowed_models_dir:
+                self._send_json(500, {"error": "No allowed models directory configured"})
+            else:
+                self._send_json(403, {"error": "target_dir is outside the allowed models directory"})
             return
 
         try:
-            os.makedirs(target_dir, exist_ok=True)
-            _download_model(repo_id, target_dir)
+            os.makedirs(resolved_target, exist_ok=True)
+            _download_model(repo_id, resolved_target)
             # Calculate total size
             total_size = 0
-            for dirpath, _dirnames, filenames in os.walk(target_dir):
+            for dirpath, _dirnames, filenames in os.walk(resolved_target):
                 for f in filenames:
                     total_size += os.path.getsize(os.path.join(dirpath, f))
             self._send_json(200, {"success": True, "size": total_size})
@@ -217,18 +227,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "model_dir is required"})
             return
 
-        # Resolve to absolute path and validate it is a directory
-        model_dir = os.path.realpath(model_dir)
-
-        # Validate model_dir is inside the allowed models directory
-        if not _allowed_models_dir:
-            self._send_json(500, {"error": "No allowed models directory configured"})
-            return
-        if not model_dir.startswith(_allowed_models_dir + os.sep) and model_dir != _allowed_models_dir:
-            self._send_json(403, {"error": "model_dir is outside the allowed models directory"})
+        # Resolve to absolute path and validate it is inside the allowed directory
+        resolved_model_dir = _validate_path_within_models_dir(model_dir)
+        if resolved_model_dir is None:
+            if not _allowed_models_dir:
+                self._send_json(500, {"error": "No allowed models directory configured"})
+            else:
+                self._send_json(403, {"error": "model_dir is outside the allowed models directory"})
             return
 
-        if not os.path.isdir(model_dir):
+        if not os.path.isdir(resolved_model_dir):
             self._send_json(400, {"error": "model_dir is invalid or directory does not exist"})
             return
 
@@ -237,7 +245,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            model, tokenizer = _get_model(model_dir)
+            model, tokenizer = _get_model(resolved_model_dir)
         except Exception as exc:
             self._send_json(500, {"error": f"Failed to load model: {exc}"})
             return
@@ -278,7 +286,6 @@ class _Handler(BaseHTTPRequestHandler):
                 parts.append("Assistant:")
                 prompt = "\n".join(parts)
 
-        import torch  # noqa: E402
         from transformers import TextIteratorStreamer  # noqa: E402
 
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
