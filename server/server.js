@@ -5073,7 +5073,10 @@ const ggufUploadStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     // Sanitize filename: only allow alphanumeric, hyphens, underscores, dots
-    const sanitized = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Prevent hidden files (starting with dot) and path traversal
+    let sanitized = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Remove leading dots to prevent hidden files
+    sanitized = sanitized.replace(/^\.+/, '');
     const safeName = sanitized.length > 0 ? sanitized : 'model.gguf';
     req._ggufFilename = safeName;
     cb(null, safeName);

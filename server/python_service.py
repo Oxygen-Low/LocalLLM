@@ -156,14 +156,20 @@ def _get_gguf_model(gguf_path):
             oldest_key = next(iter(_gguf_cache))
             del _gguf_cache[oldest_key]
 
-    from llama_cpp import Llama  # noqa: E402
+    try:
+        from llama_cpp import Llama  # noqa: E402
+    except ImportError:
+        raise RuntimeError(
+            "GGUF model support requires llama-cpp-python. "
+            "Install it with: pip install llama-cpp-python"
+        )
 
     print(f"Loading GGUF model from {gguf_path} ...", flush=True)
 
     llm = Llama(
         model_path=gguf_path,
         n_ctx=4096,
-        n_threads=os.cpu_count() or 4,
+        n_threads=max(1, (os.cpu_count() or 4) // 2),
         verbose=False,
     )
 

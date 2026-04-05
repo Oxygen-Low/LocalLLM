@@ -1,4 +1,4 @@
-import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -381,6 +381,7 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
                         <div>
                           <label for="ggufFile" class="block text-xs font-medium text-secondary-700 mb-1">GGUF file</label>
                           <input
+                            #ggufFileInput
                             id="ggufFile"
                             type="file"
                             accept=".gguf"
@@ -542,6 +543,8 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
   `,
 })
 export class AdminPageComponent {
+  @ViewChild('ggufFileInput') ggufFileInput?: ElementRef<HTMLInputElement>;
+
   adminPassword = '';
   adminPasswordHash: string | null = null;
   isUnlocking = signal(false);
@@ -913,12 +916,11 @@ export class AdminPageComponent {
         this.errorMessage.set(response.error ?? 'Failed to upload model.');
         return;
       }
-      this.statusMessage.set(`Model "${this.uploadModelName.trim() || this.selectedGgufFile.name}" uploaded.`);
+      const uploadedName = this.uploadModelName.trim() || this.selectedGgufFile.name;
+      this.statusMessage.set(`Model "${uploadedName}" uploaded.`);
       this.uploadModelName = '';
       this.selectedGgufFile = null;
-      // Reset the file input
-      const fileInput = document.getElementById('ggufFile') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
+      if (this.ggufFileInput) this.ggufFileInput.nativeElement.value = '';
       await this.loadModels(this.adminPasswordHash);
     } finally {
       this.isUploadingModel.set(false);
