@@ -361,7 +361,7 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
                   <div class="space-y-1">
                     <h2 class="text-xl font-semibold text-secondary-900">LLM Models</h2>
                     <p class="text-sm text-muted">
-                      Download HuggingFace models for local AI inference. Users can select from downloaded models.
+                      Download HuggingFace models or upload your own GGUF files for local AI inference. Users can select from available models.
                     </p>
                   </div>
                   <button
@@ -374,9 +374,43 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
 
                 @if (modelMenuOpen()) {
                   <div class="space-y-4">
+                    <!-- Upload GGUF Model -->
+                    <div class="space-y-3 p-4 border border-secondary-100 rounded-lg bg-secondary-50">
+                      <h4 class="text-sm font-semibold text-secondary-900">Upload GGUF model</h4>
+                      <div class="space-y-2">
+                        <div>
+                          <label for="ggufFile" class="block text-xs font-medium text-secondary-700 mb-1">GGUF file</label>
+                          <input
+                            id="ggufFile"
+                            type="file"
+                            accept=".gguf"
+                            (change)="onGgufFileSelected($event)"
+                            class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                          />
+                        </div>
+                        <div>
+                          <label for="uploadModelName" class="block text-xs font-medium text-secondary-700 mb-1">Display name (optional)</label>
+                          <input
+                            id="uploadModelName"
+                            type="text"
+                            [(ngModel)]="uploadModelName"
+                            placeholder="e.g. My Custom Model"
+                            class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
+                          />
+                        </div>
+                        <button
+                          (click)="onUploadModel()"
+                          [disabled]="!selectedGgufFile || isUploadingModel()"
+                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          {{ isUploadingModel() ? 'Uploading...' : 'Upload GGUF Model' }}
+                        </button>
+                      </div>
+                    </div>
+
                     <!-- Download Model -->
                     <div class="space-y-3 p-4 border border-secondary-100 rounded-lg bg-secondary-50">
-                      <h4 class="text-sm font-semibold text-secondary-900">Download new model</h4>
+                      <h4 class="text-sm font-semibold text-secondary-900">Download from HuggingFace</h4>
                       <div class="space-y-2">
                         <div>
                           <label for="modelRepoId" class="block text-xs font-medium text-secondary-700 mb-1">HuggingFace Model ID</label>
@@ -417,9 +451,17 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
                         @for (model of localModels(); track model.id) {
                           <div class="p-4 flex items-center justify-between gap-4 flex-wrap">
                             <div class="space-y-1">
-                              <div class="font-semibold text-secondary-900">{{ model.name }}</div>
+                              <div class="font-semibold text-secondary-900 flex items-center gap-2">
+                                {{ model.name }}
+                                <span class="text-xs px-1.5 py-0.5 rounded font-medium" [class]="model.type === 'gguf' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'">
+                                  {{ model.type === 'gguf' ? 'GGUF' : 'HuggingFace' }}
+                                </span>
+                              </div>
                               <p class="text-xs text-muted">
-                                {{ model.huggingFaceId }} · {{ formatFileSize(model.size) }} · Downloaded {{ model.downloadedAt | date: 'medium' }}
+                                @if (model.huggingFaceId) {
+                                  {{ model.huggingFaceId }} ·
+                                }
+                                {{ formatFileSize(model.size) }} · Added {{ model.downloadedAt | date: 'medium' }}
                               </p>
                             </div>
                             <button
@@ -534,9 +576,12 @@ export class AdminPageComponent {
   modelMenuOpen = signal(false);
   isLoadingModels = signal(false);
   isDownloadingModel = signal(false);
+  isUploadingModel = signal(false);
   localModels = signal<LocalModel[]>([]);
   newModelName = '';
   modelRepoId = '';
+  uploadModelName = '';
+  selectedGgufFile: File | null = null;
 
   constructor(
     private authService: AuthService,
@@ -845,6 +890,38 @@ export class AdminPageComponent {
       await this.loadModels(this.adminPasswordHash);
     } finally {
       this.isDownloadingModel.set(false);
+    }
+  }
+
+  onGgufFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.selectedGgufFile = input.files?.[0] ?? null;
+  }
+
+  async onUploadModel(): Promise<void> {
+    if (!this.adminPasswordHash || !this.selectedGgufFile) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isUploadingModel.set(true);
+    try {
+      const response = await this.adminService.uploadModel(
+        this.selectedGgufFile,
+        this.uploadModelName.trim(),
+        this.adminPasswordHash
+      );
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to upload model.');
+        return;
+      }
+      this.statusMessage.set(`Model "${this.uploadModelName.trim() || this.selectedGgufFile.name}" uploaded.`);
+      this.uploadModelName = '';
+      this.selectedGgufFile = null;
+      // Reset the file input
+      const fileInput = document.getElementById('ggufFile') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+      await this.loadModels(this.adminPasswordHash);
+    } finally {
+      this.isUploadingModel.set(false);
     }
   }
 
