@@ -917,9 +917,9 @@ function startPythonProcess() {
           stdio: 'inherit',
         });
         installedFromWheel = true;
-      } catch {
+      } catch (wheelErr) {
         // No pre-built wheel available for this platform – fall back to source build
-        console.log('No pre-built wheel available for this platform, attempting to build from source...');
+        console.log(`No pre-built wheel available (${wheelErr.message || 'install failed'}), attempting to build from source...`);
         console.log('Note: building from source requires a C/C++ compiler and CMake.');
         execFileSync(venvPip, ['install', llamaCppPythonSpec], {
           timeout: 600000, // 10 minutes – compiling C++ can be slow
@@ -927,8 +927,7 @@ function startPythonProcess() {
         });
       }
       fs.writeFileSync(llamaMarker, new Date().toISOString(), 'utf-8');
-      console.log(`${llamaCppPythonSpec} installed successfully` +
-        (installedFromWheel ? ' (from pre-built wheel)' : ' (built from source)'));
+      console.log(`${llamaCppPythonSpec} installed successfully ${installedFromWheel ? '(from pre-built wheel)' : '(built from source)'}`);
     } catch (err) {
       console.error(`Failed to install ${llamaCppPythonSpec}:`, err.message);
       if (process.platform === 'win32') {
