@@ -363,7 +363,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                   <span class="text-secondary-700 max-w-[200px] truncate">
                     {{ selectedProvider()?.name || 'Select Provider' }}
                     @if (selectedProvider()?.model) {
-                      <span class="text-secondary-400"> · {{ selectedProvider()?.model }}</span>
+                      <span class="text-secondary-400"> · {{ resolveModelName(selectedProvider()) }}</span>
                     }
                   </span>
                   <svg class="w-3.5 h-3.5 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -421,7 +421,7 @@ import { LlmService, type Chat, type ChatMessage, type ChatSummary, type Message
                           <div class="flex-1 min-w-0">
                             <div class="font-medium">{{ p.name }}</div>
                             @if (p.model) {
-                              <div class="text-xs text-secondary-400 truncate">{{ p.model }}</div>
+                              <div class="text-xs text-secondary-400 truncate">{{ resolveModelName(p) }}</div>
                             }
                           </div>
                         </button>
@@ -894,6 +894,15 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
 
   getModelDisplayName(model: string | { id: string; name: string }): string {
     return typeof model === 'string' ? model : model.name;
+  }
+
+  resolveModelName(provider: ProviderInfo | null | undefined): string {
+    if (!provider?.model) return '';
+    if (provider.models) {
+      const found = provider.models.find(m => this.getModelId(m) === provider.model);
+      if (found) return this.getModelDisplayName(found);
+    }
+    return provider.model;
   }
 
   async loadUniverses(): Promise<void> {
