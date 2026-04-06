@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -9,6 +9,10 @@ import { environment } from '../../environments/environment';
   selector: 'app-login',
   standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
+  // ⚡ Bolt: Using OnPush change detection to prevent unnecessary re-renders.
+  // This component uses Signals and ngModel, which work perfectly with OnPush
+  // by only triggering view updates when data actually changes or events fire.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 px-4">
       <div class="w-full max-w-md">
