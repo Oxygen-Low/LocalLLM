@@ -934,27 +934,6 @@ function startPythonProcess() {
     }
   }
 
-  // Install llama-cpp-python for GGUF model support (separate marker so it
-  // does not block the service if the installation fails – GGUF will simply
-  // be unavailable until the user installs it manually).
-  const llamaCppMarker = path.join(PYTHON_VENV_DIR, '.llama_cpp_installed');
-  if (!fs.existsSync(llamaCppMarker) && allowRuntimeInstall) {
-    console.log('Installing llama-cpp-python for GGUF model support...');
-    try {
-      execFileSync(venvPip, [
-        'install', 'llama-cpp-python',
-      ], {
-        timeout: 600000, // 10 minutes (compilation may be slow)
-        stdio: 'inherit',
-      });
-      fs.writeFileSync(llamaCppMarker, new Date().toISOString(), 'utf-8');
-      console.log('llama-cpp-python installed successfully');
-    } catch (err) {
-      console.warn('Failed to install llama-cpp-python:', err.message);
-      console.warn('GGUF model support will be unavailable. You can install it manually with: pip install llama-cpp-python');
-    }
-  }
-
   // Spawn the service script inside the venv
   function spawnPython() {
     try {
