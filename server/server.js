@@ -3591,9 +3591,11 @@ app.put('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
       const { execFileSync } = require('child_process');
       // Write content via base64 piped to base64 -d; using execFileSync avoids outer shell injection
       const b64Content = Buffer.from(content).toString('base64');
+      // Base64 encode the filePath to avoid shell injection when interpolating into the bash string
+      const b64FilePath = Buffer.from(filePath).toString('base64');
       execFileSync('docker', [
         'exec', container.dockerName,
-        'bash', '-c', `echo '${b64Content}' | base64 -d > '/workspace/${filePath}'`,
+        'bash', '-c', `echo '${b64Content}' | base64 -d > "/workspace/$(echo '${b64FilePath}' | base64 -d)"`,
       ], { timeout: 10000 });
       res.json({ success: true });
     } catch {
