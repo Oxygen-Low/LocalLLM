@@ -748,7 +748,7 @@ interface ToolCall {
                         <span class="text-secondary-700 max-w-[120px] truncate">
                           {{ selectedProvider()?.name || 'Provider' }}
                           @if (selectedProvider()?.model) {
-                            <span class="text-secondary-400"> · {{ selectedProvider()?.model }}</span>
+                            <span class="text-secondary-400"> · {{ resolveModelName(selectedProvider()) }}</span>
                           }
                         </span>
                         <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -806,7 +806,7 @@ interface ToolCall {
                                 <div class="flex-1 min-w-0">
                                   <div class="font-medium">{{ p.name }}</div>
                                   @if (p.model) {
-                                    <div class="text-[10px] text-secondary-400 truncate">{{ p.model }}</div>
+                                    <div class="text-[10px] text-secondary-400 truncate">{{ resolveModelName(p) }}</div>
                                   }
                                 </div>
                               </button>
@@ -1400,6 +1400,15 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
   getModelDisplayName(model: string | { id: string; name: string }): string {
     return typeof model === 'string' ? model : model.name;
+  }
+
+  resolveModelName(provider: ProviderInfo | null | undefined): string {
+    if (!provider?.model) return '';
+    if (provider.models) {
+      const found = provider.models.find(m => this.getModelId(m) === provider.model);
+      if (found) return this.getModelDisplayName(found);
+    }
+    return provider.model;
   }
 
   // --- Character Selection ---
