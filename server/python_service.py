@@ -85,11 +85,28 @@ def _find_gguf_file(model_dir):
     return None
 
 
+def _get_device_map():
+    """Return the best device_map based on GPU availability.
+
+    Uses ``"auto"`` when a CUDA-capable GPU is detected so the model is
+    distributed across available GPUs (and CPU as overflow).  Falls back
+    to ``"cpu"`` otherwise.
+    """
+    import torch  # noqa: E402
+
+    if torch.cuda.is_available():
+        return "auto"
+    return "cpu"
+
+
 def _get_model(model_dir):
     """Return a cached (model, tokenizer) tuple, loading if necessary.
 
     If a .gguf file is found in the model directory, the model is loaded
     via the transformers ``gguf_file`` parameter (no llama-cpp-python needed).
+
+    When a CUDA-capable GPU is available the model is automatically placed
+    on the GPU; otherwise it falls back to CPU.
     """
     with _model_lock:
         if model_dir in _model_cache:
@@ -103,25 +120,26 @@ def _get_model(model_dir):
     # Import here so the modules are only required when actually used
     from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 
+    device_map = _get_device_map()
     gguf_filename = _find_gguf_file(model_dir)
 
     if gguf_filename:
-        print(f"Loading GGUF model from {model_dir}/{gguf_filename} via transformers ...", flush=True)
+        print(f"Loading GGUF model from {model_dir}/{gguf_filename} via transformers (device_map={device_map}) ...", flush=True)
         tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             gguf_file=gguf_filename,
             torch_dtype="auto",
-            device_map="cpu",
+            device_map=device_map,
             low_cpu_mem_usage=True,
         )
     else:
-        print(f"Loading model from {model_dir} ...", flush=True)
+        print(f"Loading model from {model_dir} (device_map={device_map}) ...", flush=True)
         tokenizer = AutoTokenizer.from_pretrained(model_dir)
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             torch_dtype="auto",
-            device_map="cpu",
+            device_map=device_map,
             low_cpu_mem_usage=True,
         )
 
@@ -133,7 +151,7 @@ def _get_model(model_dir):
     pair = (model, tokenizer)
     with _model_lock:
         _model_cache[model_dir] = pair
-    print(f"Model loaded successfully from {model_dir}", flush=True)
+    print(f"Model loaded successfully from {model_dir} (device_map={device_map})", flush=True)
     return pair
 
 
