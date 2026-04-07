@@ -1,4 +1,4 @@
-import { Component, input, inject } from '@angular/core';
+import { Component, input, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { TranslationService } from '../services/translation.service';
@@ -16,6 +16,7 @@ export interface AIApp {
 @Component({
   selector: 'app-app-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, RouterLink],
   template: `
     <div class="card p-6 sm:p-8 flex flex-col h-full group" [class.opacity-50]="disabled()" [class.grayscale]="disabled()">
