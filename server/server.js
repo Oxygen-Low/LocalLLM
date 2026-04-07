@@ -3748,6 +3748,9 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     if (!provider || typeof provider !== 'string') {
       return res.status(400).json({ success: false, error: 'Provider is required' });
     }
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ success: false, error: `Invalid provider "${provider}". Supported providers: ${VALID_PROVIDERS.join(', ')}` });
+    }
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ success: false, error: 'Model is required' });
     }
@@ -3863,11 +3866,25 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
     fs.mkdirSync(bareDir, { recursive: true });
     execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
 
+    // Validate row schema: instruction and output are required non-empty strings
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (typeof r !== 'object' || r === null || Array.isArray(r)) {
+        return res.status(400).json({ success: false, error: `Row ${i + 1} is not a valid object` });
+      }
+      if (typeof r.instruction !== 'string' || !r.instruction.trim()) {
+        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "instruction" field` });
+      }
+      if (typeof r.output !== 'string' || !r.output.trim()) {
+        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "output" field` });
+      }
+    }
+
     // Build JSONL content
     const jsonlContent = rows.map(r => JSON.stringify({
-      instruction: typeof r.instruction === 'string' ? r.instruction : '',
-      input: typeof r.input === 'string' ? r.input : '',
-      output: typeof r.output === 'string' ? r.output : '',
+      instruction: r.instruction.trim(),
+      input: typeof r.input === 'string' ? r.input.trim() : '',
+      output: r.output.trim(),
     })).join('\n');
 
     // Clone, add file, commit, push

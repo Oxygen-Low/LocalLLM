@@ -2973,6 +2973,15 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
     assert.equal(res.body.success, false);
     assert.ok(res.body.error.includes('No API key'));
   });
+
+  it('rejects unknown/invalid provider', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'Generate math questions', provider: 'nonexistent_provider', model: 'test-model', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.toLowerCase().includes('invalid provider'));
+  });
 });
 
 describe('POST /api/datasets/save', { concurrency: false }, () => {
@@ -3033,5 +3042,41 @@ describe('POST /api/datasets/save', { concurrency: false }, () => {
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
+  });
+
+  it('rejects rows with empty instruction field', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset', rows: [{ instruction: '', input: 'test', output: 'test' }],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('instruction'));
+  });
+
+  it('rejects rows with empty output field', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset', rows: [{ instruction: 'test', input: 'test', output: '' }],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('output'));
+  });
+
+  it('rejects rows with missing instruction field', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset', rows: [{ input: 'test', output: 'test' }],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('instruction'));
+  });
+
+  it('rejects rows with non-object entries', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset', rows: ['not an object'],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('not a valid object'));
   });
 });
