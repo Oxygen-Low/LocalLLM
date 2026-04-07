@@ -907,14 +907,35 @@ function startPythonProcess() {
 
     console.log('Installing transformers, torch, and huggingface_hub (this may take a few minutes)...');
     try {
-      // Install CPU-only torch first (much smaller than full CUDA torch)
-      console.log('Installing PyTorch (CPU-only)...');
-      execFileSync(venvPip, [
-        'install', 'torch', '--index-url', 'https://download.pytorch.org/whl/cpu',
-      ], {
-        timeout: 600000, // 10 minutes
-        stdio: 'inherit',
-      });
+      // Detect whether the system has an NVIDIA GPU available.
+      // If so, install PyTorch with CUDA support; otherwise install the
+      // much smaller CPU-only build.
+      let hasGpu = false;
+      try {
+        execFileSync('nvidia-smi', { timeout: 10000, stdio: 'pipe' });
+        hasGpu = true;
+      } catch {
+        // nvidia-smi not found or failed – no NVIDIA GPU available
+        console.log('No NVIDIA GPU detected (nvidia-smi not found or failed).');
+      }
+
+      if (hasGpu) {
+        console.log('NVIDIA GPU detected – installing PyTorch with CUDA support...');
+        execFileSync(venvPip, [
+          'install', 'torch',
+        ], {
+          timeout: 900000, // 15 minutes (CUDA build is larger)
+          stdio: 'inherit',
+        });
+      } else {
+        console.log('No GPU detected – installing PyTorch (CPU-only)...');
+        execFileSync(venvPip, [
+          'install', 'torch', '--index-url', 'https://download.pytorch.org/whl/cpu',
+        ], {
+          timeout: 600000, // 10 minutes
+          stdio: 'inherit',
+        });
+      }
 
       // Install transformers and huggingface_hub
       console.log('Installing transformers and huggingface_hub...');
