@@ -103,6 +103,14 @@ export class DashboardPageComponent implements OnInit {
       risky: true,
     },
     {
+      id: 'datasets',
+      name: 'apps.datasets.name',
+      description: 'apps.datasets.description',
+      icon: '📊',
+      category: 'apps.category.data',
+      color: 'orange',
+    },
+    {
       id: 'roleplay',
       name: 'apps.roleplay.name',
       description: 'apps.roleplay.description',

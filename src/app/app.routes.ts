@@ -73,6 +73,11 @@ export const routes: Routes = [
         canActivate: [authGuard, riskyAppsGuard],
       },
       {
+        path: 'app/datasets',
+        loadComponent: () => import('./pages/datasets.page').then(m => m.DatasetsPageComponent),
+        canActivate: [authGuard],
+      },
+      {
         path: 'app/roleplay',
         loadComponent: () => import('./pages/roleplay.page').then(m => m.RoleplayPageComponent),
         canActivate: [authGuard],

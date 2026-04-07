@@ -21,6 +21,7 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
 const ROLEPLAY_DIR = path.join(DATA_DIR, 'roleplay');
+const DATASETS_DIR = path.join(DATA_DIR, 'datasets');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PYTHON_VENV_DIR = path.join(DATA_DIR, 'python_env');
 const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
@@ -633,6 +634,9 @@ if (!fs.existsSync(PERSONAS_DIR)) {
 }
 if (!fs.existsSync(ROLEPLAY_DIR)) {
   fs.mkdirSync(ROLEPLAY_DIR, { recursive: true });
+}
+if (!fs.existsSync(DATASETS_DIR)) {
+  fs.mkdirSync(DATASETS_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
@@ -3126,6 +3130,11 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         return res.status(404).json({ success: false, error: 'Local repository not found or not active' });
       }
 
+      // Dataset repositories cannot be edited in coding agent
+      if (localRepo.type === 'dataset') {
+        return res.status(403).json({ success: false, error: 'Dataset repositories cannot be edited in the coding agent' });
+      }
+
       if (!isDockerAvailable()) {
         return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
       }
@@ -3719,6 +3728,169 @@ app.delete('/api/coding-agent/memories/:id', requireSession, (req, res) => {
   } catch (err) {
     console.error('Delete memory error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Datasets App – Generate AI training datasets using LLM
+// ---------------------------------------------------------------------------
+
+const MAX_DATASET_ROWS = 100;
+const MAX_DATASET_INSTRUCTIONS_LENGTH = 5000;
+
+// POST /api/datasets/generate – Generate dataset rows using an LLM
+app.post('/api/datasets/generate', requireSession, async (req, res) => {
+  try {
+    const { instructions, provider, model, numRows } = req.body;
+
+    if (!instructions || typeof instructions !== 'string' || instructions.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Instructions are required' });
+    }
+    if (instructions.length > MAX_DATASET_INSTRUCTIONS_LENGTH) {
+      return res.status(400).json({ success: false, error: `Instructions must be ${MAX_DATASET_INSTRUCTIONS_LENGTH} characters or less` });
+    }
+    if (!provider || typeof provider !== 'string') {
+      return res.status(400).json({ success: false, error: 'Provider is required' });
+    }
+    if (!model || typeof model !== 'string') {
+      return res.status(400).json({ success: false, error: 'Model is required' });
+    }
+    const rowCount = parseInt(numRows, 10);
+    if (isNaN(rowCount) || rowCount < 1 || rowCount > MAX_DATASET_ROWS) {
+      return res.status(400).json({ success: false, error: `Number of rows must be between 1 and ${MAX_DATASET_ROWS}` });
+    }
+
+    // Verify the user has a key for this provider
+    const keys = readUserApiKeys(req.sessionUser);
+    if (!keys[provider]?.apiKey) {
+      return res.status(400).json({ success: false, error: `No API key configured for provider "${provider}". Add one in Settings.` });
+    }
+
+    const prompt = `You are a dataset generator. Based on the following instructions, generate exactly ${rowCount} training data rows.
+
+Instructions: ${instructions.trim()}
+
+Output a JSON array of objects, each with three fields: "instruction", "input", and "output".
+- "instruction": The task description or prompt for the model
+- "input": Additional context or input for the task (can be empty string if not needed)
+- "output": The expected model response
+
+Return ONLY valid JSON, no markdown, no explanation. Example format:
+[
+  {"instruction": "...", "input": "...", "output": "..."},
+  {"instruction": "...", "input": "...", "output": "..."}
+]`;
+
+    const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
+      model,
+      max_tokens: 4096,
+      temperature: 0.8,
+    });
+
+    // Parse the response
+    const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
+    let rows;
+    try {
+      rows = JSON.parse(cleaned);
+    } catch {
+      return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
+    }
+
+    if (!Array.isArray(rows)) {
+      return res.status(500).json({ success: false, error: 'LLM did not return a valid array. Please try again.' });
+    }
+
+    // Validate and sanitize rows
+    const sanitizedRows = rows.slice(0, rowCount).map(r => ({
+      instruction: typeof r.instruction === 'string' ? r.instruction : '',
+      input: typeof r.input === 'string' ? r.input : '',
+      output: typeof r.output === 'string' ? r.output : '',
+    }));
+
+    auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows`, username: req.sessionUser, req });
+    res.json({ success: true, rows: sanitizedRows });
+  } catch (err) {
+    console.error('Dataset generate error:', err);
+    const message = err.message || 'Internal server error';
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// POST /api/datasets/save – Save generated dataset to a new Dataset repository
+app.post('/api/datasets/save', requireSession, async (req, res) => {
+  try {
+    const { name, description, rows } = req.body;
+
+    if (!name || typeof name !== 'string' || !REPO_NAME_REGEX.test(name)) {
+      return res.status(400).json({ success: false, error: 'Invalid dataset name. Use letters, digits, hyphens, underscores, or dots (1–100 chars).' });
+    }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'Dataset rows are required' });
+    }
+    if (rows.length > MAX_DATASET_ROWS) {
+      return res.status(400).json({ success: false, error: `Maximum ${MAX_DATASET_ROWS} rows allowed` });
+    }
+    if (!isGitAvailable()) {
+      return res.status(503).json({ success: false, error: 'Git is not available on this server' });
+    }
+
+    const currentStorage = getUserStorageBytes(req.sessionUser);
+    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
+      return res.status(409).json({ success: false, error: `Storage quota exceeded` });
+    }
+
+    const repos = readUserRepos(req.sessionUser);
+    if (repos.some(r => r.name === name && r.status !== 'archived')) {
+      return res.status(409).json({ success: false, error: 'A repository with this name already exists' });
+    }
+
+    // Create the dataset repository (type: 'dataset')
+    const repoId = crypto.randomUUID();
+    const authKey = crypto.randomBytes(32).toString('base64url');
+
+    const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
+    fs.mkdirSync(bareDir, { recursive: true });
+    execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
+
+    // Build JSONL content
+    const jsonlContent = rows.map(r => JSON.stringify({
+      instruction: typeof r.instruction === 'string' ? r.instruction : '',
+      input: typeof r.input === 'string' ? r.input : '',
+      output: typeof r.output === 'string' ? r.output : '',
+    })).join('\n');
+
+    // Clone, add file, commit, push
+    const os = require('os');
+    const tmpDir = path.join(os.tmpdir(), `localllm-dataset-${repoId}`);
+    try {
+      execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
+      fs.writeFileSync(path.join(tmpDir, 'dataset.jsonl'), jsonlContent + '\n');
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description || 'AI-generated dataset'}\n\nThis is a Dataset repository containing ${rows.length} training data rows.\n`);
+      execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
+      execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
+      execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
+      execFileSync('git', ['-C', tmpDir, 'commit', '-m', 'Initial dataset commit'], { timeout: 10000 });
+      execFileSync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
+
+    const repoEntry = {
+      id: repoId, name, description: description || '', status: 'active',
+      type: 'dataset',
+      authKey, username: req.sessionUser, defaultBranch: 'main',
+      createdAt: new Date().toISOString(), lastActivity: Date.now(),
+      archivedAt: null, containerId: null, containerName: null,
+    };
+    repos.push(repoEntry);
+    writeUserRepos(req.sessionUser, repos);
+    registerRepoInMemory(req.sessionUser, repoId);
+
+    auditLog({ event: 'DATASET_REPO_CREATED', message: `Dataset repository "${name}" created with ${rows.length} rows`, username: req.sessionUser, req });
+    res.json({ success: true, repoId, repoName: name });
+  } catch (err) {
+    console.error('Dataset save error:', err);
+    res.status(500).json({ success: false, error: 'Failed to save dataset' });
   }
 });
 
@@ -4937,7 +5109,8 @@ app.post('/api/repositories/:id/export-github', requireSession, async (req, res)
 app.get('/api/local-repositories', requireSession, (req, res) => {
   try {
     const repos = readUserRepos(req.sessionUser);
-    const activeRepos = repos.filter(r => r.status === 'active').map(({ authKey, ...r }) => r);
+    // Exclude dataset repositories – they cannot be edited in coding agent
+    const activeRepos = repos.filter(r => r.status === 'active' && r.type !== 'dataset').map(({ authKey, ...r }) => r);
     res.json({ success: true, repos: activeRepos });
   } catch (err) {
     console.error('List local repos error:', err);
@@ -6324,4 +6497,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, DATASETS_DIR };

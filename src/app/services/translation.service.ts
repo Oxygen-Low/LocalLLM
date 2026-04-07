@@ -389,6 +389,24 @@ const translations: TranslationDictionary = {
     ja: 'SEO',
     ru: 'SEO',
   },
+  'apps.datasets.name': {
+    en: 'Datasets',
+    ko: '데이터셋',
+    ja: 'データセット',
+    ru: 'Наборы данных',
+  },
+  'apps.datasets.description': {
+    en: 'Create AI training datasets by providing instructions and selecting an LLM. Generate rows of data and download or save them to a Dataset repository.',
+    ko: '지시사항을 제공하고 LLM을 선택하여 AI 학습 데이터셋을 생성합니다. 데이터 행을 생성하고 다운로드하거나 데이터셋 저장소에 저장하세요.',
+    ja: '指示を入力しLLMを選択してAIトレーニングデータセットを作成します。データ行を生成し、ダウンロードまたはデータセットリポジトリに保存できます。',
+    ru: 'Создавайте наборы данных для обучения ИИ, задавая инструкции и выбирая LLM. Генерируйте строки данных и загружайте или сохраняйте их в репозиторий наборов данных.',
+  },
+  'apps.category.data': {
+    en: 'Data',
+    ko: '데이터',
+    ja: 'データ',
+    ru: 'Данные',
+  },
   'apps.category.creative': {
     en: 'Creative',
     ko: '크리에이티브',
