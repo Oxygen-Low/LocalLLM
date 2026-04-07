@@ -5281,7 +5281,7 @@ app.post('/api/admin/models/download-status', async (req, res) => {
 
       // If completed, register the model and clean up
       if (progress.status === 'completed') {
-        const { modelId, displayName, repoId: trimmedRepoId, adminUsername: downloadUser } = pending;
+        const { modelId, displayName, repoId: trimmedRepoId, adminUsername: downloadAdminUsername } = pending;
         const newModel = await withModelsLock(async () => {
           const models = readLocalModels();
           const model = {
@@ -5294,7 +5294,7 @@ app.post('/api/admin/models/download-status', async (req, res) => {
           };
           models.push(model);
           writeLocalModels(models);
-          auditLog({ event: 'ADMIN_DOWNLOAD_MODEL', message: `Admin downloaded model: ${displayName} (${trimmedRepoId})`, username: downloadUser, req });
+          auditLog({ event: 'ADMIN_DOWNLOAD_MODEL', message: `Admin downloaded model: ${displayName} (${trimmedRepoId})`, username: downloadAdminUsername, req });
           return model;
         });
         pendingDownloads.delete(downloadId);

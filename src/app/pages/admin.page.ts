@@ -944,7 +944,7 @@ export class AdminPageComponent implements OnDestroy {
           this.modelRepoId = '';
           this.downloadProgress.set(null);
           this.isDownloadingModel.set(false);
-          await this.loadModels(this.adminPasswordHash!);
+          await this.loadModels(this.adminPasswordHash);
         } else if (status.status === 'failed' || !status.success) {
           this.stopPolling();
           this.errorMessage.set(status.error ?? 'Model download failed.');
