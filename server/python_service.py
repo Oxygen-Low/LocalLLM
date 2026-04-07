@@ -91,12 +91,22 @@ def _get_device_map():
     Uses ``"auto"`` when a CUDA-capable GPU is detected so the model is
     distributed across available GPUs (and CPU as overflow).  Falls back
     to ``"cpu"`` otherwise.
+
+    The result is computed once and cached for subsequent calls.
     """
+    cached = getattr(_get_device_map, "_cached", None)
+    if cached is not None:
+        return cached
+
     import torch  # noqa: E402
 
     if torch.cuda.is_available():
-        return "auto"
-    return "cpu"
+        result = "auto"
+    else:
+        result = "cpu"
+
+    _get_device_map._cached = result
+    return result
 
 
 def _get_model(model_dir):

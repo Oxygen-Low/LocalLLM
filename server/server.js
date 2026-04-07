@@ -915,7 +915,8 @@ function startPythonProcess() {
         execFileSync('nvidia-smi', { timeout: 10000, stdio: 'pipe' });
         hasGpu = true;
       } catch {
-        // nvidia-smi not found or failed – no GPU available
+        // nvidia-smi not found or failed – no NVIDIA GPU available
+        console.log('No NVIDIA GPU detected (nvidia-smi not found or failed).');
       }
 
       if (hasGpu) {
