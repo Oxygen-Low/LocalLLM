@@ -95,14 +95,14 @@ jobs:
 
       - name: Start Python LLM service
         run: |
-          /tmp/llm-venv/bin/python server/python_service.py 5555 /tmp &
+          /tmp/llm-venv/bin/python server/python_service.py 5556 /tmp &
           echo $! > /tmp/python_service.pid
 
       - name: Wait for Python LLM service
         run: |
-          echo "Waiting for Python LLM service on port 5555..."
+          echo "Waiting for Python LLM service on port 5556..."
           for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:5555/health && echo " Python LLM service ready" && break
+            curl -sf http://127.0.0.1:5556/health && echo " Python LLM service ready" && break
             [ $i -eq 30 ] && echo "Python LLM service failed to start" && exit 1
             sleep 1
           done
@@ -110,7 +110,7 @@ jobs:
       - name: Test GGUF model loading and chat
         run: |
           echo "Sending chat request to Python LLM service..."
-          RESPONSE=$(curl -s --max-time 120 -X POST http://127.0.0.1:5555/chat \
+          RESPONSE=$(curl -s --max-time 120 -X POST http://127.0.0.1:5556/chat \
             -H "Content-Type: application/json" \
             -d '{"model_dir":"/tmp/test-model","messages":[{"role":"user","content":"Say hello"}],"max_tokens":32}')
           echo "Chat response: $RESPONSE"
