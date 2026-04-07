@@ -4164,6 +4164,7 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
 
     sendProgress('analyze', 'Installing Playwright and analyzing page...');
 
+    const targetUrlB64 = Buffer.from(targetUrl).toString('base64');
     const playwrightScript = `
 const { chromium } = require('playwright-core');
 (async () => {
@@ -4174,7 +4175,8 @@ const { chromium } = require('playwright-core');
   page.on('metrics', m => metrics.push(m));
 
   try {
-    await page.goto('${targetUrl}', { waitUntil: 'networkidle', timeout: 30000 });
+    const url = Buffer.from('${targetUrlB64}', 'base64').toString('utf-8');
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
     const title = await page.title();
     const html = await page.content();
@@ -4197,7 +4199,7 @@ const { chromium } = require('playwright-core');
 
     let robotsTxt = null;
     try {
-      const baseUrl = new URL('${targetUrl}').origin;
+      const baseUrl = new URL(url).origin;
       const robotsRes = await page.request.get(\`\${baseUrl}/robots.txt\`);
       if (robotsRes.ok()) robotsTxt = await robotsRes.text();
     } catch {}
