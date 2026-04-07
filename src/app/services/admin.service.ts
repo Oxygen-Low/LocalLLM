@@ -261,10 +261,10 @@ export class AdminService {
     }
   }
 
-  async downloadModel(repoId: string, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; model?: LocalModel }> {
+  async downloadModel(repoId: string, name: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; downloadId?: string }> {
     try {
       const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string; model?: LocalModel }>(`${environment.apiUrl}/api/admin/models`, {
+        this.http.post<{ success: boolean; error?: string; downloadId?: string }>(`${environment.apiUrl}/api/admin/models`, {
           adminUsername: this.authService.username(),
           adminPassword: adminPasswordHash,
           repoId,
@@ -273,7 +273,36 @@ export class AdminService {
       );
       return response;
     } catch (error: unknown) {
-      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to download model' };
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to start model download' };
+    }
+  }
+
+  async getDownloadStatus(downloadId: string, adminPasswordHash: string): Promise<{
+    success: boolean;
+    error?: string;
+    status?: string;
+    downloadedFiles?: number;
+    totalFiles?: number;
+    model?: LocalModel;
+  }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{
+          success: boolean;
+          error?: string;
+          status?: string;
+          downloadedFiles?: number;
+          totalFiles?: number;
+          model?: LocalModel;
+        }>(`${environment.apiUrl}/api/admin/models/download-status`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          downloadId,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to get download status' };
     }
   }
 

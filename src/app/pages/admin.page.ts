@@ -1,4 +1,4 @@
-import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -440,6 +440,25 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
                         >
                           {{ isDownloadingModel() ? 'Downloading...' : 'Download Model' }}
                         </button>
+                        @if (downloadProgress(); as progress) {
+                          <div class="mt-2 space-y-1">
+                            <div class="w-full bg-secondary-200 rounded-full h-2 overflow-hidden">
+                              <div
+                                class="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                                [style.width.%]="progress.totalFiles > 0 ? (progress.downloadedFiles / progress.totalFiles * 100) : 0"
+                              ></div>
+                            </div>
+                            <div class="text-xs text-secondary-600 text-center">
+                              @if (progress.totalFiles > 0) {
+                                {{ progress.downloadedFiles }} of {{ progress.totalFiles }} files ({{ (progress.downloadedFiles / progress.totalFiles * 100) | number:'1.0-0' }}%)
+                              } @else {
+                                Downloading… {{ progress.downloadedFiles }} files
+                              }
+                            </div>
+                          </div>
+                        } @else if (isDownloadingModel()) {
+                          <div class="mt-2 text-xs text-secondary-600 text-center">Starting download…</div>
+                        }
                       </div>
                     </div>
 
@@ -542,7 +561,7 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
     </div>
   `,
 })
-export class AdminPageComponent {
+export class AdminPageComponent implements OnDestroy {
   @ViewChild('ggufFileInput') ggufFileInput?: ElementRef<HTMLInputElement>;
 
   adminPassword = '';
@@ -581,6 +600,9 @@ export class AdminPageComponent {
   isDownloadingModel = signal(false);
   isUploadingModel = signal(false);
   localModels = signal<LocalModel[]>([]);
+  downloadProgress = signal<{ downloadedFiles: number; totalFiles: number } | null>(null);
+  private activeDownloadId: string | null = null;
+  private downloadPollTimer: ReturnType<typeof setInterval> | null = null;
   newModelName = '';
   modelRepoId = '';
   uploadModelName = '';
@@ -590,6 +612,10 @@ export class AdminPageComponent {
     private authService: AuthService,
     private adminService: AdminService
   ) {}
+
+  ngOnDestroy(): void {
+    this.stopPolling();
+  }
 
   toggleMenu(): void {
     this.menuOpen.update(open => !open);
@@ -877,23 +903,75 @@ export class AdminPageComponent {
     this.errorMessage.set(null);
     this.statusMessage.set(null);
     this.isDownloadingModel.set(true);
+    this.downloadProgress.set(null);
     try {
       const response = await this.adminService.downloadModel(
         this.modelRepoId.trim(),
         this.newModelName.trim(),
         this.adminPasswordHash
       );
-      if (!response.success) {
-        this.errorMessage.set(response.error ?? 'Failed to download model.');
+      if (!response.success || !response.downloadId) {
+        this.errorMessage.set(response.error ?? 'Failed to start model download.');
+        this.isDownloadingModel.set(false);
         return;
       }
-      this.statusMessage.set(`Model "${this.newModelName.trim() || this.modelRepoId.trim()}" downloaded.`);
-      this.newModelName = '';
-      this.modelRepoId = '';
-      await this.loadModels(this.adminPasswordHash);
-    } finally {
+
+      // Start polling for download progress
+      this.activeDownloadId = response.downloadId;
+      this.pollDownloadStatus();
+    } catch {
+      this.errorMessage.set('Failed to start model download.');
       this.isDownloadingModel.set(false);
     }
+  }
+
+  private pollDownloadStatus(): void {
+    if (this.downloadPollTimer) {
+      clearInterval(this.downloadPollTimer);
+    }
+    this.downloadPollTimer = setInterval(async () => {
+      if (!this.activeDownloadId || !this.adminPasswordHash) return;
+      try {
+        const status = await this.adminService.getDownloadStatus(
+          this.activeDownloadId,
+          this.adminPasswordHash
+        );
+
+        if (status.status === 'completed') {
+          this.stopPolling();
+          this.statusMessage.set(`Model "${this.newModelName.trim() || this.modelRepoId.trim()}" downloaded.`);
+          this.newModelName = '';
+          this.modelRepoId = '';
+          this.downloadProgress.set(null);
+          this.isDownloadingModel.set(false);
+          await this.loadModels(this.adminPasswordHash!);
+        } else if (status.status === 'failed' || !status.success) {
+          this.stopPolling();
+          this.errorMessage.set(status.error ?? 'Model download failed.');
+          this.downloadProgress.set(null);
+          this.isDownloadingModel.set(false);
+        } else {
+          // Still in progress – update progress bar
+          this.downloadProgress.set({
+            downloadedFiles: status.downloadedFiles ?? 0,
+            totalFiles: status.totalFiles ?? 0,
+          });
+        }
+      } catch {
+        this.stopPolling();
+        this.errorMessage.set('Lost connection while downloading model.');
+        this.downloadProgress.set(null);
+        this.isDownloadingModel.set(false);
+      }
+    }, 3000);
+  }
+
+  private stopPolling(): void {
+    if (this.downloadPollTimer) {
+      clearInterval(this.downloadPollTimer);
+      this.downloadPollTimer = null;
+    }
+    this.activeDownloadId = null;
   }
 
   onGgufFileSelected(event: Event): void {

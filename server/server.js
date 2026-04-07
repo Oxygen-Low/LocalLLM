@@ -5173,10 +5173,10 @@ app.get('/api/local-repositories', requireSession, (req, res) => {
 // Local LLM model endpoints (admin download/delete, user list/status)
 // ---------------------------------------------------------------------------
 
-// Maximum allowed model download timeout (30 minutes – large models take time)
-const MODEL_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+// Pending model downloads: { downloadId: { modelId, displayName, repoId, targetDir, adminUsername } }
+const pendingDownloads = new Map();
 
-// Admin: download a HuggingFace model
+// Admin: start a HuggingFace model download (returns immediately with downloadId)
 app.post('/api/admin/models', async (req, res) => {
   try {
     const { adminUsername, adminPassword, repoId, name } = req.body;
@@ -5213,53 +5213,113 @@ app.post('/api/admin/models', async (req, res) => {
 
     const displayName = (name?.trim() || trimmedRepoId.split('/').pop() || trimmedRepoId).substring(0, 200);
 
-    // Request the Python service to download the model
+    // Start the download on the Python service (returns immediately with download_id)
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), MODEL_DOWNLOAD_TIMEOUT_MS);
-
       const downloadRes = await fetch(`${PYTHON_SERVICE_URL}/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo_id: trimmedRepoId, target_dir: targetDir }),
+      });
+
+      const downloadResult = await downloadRes.json();
+      if (!downloadRes.ok || downloadResult.error) {
+        try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        return res.status(500).json({ success: false, error: downloadResult.error || 'Failed to start download' });
+      }
+
+      const downloadId = downloadResult.download_id;
+
+      // Track this pending download
+      pendingDownloads.set(downloadId, { modelId, displayName, repoId: trimmedRepoId, targetDir, adminUsername });
+
+      res.json({ success: true, downloadId });
+    } catch (downloadErr) {
+      try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      return res.status(500).json({ success: false, error: `Failed to start download: ${downloadErr.message}` });
+    }
+  } catch (err) {
+    console.error('Model download error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// Admin: poll download progress and finalize on completion
+app.post('/api/admin/models/download-status', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, downloadId } = req.body;
+
+    if (!adminUsername || !adminPassword) {
+      return res.status(401).json({ success: false, error: 'Missing admin credentials' });
+    }
+
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (!downloadId || typeof downloadId !== 'string') {
+      return res.status(400).json({ success: false, error: 'downloadId is required' });
+    }
+
+    const pending = pendingDownloads.get(downloadId);
+    if (!pending) {
+      return res.status(404).json({ success: false, error: 'Unknown download id' });
+    }
+
+    // Query the Python service for current progress
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const progressRes = await fetch(`${PYTHON_SERVICE_URL}/download-progress?id=${encodeURIComponent(downloadId)}`, {
         signal: controller.signal,
       });
       clearTimeout(timeout);
 
-      const downloadResult = await downloadRes.json();
-      if (!downloadRes.ok || downloadResult.error) {
-        // Cleanup the directory on failure
-        try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
-        return res.status(500).json({ success: false, error: downloadResult.error || 'Download failed' });
+      const progress = await progressRes.json();
+      if (!progressRes.ok) {
+        return res.status(progressRes.status).json({ success: false, error: progress.error || 'Failed to get download status' });
       }
 
-      // Register the model
-      await withModelsLock(async () => {
-        const models = readLocalModels();
-        const newModel = {
-          id: modelId,
-          name: displayName,
-          huggingFaceId: trimmedRepoId,
-          directory: modelDirName,
-          size: downloadResult.size || 0,
-          downloadedAt: new Date().toISOString(),
-        };
-        models.push(newModel);
-        writeLocalModels(models);
+      // If completed, register the model and clean up
+      if (progress.status === 'completed') {
+        const { modelId, displayName, repoId: trimmedRepoId, adminUsername: downloadUser } = pending;
+        const newModel = await withModelsLock(async () => {
+          const models = readLocalModels();
+          const model = {
+            id: modelId,
+            name: displayName,
+            huggingFaceId: trimmedRepoId,
+            directory: modelId,
+            size: progress.size || 0,
+            downloadedAt: new Date().toISOString(),
+          };
+          models.push(model);
+          writeLocalModels(models);
+          auditLog({ event: 'ADMIN_DOWNLOAD_MODEL', message: `Admin downloaded model: ${displayName} (${trimmedRepoId})`, username: downloadUser, req });
+          return model;
+        });
+        pendingDownloads.delete(downloadId);
+        return res.json({ success: true, status: 'completed', model: newModel });
+      }
 
-        auditLog({ event: 'ADMIN_DOWNLOAD_MODEL', message: `Admin downloaded model: ${displayName} (${trimmedRepoId})`, username: adminUsername, req });
-        res.json({ success: true, model: newModel });
+      // If failed, clean up the directory
+      if (progress.status === 'failed') {
+        try { fs.rmSync(pending.targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        pendingDownloads.delete(downloadId);
+        return res.json({ success: false, status: 'failed', error: progress.error || 'Download failed' });
+      }
+
+      // Still in progress
+      return res.json({
+        success: true,
+        status: progress.status,
+        downloadedFiles: progress.downloaded_files || 0,
+        totalFiles: progress.total_files || 0,
       });
-    } catch (downloadErr) {
-      // Cleanup the directory on failure
-      try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch { /* ignore */ }
-      if (downloadErr.name === 'AbortError') {
-        return res.status(504).json({ success: false, error: 'Model download timed out' });
-      }
-      return res.status(500).json({ success: false, error: `Download failed: ${downloadErr.message}` });
+    } catch (pollErr) {
+      return res.status(500).json({ success: false, error: `Failed to query download status: ${pollErr.message}` });
     }
   } catch (err) {
-    console.error('Model download error:', err);
+    console.error('Download status error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
