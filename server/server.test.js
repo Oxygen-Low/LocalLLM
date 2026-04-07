@@ -2877,3 +2877,161 @@ describe('Stale container auto-cleanup', () => {
     assert.equal(CONTAINER_STALE_THRESHOLD_MS, 3 * 24 * 60 * 60 * 1000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Datasets API tests
+// ---------------------------------------------------------------------------
+describe('POST /api/datasets/generate', { concurrency: false }, () => {
+  const testUsername = 'datasets_test_' + Date.now();
+  let dsToken = null;
+
+  before(async () => {
+    dsToken = createSessionToken(testUsername);
+  });
+
+  after(() => {
+    invalidateSession(dsToken);
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {});
+    assert.equal(res.status, 401);
+  });
+
+  it('rejects missing instructions', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      provider: 'openai', model: 'gpt-4', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.toLowerCase().includes('instructions'));
+  });
+
+  it('rejects empty instructions', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: '   ', provider: 'openai', model: 'gpt-4', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects missing provider', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'test', model: 'gpt-4', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.toLowerCase().includes('provider'));
+  });
+
+  it('rejects missing model', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'test', provider: 'openai', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.toLowerCase().includes('model'));
+  });
+
+  it('rejects numRows below 1', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'test', provider: 'openai', model: 'gpt-4', numRows: 0,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects numRows above 100', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'test', provider: 'openai', model: 'gpt-4', numRows: 101,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects non-integer numRows', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'test', provider: 'openai', model: 'gpt-4', numRows: 1.5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects instructions exceeding max length', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'x'.repeat(5001), provider: 'openai', model: 'gpt-4', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects provider without API key configured', async () => {
+    const res = await request(server, 'POST', '/api/datasets/generate', {
+      instructions: 'Generate math questions', provider: 'openai', model: 'gpt-4', numRows: 5,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('No API key'));
+  });
+});
+
+describe('POST /api/datasets/save', { concurrency: false }, () => {
+  const testUsername = 'datasets_save_test_' + Date.now();
+  let dsToken = null;
+
+  before(async () => {
+    dsToken = createSessionToken(testUsername);
+  });
+
+  after(() => {
+    invalidateSession(dsToken);
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {});
+    assert.equal(res.status, 401);
+  });
+
+  it('rejects missing name', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      rows: [{ instruction: 'a', input: 'b', output: 'c' }],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects invalid name characters', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'bad name with spaces!', rows: [{ instruction: 'a', input: 'b', output: 'c' }],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects empty rows array', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset', rows: [],
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects missing rows', async () => {
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset',
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+
+  it('rejects rows exceeding max count', async () => {
+    const tooManyRows = Array.from({ length: 101 }, (_, i) => ({
+      instruction: `instr ${i}`, input: `in ${i}`, output: `out ${i}`,
+    }));
+    const res = await request(server, 'POST', '/api/datasets/save', {
+      name: 'test-dataset', rows: tooManyRows,
+    }, dsToken);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+  });
+});

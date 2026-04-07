@@ -21,7 +21,6 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
 const ROLEPLAY_DIR = path.join(DATA_DIR, 'roleplay');
-const DATASETS_DIR = path.join(DATA_DIR, 'datasets');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PYTHON_VENV_DIR = path.join(DATA_DIR, 'python_env');
 const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
@@ -634,9 +633,6 @@ if (!fs.existsSync(PERSONAS_DIR)) {
 }
 if (!fs.existsSync(ROLEPLAY_DIR)) {
   fs.mkdirSync(ROLEPLAY_DIR, { recursive: true });
-}
-if (!fs.existsSync(DATASETS_DIR)) {
-  fs.mkdirSync(DATASETS_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
@@ -3755,8 +3751,13 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ success: false, error: 'Model is required' });
     }
-    const rowCount = parseInt(numRows, 10);
-    if (isNaN(rowCount) || rowCount < 1 || rowCount > MAX_DATASET_ROWS) {
+    const rowCount =
+      typeof numRows === 'number'
+        ? numRows
+        : typeof numRows === 'string' && numRows.trim().length > 0
+          ? Number(numRows.trim())
+          : NaN;
+    if (!Number.isInteger(rowCount) || rowCount < 1 || rowCount > MAX_DATASET_ROWS) {
       return res.status(400).json({ success: false, error: `Number of rows must be between 1 and ${MAX_DATASET_ROWS}` });
     }
 
@@ -3801,12 +3802,21 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       return res.status(500).json({ success: false, error: 'LLM did not return a valid array. Please try again.' });
     }
 
+    if (rows.length < rowCount) {
+      return res.status(502).json({ success: false, error: `LLM returned only ${rows.length} rows out of ${rowCount} requested. Please try again.` });
+    }
+
     // Validate and sanitize rows
     const sanitizedRows = rows.slice(0, rowCount).map(r => ({
-      instruction: typeof r.instruction === 'string' ? r.instruction : '',
-      input: typeof r.input === 'string' ? r.input : '',
-      output: typeof r.output === 'string' ? r.output : '',
+      instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
+      input: typeof r.input === 'string' ? r.input.trim() : '',
+      output: typeof r.output === 'string' ? r.output.trim() : '',
     }));
+
+    const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
+    if (hasEmptyRequiredFields) {
+      return res.status(502).json({ success: false, error: 'LLM returned rows with empty required fields. Please try again.' });
+    }
 
     auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows`, username: req.sessionUser, req });
     res.json({ success: true, rows: sanitizedRows });
@@ -6510,4 +6520,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, DATASETS_DIR };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR };

@@ -2,7 +2,6 @@ import { Component, inject, signal, OnInit, ChangeDetectionStrategy } from '@ang
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { TranslationService } from '../services/translation.service';
 import { LlmService, ProviderInfo } from '../services/llm.service';
 import { DatasetsService, DatasetRow } from '../services/datasets.service';
 
@@ -138,8 +137,16 @@ type WizardStep = 'configure' | 'generating' | 'results';
             <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6">
               <div class="flex items-center justify-between flex-wrap gap-4">
                 <div>
-                  <h2 class="text-xl font-bold text-secondary-900">Dataset Generated</h2>
-                  <p class="text-sm text-muted mt-1">{{ generatedRows().length }} rows created successfully</p>
+                  @if (errorMessage()) {
+                    <h2 class="text-xl font-bold text-red-700">Dataset Generation Failed</h2>
+                    <p class="text-sm text-muted mt-1">No dataset rows were generated.</p>
+                  } @else if (generatedRows().length > 0) {
+                    <h2 class="text-xl font-bold text-secondary-900">Dataset Generated</h2>
+                    <p class="text-sm text-muted mt-1">{{ generatedRows().length }} rows created successfully</p>
+                  } @else {
+                    <h2 class="text-xl font-bold text-secondary-900">No Dataset Generated</h2>
+                    <p class="text-sm text-muted mt-1">Generation completed without creating any rows.</p>
+                  }
                 </div>
                 <button
                   (click)="resetWizard()"
@@ -183,6 +190,7 @@ type WizardStep = 'configure' | 'generating' | 'results';
             </div>
 
             <!-- Actions -->
+            @if (generatedRows().length > 0) {
             <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6">
               <h3 class="text-lg font-bold text-secondary-900 mb-4">Save or Download</h3>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -250,6 +258,7 @@ type WizardStep = 'configure' | 'generating' | 'results';
                 </div>
               </div>
             </div>
+            }
           </div>
         }
       </div>
@@ -257,7 +266,6 @@ type WizardStep = 'configure' | 'generating' | 'results';
   `,
 })
 export class DatasetsPageComponent implements OnInit {
-  protected t = inject(TranslationService);
   private llmService = inject(LlmService);
   private datasetsService = inject(DatasetsService);
 
