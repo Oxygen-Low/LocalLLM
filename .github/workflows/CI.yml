@@ -91,7 +91,7 @@ jobs:
       - name: Download small GGUF model
         run: |
           mkdir -p /tmp/test-model
-          /tmp/llm-venv/bin/huggingface-cli download bartowski/SmolLM2-135M-Instruct-GGUF SmolLM2-135M-Instruct-Q8_0.gguf --local-dir /tmp/test-model
+          /tmp/llm-venv/bin/python -c "from huggingface_hub import hf_hub_download; hf_hub_download('bartowski/SmolLM2-135M-Instruct-GGUF', 'SmolLM2-135M-Instruct-Q8_0.gguf', local_dir='/tmp/test-model')"
 
       - name: Start Python LLM service
         run: |
