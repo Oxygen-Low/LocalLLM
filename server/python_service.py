@@ -22,8 +22,15 @@ POST /chat
 POST /download
     JSON body: { "repo_id": "<HuggingFace model ID>",
                  "target_dir": "<abs path to save model>" }
-    Downloads a model from the HuggingFace Hub into the target directory.
-    Returns { "success": true } on success or { "error": "..." } on failure.
+    Starts an asynchronous download of a model from the HuggingFace Hub.
+    Returns immediately with { "download_id": "<id>" } (HTTP 202).
+    Poll GET /download-progress?id=<id> for status updates.
+
+GET /download-progress?id=<download_id>
+    Returns the current status of an active download:
+    { "status": "starting"|"downloading"|"completed"|"failed",
+      "downloaded_files": N, "total_files": M,
+      "error": null|"...", "size": <bytes on completion> }
 
 GET /health
     Returns { "status": "ok" }
@@ -34,12 +41,18 @@ import os
 import signal
 import sys
 import threading
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
+from urllib.parse import urlparse, parse_qs
 
 # Global model cache: { model_dir: (model, tokenizer) }
 _model_cache = {}
 _model_lock = threading.Lock()
+
+# Active downloads tracker: { download_id: { status, downloaded_files, total_files, error, size } }
+_active_downloads = {}
+_downloads_lock = threading.Lock()
 
 # Maximum number of cached models (to limit memory usage)
 MAX_CACHED_MODELS = 2
@@ -184,6 +197,95 @@ def _download_model(repo_id, target_dir):
         raise
 
 
+def _count_files_in_dir(directory):
+    """Count the number of files in *directory* recursively."""
+    count = 0
+    try:
+        for _, _, filenames in os.walk(directory):
+            count += len(filenames)
+    except OSError:
+        pass
+    return count
+
+
+def _dir_total_size(directory):
+    """Return the total size in bytes of all files under *directory*."""
+    total = 0
+    try:
+        for dirpath, _, filenames in os.walk(directory):
+            for f in filenames:
+                total += os.path.getsize(os.path.join(dirpath, f))
+    except OSError:
+        pass
+    return total
+
+
+def _download_worker(download_id, repo_id, target_dir):
+    """Background thread that downloads a model and tracks progress."""
+    try:
+        with _downloads_lock:
+            _active_downloads[download_id] = {
+                "status": "starting",
+                "downloaded_files": 0,
+                "total_files": 0,
+                "error": None,
+                "size": 0,
+            }
+
+        # Try to get the expected file count for progress tracking
+        total_files = 0
+        try:
+            from huggingface_hub import list_repo_tree  # noqa: E402
+            total_files = sum(1 for entry in list_repo_tree(repo_id, recursive=True)
+                             if hasattr(entry, 'size'))
+        except Exception:
+            pass  # If we can't get file count, progress will be indeterminate
+
+        with _downloads_lock:
+            _active_downloads[download_id]["total_files"] = total_files
+            _active_downloads[download_id]["status"] = "downloading"
+
+        # Start a progress monitoring thread that counts files periodically
+        progress_stop = threading.Event()
+
+        def _monitor_progress():
+            while not progress_stop.is_set():
+                count = _count_files_in_dir(target_dir)
+                with _downloads_lock:
+                    dl = _active_downloads.get(download_id)
+                    if dl:
+                        dl["downloaded_files"] = count
+                progress_stop.wait(2)  # Check every 2 seconds
+
+        monitor = threading.Thread(target=_monitor_progress, daemon=True)
+        monitor.start()
+
+        # Perform the actual download
+        os.makedirs(target_dir, exist_ok=True)
+        _download_model(repo_id, target_dir)
+
+        progress_stop.set()
+        monitor.join(timeout=5)
+
+        total_size = _dir_total_size(target_dir)
+        final_file_count = _count_files_in_dir(target_dir)
+
+        with _downloads_lock:
+            _active_downloads[download_id].update({
+                "status": "completed",
+                "downloaded_files": final_file_count,
+                "size": total_size,
+            })
+    except Exception as exc:
+        with _downloads_lock:
+            dl = _active_downloads.get(download_id)
+            if dl:
+                dl.update({
+                    "status": "failed",
+                    "error": str(exc),
+                })
+
+
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     """Multi-threaded HTTP server so /health stays responsive during long /chat requests."""
     daemon_threads = True
@@ -208,8 +310,11 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/health":
+        parsed = urlparse(self.path)
+        if parsed.path == "/health":
             self._send_json(200, {"status": "ok"})
+        elif parsed.path == "/download-progress":
+            self._handle_download_progress(parsed)
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -236,7 +341,7 @@ class _Handler(BaseHTTPRequestHandler):
             return None, True
 
     # --------------------------------------------------------------------- #
-    # POST /download
+    # POST /download  (async – returns download_id immediately)
     # --------------------------------------------------------------------- #
     def _handle_download(self):
         data, err = self._read_json_body()
@@ -261,17 +366,35 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error": "target_dir is outside the allowed models directory"})
             return
 
-        try:
-            os.makedirs(resolved_target, exist_ok=True)
-            _download_model(repo_id, resolved_target)
-            # Calculate total size
-            total_size = 0
-            for dirpath, _dirnames, filenames in os.walk(resolved_target):
-                for f in filenames:
-                    total_size += os.path.getsize(os.path.join(dirpath, f))
-            self._send_json(200, {"success": True, "size": total_size})
-        except Exception as exc:
-            self._send_json(500, {"error": f"Download failed: {exc}"})
+        download_id = str(uuid.uuid4())
+        thread = threading.Thread(
+            target=_download_worker,
+            args=(download_id, repo_id, resolved_target),
+            daemon=True,
+        )
+        thread.start()
+
+        self._send_json(202, {"download_id": download_id})
+
+    # --------------------------------------------------------------------- #
+    # GET /download-progress?id=<download_id>
+    # --------------------------------------------------------------------- #
+    def _handle_download_progress(self, parsed):
+        params = parse_qs(parsed.query)
+        download_id = (params.get("id") or [None])[0]
+        if not download_id:
+            self._send_json(400, {"error": "id query parameter is required"})
+            return
+
+        with _downloads_lock:
+            dl = _active_downloads.get(download_id)
+            if not dl:
+                self._send_json(404, {"error": "Unknown download id"})
+                return
+            # Return a snapshot of the current state
+            result = dict(dl)
+
+        self._send_json(200, result)
 
     # --------------------------------------------------------------------- #
     # POST /chat
