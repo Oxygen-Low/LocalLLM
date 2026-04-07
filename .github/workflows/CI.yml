@@ -77,8 +77,49 @@ jobs:
           echo "Sign in response: $RESPONSE"
           echo "$RESPONSE" | grep -q '"success":true'
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python AI dependencies
+        run: |
+          python -m venv /tmp/llm-venv
+          /tmp/llm-venv/bin/pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          /tmp/llm-venv/bin/pip install --quiet transformers huggingface_hub accelerate gguf
+
+      - name: Download small GGUF model
+        run: |
+          mkdir -p /tmp/test-model
+          /tmp/llm-venv/bin/huggingface-cli download bartowski/SmolLM2-135M-Instruct-GGUF SmolLM2-135M-Instruct-Q8_0.gguf --local-dir /tmp/test-model
+
+      - name: Start Python LLM service
+        run: |
+          /tmp/llm-venv/bin/python server/python_service.py 5555 /tmp &
+          echo $! > /tmp/python_service.pid
+
+      - name: Wait for Python LLM service
+        run: |
+          echo "Waiting for Python LLM service on port 5555..."
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:5555/health && echo " Python LLM service ready" && break
+            [ $i -eq 30 ] && echo "Python LLM service failed to start" && exit 1
+            sleep 1
+          done
+
+      - name: Test GGUF model loading and chat
+        run: |
+          echo "Sending chat request to Python LLM service..."
+          RESPONSE=$(curl -s --max-time 120 -X POST http://127.0.0.1:5555/chat \
+            -H "Content-Type: application/json" \
+            -d '{"model_dir":"/tmp/test-model","messages":[{"role":"user","content":"Say hello"}],"max_tokens":32}')
+          echo "Chat response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"done"'
+          echo "GGUF model test passed!"
+
       - name: Stop
         if: always()
         run: |
           [ -f /tmp/server.pid ] && kill $(cat /tmp/server.pid) 2>/dev/null || true
           [ -f /tmp/frontend.pid ] && kill $(cat /tmp/frontend.pid) 2>/dev/null || true
+          [ -f /tmp/python_service.pid ] && kill $(cat /tmp/python_service.pid) 2>/dev/null || true
