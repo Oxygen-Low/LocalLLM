@@ -19,6 +19,8 @@ import { MockAdminService } from './services/mocks/mock-admin.service';
 import { MockCodingAgentService } from './services/mocks/mock-coding-agent.service';
 import { MockWebSeoService } from './services/mocks/mock-web-seo.service';
 import { MockRoleplayService } from './services/mocks/mock-roleplay.service';
+import { DatasetsService } from './services/datasets.service';
+import { MockDatasetsService } from './services/mocks/mock-datasets.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -35,6 +37,7 @@ export const appConfig: ApplicationConfig = {
           { provide: CodingAgentService, useClass: MockCodingAgentService },
           { provide: WebSeoService, useClass: MockWebSeoService },
           { provide: RoleplayService, useClass: MockRoleplayService },
+          { provide: DatasetsService, useClass: MockDatasetsService },
         ]
       : []),
   ]
