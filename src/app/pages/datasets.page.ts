@@ -142,7 +142,7 @@ type WizardStep = 'configure' | 'generating' | 'results';
                   <p class="text-sm text-muted mt-1">{{ generatedRows().length }} rows created successfully</p>
                 </div>
                 <button
-                  (click)="currentStep.set('configure')"
+                  (click)="resetWizard()"
                   class="px-4 py-2 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors"
                 >
                   ← New Dataset
@@ -313,9 +313,11 @@ export class DatasetsPageComponent implements OnInit {
   }
 
   canGenerate(): boolean {
+    const hasModel = !!(this.selectedModel || this.selectedProvider()?.model);
     return (
       this.instructions.trim().length > 0 &&
       this.selectedProvider() !== null &&
+      hasModel &&
       this.numRows >= 1 &&
       this.numRows <= 100
     );
@@ -355,7 +357,7 @@ export class DatasetsPageComponent implements OnInit {
     if (rows.length === 0) return;
 
     const jsonl = rows.map(r => JSON.stringify(r)).join('\n');
-    const blob = new Blob([jsonl], { type: 'application/jsonl' });
+    const blob = new Blob([jsonl], { type: 'application/x-ndjson' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -364,6 +366,17 @@ export class DatasetsPageComponent implements OnInit {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  resetWizard(): void {
+    this.errorMessage.set('');
+    this.showSaveForm.set(false);
+    this.saveSuccess.set(false);
+    this.savedRepoName.set('');
+    this.saveRepoName = '';
+    this.saveRepoDescription = '';
+    this.generatedRows.set([]);
+    this.currentStep.set('configure');
   }
 
   async saveToRepo(): Promise<void> {

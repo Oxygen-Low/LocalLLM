@@ -16,7 +16,7 @@ export interface LocalRepo {
   containerId: string | null;
   containerName: string | null;
   /** Repository type – 'dataset' for dataset repositories, undefined for regular repos */
-  type?: string;
+  type?: 'dataset';
   /** Only present when fetching a single repo (GET /:id) */
   authKey?: string;
   /** Byte size on disk; present when fetching a single repo */

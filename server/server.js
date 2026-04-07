@@ -3782,6 +3782,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 ]`;
 
     const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
+      provider,
       model,
       max_tokens: 4096,
       temperature: 0.8,
@@ -3861,7 +3862,7 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
 
     // Clone, add file, commit, push
     const os = require('os');
-    const tmpDir = path.join(os.tmpdir(), `localllm-dataset-${repoId}`);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localllm-dataset-'));
     try {
       execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
       fs.writeFileSync(path.join(tmpDir, 'dataset.jsonl'), jsonlContent + '\n');
@@ -5631,11 +5632,23 @@ function sendSSE(res, event, data) {
  */
 async function getLLMCompletion(username, messages, options = {}) {
   const keys = readUserApiKeys(username);
-  let provider = null;
-  for (const p of VALID_PROVIDERS) {
-    if (keys[p]?.apiKey) {
-      provider = p;
-      break;
+  let provider = options.provider || null;
+
+  // If a specific provider was requested, validate it
+  if (provider) {
+    if (!AI_PROVIDERS[provider]) {
+      throw new Error(`Unknown AI provider "${provider}".`);
+    }
+    if (!keys[provider]?.apiKey) {
+      throw new Error(`No API key configured for provider "${provider}". Please add one in Settings.`);
+    }
+  } else {
+    // Auto-select the first available provider
+    for (const p of VALID_PROVIDERS) {
+      if (keys[p]?.apiKey) {
+        provider = p;
+        break;
+      }
     }
   }
 
