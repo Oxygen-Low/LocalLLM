@@ -95,7 +95,7 @@ jobs:
 
       - name: Start Python LLM service
         run: |
-          /tmp/llm-venv/bin/python server/python_service.py 5556 /tmp &
+          sleep infinity | /tmp/llm-venv/bin/python server/python_service.py 5556 /tmp &
           echo $! > /tmp/python_service.pid
 
       - name: Wait for Python LLM service
