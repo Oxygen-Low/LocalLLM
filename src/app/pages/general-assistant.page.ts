@@ -1170,7 +1170,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
         if (updatedChat?.messages?.length) {
           const lastAssistant = [...updatedChat.messages].reverse().find(m => m.role === 'assistant');
           if (lastAssistant) {
-            const textToSpeak = this.getContentAsString(lastAssistant.displayContent ?? lastAssistant.content);
+            const textToSpeak = lastAssistant.displayContent || this.getContentAsString(lastAssistant.content);
             await this.voiceService.speak(textToSpeak);
           }
         }
