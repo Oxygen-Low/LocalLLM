@@ -4398,7 +4398,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
         for (let i = 0; i < cleaned.length; i++) {
           const char = cleaned[i];
           if (inString) {
-            if (char === '\\') { i++; continue; } // skip escaped character
+            if (char === '\\' && i + 1 < cleaned.length) { i++; continue; } // skip escaped character
             if (char === '"') inString = false;
             continue;
           }
