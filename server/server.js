@@ -3120,6 +3120,8 @@ app.get('/api/user/settings/default-persona', requireSession, (req, res) => {
 // ---------------------------------------------------------------------------
 
 const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
+const LOCAL_PROVIDERS = ['local', 'kobold', 'ollama'];
+const ALL_PROVIDERS = [...VALID_PROVIDERS, ...LOCAL_PROVIDERS];
 
 function getUserApiKeysFile(username) {
   const safeUsername = path.basename(sanitizeUsernameForPath(username));
@@ -4266,8 +4268,8 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     if (!provider || typeof provider !== 'string') {
       return res.status(400).json({ success: false, error: 'Provider is required' });
     }
-    if (!VALID_PROVIDERS.includes(provider)) {
-      return res.status(400).json({ success: false, error: `Invalid provider "${provider}". Supported providers: ${VALID_PROVIDERS.join(', ')}` });
+    if (!VALID_PROVIDERS.includes(provider) && !LOCAL_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ success: false, error: `Invalid provider "${provider}". Supported providers: ${ALL_PROVIDERS.join(', ')}` });
     }
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ success: false, error: 'Model is required' });
@@ -4282,10 +4284,28 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
       return res.status(400).json({ success: false, error: `Number of rows must be between 1 and ${MAX_DATASET_ROWS}` });
     }
 
-    // Verify the user has a key for this provider
-    const keys = readUserApiKeys(req.sessionUser);
-    if (!keys[provider]?.apiKey) {
-      return res.status(400).json({ success: false, error: `No API key configured for provider "${provider}". Add one in Settings.` });
+    // Validate local providers
+    if (provider === 'local') {
+      const localModels = readLocalModels();
+      if (!localModels.some(m => m.id === model.trim())) {
+        return res.status(400).json({ success: false, error: 'Selected local model not found' });
+      }
+    } else if (provider === 'kobold') {
+      const settings = readSettings();
+      if (!settings.koboldEnabled) {
+        return res.status(400).json({ success: false, error: 'Kobold.cpp is not enabled' });
+      }
+    } else if (provider === 'ollama') {
+      const settings = readSettings();
+      if (!settings.ollamaEnabled) {
+        return res.status(400).json({ success: false, error: 'Ollama is not enabled' });
+      }
+    } else {
+      // Cloud provider – verify the user has an API key
+      const keys = readUserApiKeys(req.sessionUser);
+      if (!keys[provider]?.apiKey) {
+        return res.status(400).json({ success: false, error: `No API key configured for provider "${provider}". Add one in Settings.` });
+      }
     }
 
     const prompt = `You are a dataset generator. Based on the following instructions, generate exactly ${rowCount} training data rows.
@@ -6485,10 +6505,10 @@ async function getLLMCompletion(username, messages, options = {}) {
 
   // If a specific provider was requested, validate it
   if (provider) {
-    if (!AI_PROVIDERS[provider]) {
+    if (!AI_PROVIDERS[provider] && !LOCAL_PROVIDERS.includes(provider)) {
       throw new Error(`Unknown AI provider "${provider}".`);
     }
-    if (!keys[provider]?.apiKey) {
+    if (AI_PROVIDERS[provider] && !keys[provider]?.apiKey) {
       throw new Error(`No API key configured for provider "${provider}". Please add one in Settings.`);
     }
   } else {
@@ -6505,26 +6525,123 @@ async function getLLMCompletion(username, messages, options = {}) {
     throw new Error('No AI provider configured. Please add an API key in Settings.');
   }
 
-  const providerKeys = keys[provider];
-  const model = options.model || providerKeys.selectedModel;
+  const model = options.model || (keys[provider]?.selectedModel);
   if (!model) {
     throw new Error(`No model selected for provider ${provider}.`);
   }
 
+  const maxTokens = options.max_tokens || 2048;
+  const temperature = options.temperature || 0.7;
+
+  // Flatten multimodal content to text for local providers
+  const flatMessages = messages.map(m => {
+    if (typeof m.content === 'string') return m;
+    if (m.role === 'system' && Array.isArray(m.content)) {
+      return { ...m, content: m.content.map(p => p.text || '').join('\n') };
+    }
+    if (Array.isArray(m.content)) {
+      const text = m.content.filter(p => p.type === 'text').map(p => p.text || '').join('\n');
+      return { ...m, content: text };
+    }
+    return m;
+  });
+
+  // --- Handle local providers (non-streaming) ---
+  if (provider === 'local') {
+    const models = readLocalModels();
+    const modelEntry = models.find(m => m.id === model);
+    if (!modelEntry) throw new Error('Local model not found');
+    const modelDir = getModelDirPath(modelEntry);
+    if (!fs.existsSync(modelDir)) throw new Error('Model directory not found on disk');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
+    try {
+      const response = await fetch(`${PYTHON_SERVICE_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_dir: modelDir, messages: flatMessages, max_tokens: maxTokens }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        const errText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`Local LLM service error: ${response.status} – ${errText}`);
+      }
+      // The local service streams newline-delimited JSON; collect all content
+      const text = await response.text();
+      let fullContent = '';
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.done) { fullContent = parsed.content || fullContent; break; }
+          fullContent += parsed.content || '';
+        } catch (e) { if (!(e instanceof SyntaxError)) throw e; }
+      }
+      return fullContent;
+    } catch (err) { clearTimeout(timeout); throw err; }
+  }
+
+  if (provider === 'kobold') {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
+    try {
+      const response = await fetch(`${KOBOLD_URL}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: flatMessages, max_tokens: maxTokens, temperature, stream: false }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Kobold.cpp error ${response.status}: ${errorBody}`);
+      }
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content == null) throw new Error('Kobold.cpp returned an unexpected response format');
+      return content;
+    } catch (err) { clearTimeout(timeout); throw err; }
+  }
+
+  if (provider === 'ollama') {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
+    try {
+      const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: flatMessages,
+          stream: false,
+          options: { num_predict: maxTokens, temperature },
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Ollama error ${response.status}: ${errorBody}`);
+      }
+      const data = await response.json();
+      return data.message?.content || '';
+    } catch (err) { clearTimeout(timeout); throw err; }
+  }
+
+  // --- Cloud providers ---
+  const providerKeys = keys[provider];
   const config = AI_PROVIDERS[provider];
   const baseUrl = config.baseUrl;
   const chatEndpoint = config.chatEndpoint;
 
   const body = {
     model,
-    messages: messages.map(m => {
-      if (m.role === 'system' && Array.isArray(m.content)) {
-        return { ...m, content: m.content.map(p => p.text || '').join('\n') };
-      }
-      return m;
-    }),
-    max_tokens: options.max_tokens || 2048,
-    temperature: options.temperature || 0.7,
+    messages: flatMessages,
+    max_tokens: maxTokens,
+    temperature,
     stream: false,
   };
 
