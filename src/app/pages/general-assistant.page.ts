@@ -684,6 +684,9 @@ import { VoiceService } from '../services/voice.service';
                 <span class="text-sm text-white/70">Thinking...</span>
               </div>
             } @else {
+              @if (errorMessage()) {
+                <p class="text-sm text-red-400 mb-2">{{ errorMessage() }}</p>
+              }
               <p class="text-sm text-white/60">Tap the mic to start talking</p>
             }
           </div>
@@ -1154,39 +1157,23 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     }
 
     try {
-      const result = await this.runStreamRequest(this.buildLlmMessages(updatedMessages));
-
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        content: result.content,
-        thinking: result.thinking || undefined,
-        searches: result.searches?.length ? result.searches : undefined,
-        timestamp: new Date().toISOString(),
-      };
-
-      const finalMessages = [...updatedMessages, assistantMsg];
-
-      const updated = await this.llmService.updateChat(chat.id, {
-        messages: finalMessages,
-        title,
-        provider: provider.id,
-        model: provider.model,
-      });
-
-      this.currentChat.set(updated);
-      await this.loadChatList();
+      // Route through the same flows as regular messages
+      if (this.webSearchEnabled()) {
+        await this.runAiLoop(updatedMessages, title);
+      } else {
+        await this.runNormalAssistantTurn(updatedMessages, title);
+      }
 
       // Speak the response via TTS if still in voice mode
       if (this.voiceModeActive()) {
-        this.voiceProcessing.set(false);
-        await this.voiceService.speak(result.content);
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        this.errorMessage.set(err.message);
-      } else {
-        const error = err as { error?: { error?: string } };
-        this.errorMessage.set(error?.error?.error || 'Failed to get response.');
+        const updatedChat = this.currentChat();
+        if (updatedChat?.messages?.length) {
+          const lastAssistant = [...updatedChat.messages].reverse().find(m => m.role === 'assistant');
+          if (lastAssistant) {
+            const textToSpeak = this.getContentAsString(lastAssistant.displayContent ?? lastAssistant.content);
+            await this.voiceService.speak(textToSpeak);
+          }
+        }
       }
     } finally {
       this.voiceProcessing.set(false);

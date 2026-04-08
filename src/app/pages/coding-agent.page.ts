@@ -1175,6 +1175,9 @@ interface ToolCall {
                 <span class="text-sm text-white/70">Thinking...</span>
               </div>
             } @else {
+              @if (errorMessage()) {
+                <p class="text-sm text-red-400 mb-2">{{ errorMessage() }}</p>
+              }
               <p class="text-sm text-white/60">Tap the mic to start talking</p>
             }
           </div>
@@ -2168,7 +2171,6 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
         const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
         if (lastAssistant) {
           const textToSpeak = lastAssistant.displayContent || this.getContentAsString(lastAssistant.content);
-          this.voiceProcessing.set(false);
           await this.voiceService.speak(textToSpeak);
         }
       }
