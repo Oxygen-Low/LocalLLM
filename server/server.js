@@ -4387,11 +4387,43 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
     try {
       rows = JSON.parse(cleaned);
     } catch {
-      return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
+      // LLM may return concatenated JSON objects instead of an array.
+      // Try to extract individual objects and wrap them in an array.
+      try {
+        const objects = [];
+        // Match top-level JSON objects by tracking brace depth (string-aware)
+        let depth = 0;
+        let start = -1;
+        let inString = false;
+        for (let i = 0; i < cleaned.length; i++) {
+          const char = cleaned[i];
+          if (inString) {
+            if (char === '\\' && i + 1 < cleaned.length) { i++; continue; } // skip escaped character
+            if (char === '"') inString = false;
+            continue;
+          }
+          if (char === '"') { inString = true; continue; }
+          if (char === '{') {
+            if (depth === 0) start = i;
+            depth++;
+          } else if (char === '}') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+              const candidate = cleaned.slice(start, i + 1);
+              try { objects.push(JSON.parse(candidate)); } catch { /* skip malformed object */ }
+              start = -1;
+            }
+          }
+        }
+        if (objects.length === 0) throw new Error('No JSON objects found');
+        rows = objects;
+      } catch {
+        return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
+      }
     }
 
     if (!Array.isArray(rows)) {
-      return res.status(500).json({ success: false, error: 'LLM did not return a valid array. Please try again.' });
+      rows = [rows];
     }
 
     // Validate and sanitize rows
