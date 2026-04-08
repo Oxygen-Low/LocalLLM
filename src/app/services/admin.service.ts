@@ -52,6 +52,7 @@ interface AppSettingsResponse {
   riskyAppsEnabled?: boolean;
   koboldEnabled?: boolean;
   ollamaEnabled?: boolean;
+  maxDatasetTokensGB?: number;
 }
 
 export interface AutoSyncConfig {
@@ -303,6 +304,21 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update Ollama settings' };
+    }
+  }
+
+  async setDatasetTokenLimit(maxDatasetTokensGB: number, adminPasswordHash: string): Promise<AppSettingsResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AppSettingsResponse>(`${environment.apiUrl}/api/admin/settings/dataset-token-limit`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          maxDatasetTokensGB,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update dataset token limit' };
     }
   }
 

@@ -2900,7 +2900,7 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects missing instructions', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      provider: 'openai', model: 'gpt-4', numRows: 5,
+      provider: 'openai', model: 'gpt-4', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -2909,7 +2909,7 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects empty instructions', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: '   ', provider: 'openai', model: 'gpt-4', numRows: 5,
+      instructions: '   ', provider: 'openai', model: 'gpt-4', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -2917,7 +2917,7 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects missing provider', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'test', model: 'gpt-4', numRows: 5,
+      instructions: 'test', model: 'gpt-4', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -2926,32 +2926,24 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects missing model', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'test', provider: 'openai', numRows: 5,
+      instructions: 'test', provider: 'openai', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
     assert.ok(res.body.error.toLowerCase().includes('model'));
   });
 
-  it('rejects numRows below 1', async () => {
+  it('rejects numTokens below 1', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'test', provider: 'openai', model: 'gpt-4', numRows: 0,
+      instructions: 'test', provider: 'openai', model: 'gpt-4', numTokens: 0,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
   });
 
-  it('rejects numRows above 100', async () => {
+  it('rejects non-integer numTokens', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'test', provider: 'openai', model: 'gpt-4', numRows: 101,
-    }, dsToken);
-    assert.equal(res.status, 400);
-    assert.equal(res.body.success, false);
-  });
-
-  it('rejects non-integer numRows', async () => {
-    const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'test', provider: 'openai', model: 'gpt-4', numRows: 1.5,
+      instructions: 'test', provider: 'openai', model: 'gpt-4', numTokens: 1.5,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -2959,7 +2951,7 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects instructions exceeding max length', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'x'.repeat(5001), provider: 'openai', model: 'gpt-4', numRows: 5,
+      instructions: 'x'.repeat(5001), provider: 'openai', model: 'gpt-4', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -2967,7 +2959,7 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects provider without API key configured', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'Generate math questions', provider: 'openai', model: 'gpt-4', numRows: 5,
+      instructions: 'Generate math questions', provider: 'openai', model: 'gpt-4', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -2976,7 +2968,7 @@ describe('POST /api/datasets/generate', { concurrency: false }, () => {
 
   it('rejects unknown/invalid provider', async () => {
     const res = await request(server, 'POST', '/api/datasets/generate', {
-      instructions: 'Generate math questions', provider: 'nonexistent_provider', model: 'test-model', numRows: 5,
+      instructions: 'Generate math questions', provider: 'nonexistent_provider', model: 'test-model', numTokens: 500,
     }, dsToken);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
@@ -3033,15 +3025,17 @@ describe('POST /api/datasets/save', { concurrency: false }, () => {
     assert.equal(res.body.success, false);
   });
 
-  it('rejects rows exceeding max count', async () => {
-    const tooManyRows = Array.from({ length: 101 }, (_, i) => ({
-      instruction: `instr ${i}`, input: `in ${i}`, output: `out ${i}`,
-    }));
+  it('rejects dataset exceeding token limit', async () => {
+    // Set an extremely small token limit to trigger rejection
+    const origSettings = readSettings();
+    writeSettings({ ...origSettings, maxDatasetTokensGB: 0.0000000001 });
     const res = await request(server, 'POST', '/api/datasets/save', {
-      name: 'test-dataset', rows: tooManyRows,
+      name: 'test-dataset-token-limit', rows: [{ instruction: 'a', input: 'b', output: 'c' }],
     }, dsToken);
+    writeSettings(origSettings);
     assert.equal(res.status, 400);
     assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('token limit'));
   });
 
   it('rejects rows with empty instruction field', async () => {

@@ -94,20 +94,20 @@ type WizardStep = 'configure' | 'generating' | 'results';
                 </div>
               }
 
-              <!-- Number of rows -->
+              <!-- Number of tokens -->
               <div>
                 <label class="block text-sm font-semibold text-secondary-900 mb-2">
-                  {{ t.translate('datasets.numRowsLabel') }}
+                  {{ t.translate('datasets.numTokensLabel') }}
                 </label>
                 <input
                   type="number"
-                  [(ngModel)]="numRows"
+                  [(ngModel)]="numTokens"
                   min="1"
-                  max="100"
+                  max="4096"
                   step="1"
                   class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
                 />
-                <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numRowsHint') }}</p>
+                <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numTokensHint') }}</p>
               </div>
 
               <!-- Generate button -->
@@ -283,7 +283,7 @@ export class DatasetsPageComponent implements OnInit {
 
   // Configuration
   instructions = '';
-  numRows = 10;
+  numTokens = 1000;
   selectedModel = '';
 
   // Providers
@@ -336,9 +336,8 @@ export class DatasetsPageComponent implements OnInit {
       this.instructions.trim().length > 0 &&
       this.selectedProvider() !== null &&
       hasModel &&
-      Number.isInteger(this.numRows) &&
-      this.numRows >= 1 &&
-      this.numRows <= 100
+      Number.isInteger(this.numTokens) &&
+      this.numTokens >= 1
     );
   }
 
@@ -357,7 +356,7 @@ export class DatasetsPageComponent implements OnInit {
         this.instructions,
         provider.id,
         model,
-        this.numRows
+        this.numTokens
       );
       if (res.success && res.rows) {
         this.generatedRows.set(res.rows);

@@ -479,6 +479,18 @@ const translations: TranslationDictionary = {
     ja: '1から100の間で行数を選択してください。大きなデータセットは生成に時間がかかります。',
     ru: 'Выберите от 1 до 100 строк. Более крупные наборы данных генерируются дольше.',
   },
+  'datasets.numTokensLabel': {
+    en: 'Number of Tokens',
+    ko: '토큰 수',
+    ja: 'トークン数',
+    ru: 'Количество токенов',
+  },
+  'datasets.numTokensHint': {
+    en: 'Specify the target number of tokens to generate. Larger values produce more data and take longer.',
+    ko: '생성할 토큰 수를 지정하세요. 값이 클수록 더 많은 데이터가 생성되며 시간이 더 걸립니다.',
+    ja: '生成するトークン数を指定してください。値が大きいほどデータが多くなり、時間がかかります。',
+    ru: 'Укажите целевое количество токенов для генерации. Большие значения создают больше данных и занимают больше времени.',
+  },
   'datasets.generateButton': {
     en: 'Generate Dataset',
     ko: '데이터셋 생성',
@@ -492,10 +504,10 @@ const translations: TranslationDictionary = {
     ru: 'Генерация набора данных…',
   },
   'datasets.generatingHint': {
-    en: 'This may take a moment depending on the number of rows.',
-    ko: '행 수에 따라 시간이 걸릴 수 있습니다.',
-    ja: '行数によって時間がかかる場合があります。',
-    ru: 'Это может занять некоторое время в зависимости от количества строк.',
+    en: 'This may take a moment depending on the number of tokens.',
+    ko: '토큰 수에 따라 시간이 걸릴 수 있습니다.',
+    ja: 'トークン数によって時間がかかる場合があります。',
+    ru: 'Это может занять некоторое время в зависимости от количества токенов.',
   },
   'datasets.generationFailed': {
     en: 'Dataset Generation Failed',
