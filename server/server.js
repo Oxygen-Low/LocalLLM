@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const os = require('os');
 const dns = require('dns');
 const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
@@ -24,6 +26,9 @@ const ROLEPLAY_DIR = path.join(DATA_DIR, 'roleplay');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PYTHON_VENV_DIR = path.join(DATA_DIR, 'python_env');
 const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
+const CERTS_DIR = path.join(DATA_DIR, 'certs');
+const CERT_KEY_FILE = path.join(CERTS_DIR, 'server.key');
+const CERT_FILE = path.join(CERTS_DIR, 'server.cert');
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
@@ -7805,15 +7810,100 @@ app.get('/api/providers', requireSession, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Self-signed TLS certificate generation for LAN HTTPS
+// ---------------------------------------------------------------------------
+
+/**
+ * Discover all local IPv4/IPv6 addresses from the machine's network interfaces.
+ * Used to populate Subject Alternative Names so the self-signed cert is trusted
+ * when accessed from any local IP.
+ */
+function getLocalIPs() {
+  const interfaces = os.networkInterfaces();
+  const ips = new Set(['127.0.0.1', '::1']);
+  for (const iface of Object.values(interfaces)) {
+    for (const alias of iface) {
+      ips.add(alias.address);
+    }
+  }
+  return [...ips];
+}
+
+/**
+ * Ensure a self-signed TLS certificate exists in data/certs/.
+ * If the cert/key files already exist they are reused; otherwise a new
+ * RSA-2048 certificate valid for 365 days is generated via openssl.
+ * SANs include localhost plus every detected local IP address.
+ * Returns { key, cert } buffers or null if generation fails.
+ */
+function ensureSelfSignedCert() {
+  if (fs.existsSync(CERT_KEY_FILE) && fs.existsSync(CERT_FILE)) {
+    return {
+      key: fs.readFileSync(CERT_KEY_FILE),
+      cert: fs.readFileSync(CERT_FILE),
+    };
+  }
+
+  if (!fs.existsSync(CERTS_DIR)) {
+    fs.mkdirSync(CERTS_DIR, { recursive: true });
+  }
+
+  console.log('[https] Generating self-signed certificate for LAN access...');
+
+  const localIPs = getLocalIPs();
+  const sanEntries = ['DNS:localhost'];
+  localIPs.forEach(ip => sanEntries.push(`IP:${ip}`));
+  const sanConfig = sanEntries.join(',');
+
+  try {
+    execFileSync('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048',
+      '-keyout', CERT_KEY_FILE,
+      '-out', CERT_FILE,
+      '-days', '365',
+      '-nodes',
+      '-subj', '/CN=LocalLLM',
+      '-addext', `subjectAltName=${sanConfig}`,
+    ], { stdio: 'pipe' });
+  } catch (err) {
+    console.error('[https] Failed to generate self-signed certificate:', err.message);
+    // Clean up partial files
+    try { fs.unlinkSync(CERT_KEY_FILE); } catch { /* ignore */ }
+    try { fs.unlinkSync(CERT_FILE); } catch { /* ignore */ }
+    return null;
+  }
+
+  // Restrict permissions on the private key
+  fs.chmodSync(CERT_KEY_FILE, 0o600);
+
+  console.log('[https] Self-signed certificate generated successfully.');
+  console.log(`[https] SANs: ${sanConfig}`);
+
+  return {
+    key: fs.readFileSync(CERT_KEY_FILE),
+    cert: fs.readFileSync(CERT_FILE),
+  };
+}
+
 async function createHttpServer() {
   await ensureAdminAccount();
+
+  const tlsCert = ensureSelfSignedCert();
+  if (tlsCert) {
+    console.log('[https] Starting HTTPS server with self-signed certificate.');
+    return https.createServer({ key: tlsCert.key, cert: tlsCert.cert }, app);
+  }
+
+  console.warn('[https] Falling back to plain HTTP.');
   return http.createServer(app);
 }
 
 if (require.main === module) {
   createHttpServer().then((server) => {
+    const protocol = server instanceof https.Server ? 'https' : 'http';
     server.listen(PORT, HOST, () => {
-      console.log(`Server running on http://${HOST}:${PORT}`);
+      console.log(`Server running on ${protocol}://${HOST}:${PORT}`);
       startPythonProcess();
 
       // Auto-sync on startup: pull remote data if newer
@@ -7832,4 +7922,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE };
