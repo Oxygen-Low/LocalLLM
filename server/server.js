@@ -728,29 +728,45 @@ const AUTO_SYNC_DATE_FILE = 'Date';
 let autoSyncStatus = { lastSync: null, lastError: null, syncing: false };
 
 /**
+ * Validate that a sync directory path is safe to use.
+ * Must not overlap with the application data directory.
+ */
+function validateSyncDirectory(directory) {
+  const resolved = path.resolve(directory);
+  const dataResolved = path.resolve(DATA_DIR);
+  // Prevent syncing into the data directory itself (would cause infinite loops)
+  if (resolved === dataResolved || resolved.startsWith(dataResolved + path.sep) || dataResolved.startsWith(resolved + path.sep)) {
+    return { valid: false, error: 'Sync directory must not overlap with the application data directory' };
+  }
+  return { valid: true, resolved };
+}
+
+/**
  * Encrypt file contents with AES-256-GCM using the server master key.
  * Returns a hex-encoded string: iv:authTag:ciphertext
  */
 function encryptSyncData(buffer) {
-  const key = crypto.pbkdf2Sync(MASTER_KEY, 'auto-sync', PBKDF2_ITERATIONS, 32, 'sha256');
+  const salt = crypto.randomBytes(SALT_BYTES);
+  const key = crypto.pbkdf2Sync(MASTER_KEY, salt, PBKDF2_ITERATIONS, 32, 'sha256');
   const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
   const authTag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+  return `${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
 }
 
 /**
- * Decrypt auto-sync encrypted data. Input is hex string iv:authTag:ciphertext.
+ * Decrypt auto-sync encrypted data. Input is hex string salt:iv:authTag:ciphertext.
  * Returns a Buffer.
  */
 function decryptSyncData(encryptedStr) {
-  const key = crypto.pbkdf2Sync(MASTER_KEY, 'auto-sync', PBKDF2_ITERATIONS, 32, 'sha256');
   const parts = encryptedStr.split(':');
-  if (parts.length !== 3) throw new Error('Invalid encrypted sync data format');
-  const iv = Buffer.from(parts[0], 'hex');
-  const authTag = Buffer.from(parts[1], 'hex');
-  const encrypted = Buffer.from(parts[2], 'hex');
+  if (parts.length !== 4) throw new Error('Invalid encrypted sync data format');
+  const salt = Buffer.from(parts[0], 'hex');
+  const iv = Buffer.from(parts[1], 'hex');
+  const authTag = Buffer.from(parts[2], 'hex');
+  const encrypted = Buffer.from(parts[3], 'hex');
+  const key = crypto.pbkdf2Sync(MASTER_KEY, salt, PBKDF2_ITERATIONS, 32, 'sha256');
   const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]);
@@ -817,12 +833,13 @@ function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
 
 /**
  * Perform an auto-sync operation. Direction is determined by comparing
- * the Date file in the sync folder to the local data's last-modified time.
+ * the Date file in the sync folder to the local sync timestamp.
  * The most recent data wins.
  *
  * @param {'startup'|'shutdown'|'manual'} trigger
+ * @param {string} [forcedDirection] - 'push' or 'pull' to override automatic direction
  */
-function performAutoSync(trigger) {
+function performAutoSync(trigger, forcedDirection) {
   const settings = readSettings();
   const syncConfig = settings.autoSync;
   if (!syncConfig || !syncConfig.enabled || !syncConfig.directory) {
@@ -847,24 +864,20 @@ function performAutoSync(trigger) {
       excludeDirs.push('models');
     }
 
-    // Determine sync direction based on Date files
-    const localDate = new Date().toISOString();
-    let remoteDate = null;
-    let syncDirection = 'push'; // default: local → remote
+    const syncTimestamp = new Date().toISOString();
+    let syncDirection = forcedDirection || 'push'; // default: local → remote
 
-    if (fs.existsSync(syncDataDir) && fs.existsSync(syncDateFile)) {
+    // Only auto-detect direction on startup if no forced direction
+    if (!forcedDirection && trigger === 'startup' && fs.existsSync(syncDataDir) && fs.existsSync(syncDateFile)) {
       try {
         const remoteDateStr = fs.readFileSync(syncDateFile, 'utf-8').trim();
-        remoteDate = new Date(remoteDateStr);
+        const remoteDate = new Date(remoteDateStr);
 
-        // Check local data directory modification time using settings file
-        let localModTime = new Date(0);
-        if (fs.existsSync(SETTINGS_FILE)) {
-          localModTime = fs.statSync(SETTINGS_FILE).mtime;
-        }
+        // Compare remote sync timestamp to the last local sync timestamp
+        const localSyncDate = autoSyncStatus.lastSync ? new Date(autoSyncStatus.lastSync) : new Date(0);
 
-        // If remote data is newer than local, pull from remote
-        if (remoteDate > localModTime && trigger === 'startup') {
+        // If remote data is newer than our last sync, pull from remote
+        if (remoteDate > localSyncDate) {
           syncDirection = 'pull';
         }
       } catch {
@@ -898,30 +911,28 @@ function performAutoSync(trigger) {
       }
 
       // Clear existing sync data (except Date file) to avoid stale files
-      if (fs.existsSync(syncDataDir)) {
-        const existingEntries = fs.readdirSync(syncDataDir, { withFileTypes: true });
-        for (const entry of existingEntries) {
-          if (entry.name === AUTO_SYNC_DATE_FILE) continue;
-          const entryPath = path.join(syncDataDir, entry.name);
-          if (entry.isDirectory()) {
-            fs.rmSync(entryPath, { recursive: true, force: true });
-          } else {
-            fs.unlinkSync(entryPath);
-          }
+      const existingEntries = fs.readdirSync(syncDataDir, { withFileTypes: true });
+      for (const entry of existingEntries) {
+        if (entry.name === AUTO_SYNC_DATE_FILE) continue;
+        const entryPath = path.join(syncDataDir, entry.name);
+        if (entry.isDirectory()) {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(entryPath);
         }
       }
 
       copyDirSync(DATA_DIR, syncDataDir, syncConfig.encrypt, excludeDirs);
 
       // Write the Date file
-      fs.writeFileSync(syncDateFile, localDate, 'utf-8');
+      fs.writeFileSync(syncDateFile, syncTimestamp, 'utf-8');
 
       console.log('[auto-sync] Push complete. Sync folder updated.');
     }
 
-    autoSyncStatus.lastSync = localDate;
+    autoSyncStatus.lastSync = syncTimestamp;
     autoSyncStatus.syncing = false;
-    return { success: true, direction: syncDirection, timestamp: localDate };
+    return { success: true, direction: syncDirection, timestamp: syncTimestamp };
   } catch (err) {
     console.error('[auto-sync] Sync failed:', err.message);
     autoSyncStatus.lastError = err.message;
@@ -2215,7 +2226,11 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
 
     // Validate directory path exists (or can be created) when enabling
     if (enabled) {
-      const resolvedDir = path.resolve(directory.trim());
+      const dirValidation = validateSyncDirectory(directory.trim());
+      if (!dirValidation.valid) {
+        return res.status(400).json({ success: false, error: dirValidation.error });
+      }
+      const resolvedDir = dirValidation.resolved;
       try {
         if (!fs.existsSync(resolvedDir)) {
           fs.mkdirSync(resolvedDir, { recursive: true });
@@ -2303,8 +2318,9 @@ app.post('/api/admin/auto-sync/trigger', async (req, res) => {
     }
 
     // Allow forcing direction: 'push' (local→remote) or 'pull' (remote→local)
-    // If not specified, performAutoSync decides based on dates
-    const result = performAutoSync(direction === 'pull' ? 'startup' : 'manual');
+    const validDirections = ['push', 'pull'];
+    const forcedDirection = validDirections.includes(direction) ? direction : undefined;
+    const result = performAutoSync('manual', forcedDirection);
 
     auditLog({ event: 'ADMIN_AUTO_SYNC_TRIGGER', message: `Admin triggered auto-sync: ${JSON.stringify(result)}`, username: adminUsername, req });
     return res.json(result);
@@ -2327,7 +2343,11 @@ app.post('/api/admin/auto-sync/import', async (req, res) => {
       return res.status(400).json({ success: false, error: 'directory is required' });
     }
 
-    const resolvedDir = path.resolve(directory.trim());
+    const dirValidation = validateSyncDirectory(directory.trim());
+    if (!dirValidation.valid) {
+      return res.status(400).json({ success: false, error: dirValidation.error });
+    }
+    const resolvedDir = dirValidation.resolved;
     const syncDataDir = path.join(resolvedDir, AUTO_SYNC_FOLDER_NAME);
     const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
 
