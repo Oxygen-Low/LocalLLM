@@ -3120,6 +3120,8 @@ app.get('/api/user/settings/default-persona', requireSession, (req, res) => {
 // ---------------------------------------------------------------------------
 
 const VALID_PROVIDERS = Object.keys(AI_PROVIDERS);
+const LOCAL_PROVIDERS = ['local', 'kobold', 'ollama'];
+const ALL_PROVIDERS = [...VALID_PROVIDERS, ...LOCAL_PROVIDERS];
 
 function getUserApiKeysFile(username) {
   const safeUsername = path.basename(sanitizeUsernameForPath(username));
@@ -4266,9 +4268,8 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     if (!provider || typeof provider !== 'string') {
       return res.status(400).json({ success: false, error: 'Provider is required' });
     }
-    const LOCAL_PROVIDERS = ['local', 'kobold', 'ollama'];
     if (!VALID_PROVIDERS.includes(provider) && !LOCAL_PROVIDERS.includes(provider)) {
-      return res.status(400).json({ success: false, error: `Invalid provider "${provider}". Supported providers: ${[...VALID_PROVIDERS, ...LOCAL_PROVIDERS].join(', ')}` });
+      return res.status(400).json({ success: false, error: `Invalid provider "${provider}". Supported providers: ${ALL_PROVIDERS.join(', ')}` });
     }
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ success: false, error: 'Model is required' });
@@ -6501,7 +6502,6 @@ async function streamFromOllama(res, messages, model, options = {}, signal) {
 async function getLLMCompletion(username, messages, options = {}) {
   const keys = readUserApiKeys(username);
   let provider = options.provider || null;
-  const LOCAL_PROVIDERS = ['local', 'kobold', 'ollama'];
 
   // If a specific provider was requested, validate it
   if (provider) {
@@ -6600,7 +6600,9 @@ async function getLLMCompletion(username, messages, options = {}) {
         throw new Error(`Kobold.cpp error ${response.status}: ${errorBody}`);
       }
       const data = await response.json();
-      return data.choices[0].message.content;
+      const content = data.choices?.[0]?.message?.content;
+      if (content == null) throw new Error('Kobold.cpp returned an unexpected response format');
+      return content;
     } catch (err) { clearTimeout(timeout); throw err; }
   }
 
