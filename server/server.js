@@ -697,7 +697,7 @@ function writeUniverses(universes) {
 // ---------------------------------------------------------------------------
 let settingsCache = null;
 
-const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false };
+const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false } };
 
 function loadSettingsFromDisk() {
   try {
@@ -718,6 +718,216 @@ function readSettings() {
 function writeSettings(settings) {
   settingsCache = { ...DEFAULT_SETTINGS, ...settings };
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsCache, null, 2), 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// Auto-Sync – bidirectional data sync to an external directory (e.g. OneDrive)
+// ---------------------------------------------------------------------------
+const AUTO_SYNC_FOLDER_NAME = 'LocalLLM Data';
+const AUTO_SYNC_DATE_FILE = 'Date';
+let autoSyncStatus = { lastSync: null, lastError: null, syncing: false };
+
+/**
+ * Encrypt file contents with AES-256-GCM using the server master key.
+ * Returns a hex-encoded string: iv:authTag:ciphertext
+ */
+function encryptSyncData(buffer) {
+  const key = crypto.pbkdf2Sync(MASTER_KEY, 'auto-sync', PBKDF2_ITERATIONS, 32, 'sha256');
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+/**
+ * Decrypt auto-sync encrypted data. Input is hex string iv:authTag:ciphertext.
+ * Returns a Buffer.
+ */
+function decryptSyncData(encryptedStr) {
+  const key = crypto.pbkdf2Sync(MASTER_KEY, 'auto-sync', PBKDF2_ITERATIONS, 32, 'sha256');
+  const parts = encryptedStr.split(':');
+  if (parts.length !== 3) throw new Error('Invalid encrypted sync data format');
+  const iv = Buffer.from(parts[0], 'hex');
+  const authTag = Buffer.from(parts[1], 'hex');
+  const encrypted = Buffer.from(parts[2], 'hex');
+  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+/**
+ * Recursively copy a directory, optionally encrypting file contents.
+ * @param {string} src - source directory
+ * @param {string} dest - destination directory
+ * @param {boolean} shouldEncrypt - whether to encrypt file contents
+ * @param {string[]} excludeDirs - directory names to skip
+ */
+function copyDirSync(src, dest, shouldEncrypt, excludeDirs) {
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true });
+  }
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    if (excludeDirs.includes(entry.name)) continue;
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath, shouldEncrypt, excludeDirs);
+    } else {
+      const content = fs.readFileSync(srcPath);
+      if (shouldEncrypt) {
+        fs.writeFileSync(destPath + '.enc', encryptSyncData(content), 'utf-8');
+      } else {
+        fs.writeFileSync(destPath, content);
+      }
+    }
+  }
+}
+
+/**
+ * Recursively copy a directory back, optionally decrypting file contents.
+ * @param {string} src - source (sync) directory
+ * @param {string} dest - destination (data) directory
+ * @param {boolean} isEncrypted - whether files are encrypted
+ * @param {string[]} excludeDirs - directory names to skip
+ */
+function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true });
+  }
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    if (excludeDirs.includes(entry.name)) continue;
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      restoreDirSync(srcPath, destPath, isEncrypted, excludeDirs);
+    } else {
+      if (isEncrypted && entry.name.endsWith('.enc')) {
+        const encData = fs.readFileSync(srcPath, 'utf-8');
+        const decrypted = decryptSyncData(encData);
+        fs.writeFileSync(destPath.replace(/\.enc$/, ''), decrypted);
+      } else {
+        fs.writeFileSync(destPath, fs.readFileSync(srcPath));
+      }
+    }
+  }
+}
+
+/**
+ * Perform an auto-sync operation. Direction is determined by comparing
+ * the Date file in the sync folder to the local data's last-modified time.
+ * The most recent data wins.
+ *
+ * @param {'startup'|'shutdown'|'manual'} trigger
+ */
+function performAutoSync(trigger) {
+  const settings = readSettings();
+  const syncConfig = settings.autoSync;
+  if (!syncConfig || !syncConfig.enabled || !syncConfig.directory) {
+    return { success: false, error: 'Auto-sync is not configured' };
+  }
+
+  if (autoSyncStatus.syncing) {
+    return { success: false, error: 'Sync already in progress' };
+  }
+
+  autoSyncStatus.syncing = true;
+  autoSyncStatus.lastError = null;
+
+  try {
+    const syncRoot = path.resolve(syncConfig.directory);
+    const syncDataDir = path.join(syncRoot, AUTO_SYNC_FOLDER_NAME);
+    const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
+
+    // Build the list of directories to exclude
+    const excludeDirs = ['python_env', 'containers'];
+    if (syncConfig.excludeModels) {
+      excludeDirs.push('models');
+    }
+
+    // Determine sync direction based on Date files
+    const localDate = new Date().toISOString();
+    let remoteDate = null;
+    let syncDirection = 'push'; // default: local → remote
+
+    if (fs.existsSync(syncDataDir) && fs.existsSync(syncDateFile)) {
+      try {
+        const remoteDateStr = fs.readFileSync(syncDateFile, 'utf-8').trim();
+        remoteDate = new Date(remoteDateStr);
+
+        // Check local data directory modification time using settings file
+        let localModTime = new Date(0);
+        if (fs.existsSync(SETTINGS_FILE)) {
+          localModTime = fs.statSync(SETTINGS_FILE).mtime;
+        }
+
+        // If remote data is newer than local, pull from remote
+        if (remoteDate > localModTime && trigger === 'startup') {
+          syncDirection = 'pull';
+        }
+      } catch {
+        // If we can't read the remote date, default to push
+        syncDirection = 'push';
+      }
+    }
+
+    if (syncDirection === 'pull') {
+      // Remote → Local: restore data from the sync folder
+      console.log(`[auto-sync] Pulling data from sync folder (trigger: ${trigger})...`);
+
+      // Check if the remote data is encrypted
+      const isEncrypted = fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+
+      restoreDirSync(syncDataDir, DATA_DIR, isEncrypted, [AUTO_SYNC_DATE_FILE, ...excludeDirs]);
+
+      // Reload caches from the restored data
+      loadUsersFromDisk();
+      loadUniversesFromDisk();
+      loadSettingsFromDisk();
+
+      console.log('[auto-sync] Pull complete. Local data updated from sync folder.');
+    } else {
+      // Local → Remote: copy data to the sync folder
+      console.log(`[auto-sync] Pushing data to sync folder (trigger: ${trigger})...`);
+
+      // Ensure sync directory exists
+      if (!fs.existsSync(syncDataDir)) {
+        fs.mkdirSync(syncDataDir, { recursive: true });
+      }
+
+      // Clear existing sync data (except Date file) to avoid stale files
+      if (fs.existsSync(syncDataDir)) {
+        const existingEntries = fs.readdirSync(syncDataDir, { withFileTypes: true });
+        for (const entry of existingEntries) {
+          if (entry.name === AUTO_SYNC_DATE_FILE) continue;
+          const entryPath = path.join(syncDataDir, entry.name);
+          if (entry.isDirectory()) {
+            fs.rmSync(entryPath, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(entryPath);
+          }
+        }
+      }
+
+      copyDirSync(DATA_DIR, syncDataDir, syncConfig.encrypt, excludeDirs);
+
+      // Write the Date file
+      fs.writeFileSync(syncDateFile, localDate, 'utf-8');
+
+      console.log('[auto-sync] Push complete. Sync folder updated.');
+    }
+
+    autoSyncStatus.lastSync = localDate;
+    autoSyncStatus.syncing = false;
+    return { success: true, direction: syncDirection, timestamp: localDate };
+  } catch (err) {
+    console.error('[auto-sync] Sync failed:', err.message);
+    autoSyncStatus.lastError = err.message;
+    autoSyncStatus.syncing = false;
+    return { success: false, error: err.message };
+  }
 }
 
 const ADMIN_USERNAME = 'admin';
@@ -1042,6 +1252,18 @@ function setupGracefulShutdown(server) {
 
     // Persist data first to guarantee nothing is lost
     saveAllData();
+
+    // Auto-sync on shutdown: push local data to sync folder
+    const shutdownSettings = readSettings();
+    if (shutdownSettings.autoSync && shutdownSettings.autoSync.enabled) {
+      console.log('[auto-sync] Running shutdown sync...');
+      const syncResult = performAutoSync('shutdown');
+      if (syncResult.success) {
+        console.log(`[auto-sync] Shutdown sync complete (direction: ${syncResult.direction}).`);
+      } else {
+        console.warn(`[auto-sync] Shutdown sync issue: ${syncResult.error}`);
+      }
+    }
 
     // Terminate the managed Python process
     stopPythonProcess();
@@ -1971,6 +2193,186 @@ app.post('/api/admin/settings/ollama', async (req, res) => {
   } catch (err) {
     console.error('Admin set ollama error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/settings/auto-sync – Configure auto-sync settings (admin only)
+app.post('/api/admin/settings/auto-sync', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, enabled, directory, excludeModels, encrypt } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin auto-sync settings attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'enabled must be a boolean' });
+    }
+
+    if (enabled && (typeof directory !== 'string' || !directory.trim())) {
+      return res.status(400).json({ success: false, error: 'directory is required when enabling auto-sync' });
+    }
+
+    // Validate directory path exists (or can be created) when enabling
+    if (enabled) {
+      const resolvedDir = path.resolve(directory.trim());
+      try {
+        if (!fs.existsSync(resolvedDir)) {
+          fs.mkdirSync(resolvedDir, { recursive: true });
+        }
+        // Verify we can write to the directory
+        const testFile = path.join(resolvedDir, '.localllm_sync_test');
+        fs.writeFileSync(testFile, 'test', 'utf-8');
+        fs.unlinkSync(testFile);
+      } catch (dirErr) {
+        return res.status(400).json({ success: false, error: `Cannot access directory: ${dirErr.message}` });
+      }
+    }
+
+    const settings = readSettings();
+    const autoSync = {
+      enabled,
+      directory: enabled ? directory.trim() : (settings.autoSync?.directory || ''),
+      excludeModels: typeof excludeModels === 'boolean' ? excludeModels : true,
+      encrypt: typeof encrypt === 'boolean' ? encrypt : false,
+    };
+    writeSettings({ ...settings, autoSync });
+
+    // If enabling, create the LocalLLM Data folder immediately
+    if (enabled) {
+      const syncDataDir = path.join(path.resolve(autoSync.directory), AUTO_SYNC_FOLDER_NAME);
+      if (!fs.existsSync(syncDataDir)) {
+        fs.mkdirSync(syncDataDir, { recursive: true });
+        console.log(`[auto-sync] Created sync folder: ${syncDataDir}`);
+      }
+    }
+
+    auditLog({ event: 'ADMIN_SET_AUTO_SYNC', message: `Admin set auto-sync enabled=${enabled} directory=${autoSync.directory}`, username: adminUsername, req });
+    return res.json({ success: true, autoSync });
+  } catch (err) {
+    console.error('Admin set auto-sync error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/admin/auto-sync/status – Get current auto-sync configuration and status (admin only)
+app.post('/api/admin/auto-sync/status', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const settings = readSettings();
+    const syncConfig = settings.autoSync || { enabled: false, directory: '', excludeModels: true, encrypt: false };
+
+    // Check if a sync folder already exists with data
+    let hasExistingData = false;
+    let remoteDate = null;
+    if (syncConfig.directory) {
+      const syncDataDir = path.join(path.resolve(syncConfig.directory), AUTO_SYNC_FOLDER_NAME);
+      const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
+      if (fs.existsSync(syncDataDir) && fs.existsSync(syncDateFile)) {
+        hasExistingData = true;
+        try {
+          remoteDate = fs.readFileSync(syncDateFile, 'utf-8').trim();
+        } catch { /* ignore */ }
+      }
+    }
+
+    return res.json({
+      success: true,
+      autoSync: syncConfig,
+      status: autoSyncStatus,
+      hasExistingData,
+      remoteDate,
+    });
+  } catch (err) {
+    console.error('Auto-sync status error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/auto-sync/trigger – Manually trigger an auto-sync (admin only)
+app.post('/api/admin/auto-sync/trigger', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, direction } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin auto-sync trigger attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    // Allow forcing direction: 'push' (local→remote) or 'pull' (remote→local)
+    // If not specified, performAutoSync decides based on dates
+    const result = performAutoSync(direction === 'pull' ? 'startup' : 'manual');
+
+    auditLog({ event: 'ADMIN_AUTO_SYNC_TRIGGER', message: `Admin triggered auto-sync: ${JSON.stringify(result)}`, username: adminUsername, req });
+    return res.json(result);
+  } catch (err) {
+    console.error('Auto-sync trigger error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/auto-sync/import – Import data from an existing sync folder (admin only)
+app.post('/api/admin/auto-sync/import', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, directory } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin auto-sync import attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (typeof directory !== 'string' || !directory.trim()) {
+      return res.status(400).json({ success: false, error: 'directory is required' });
+    }
+
+    const resolvedDir = path.resolve(directory.trim());
+    const syncDataDir = path.join(resolvedDir, AUTO_SYNC_FOLDER_NAME);
+    const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
+
+    if (!fs.existsSync(syncDataDir)) {
+      return res.status(400).json({ success: false, error: `Sync folder not found at ${syncDataDir}` });
+    }
+    if (!fs.existsSync(syncDateFile)) {
+      return res.status(400).json({ success: false, error: 'No Date file found in sync folder. This may not be a valid LocalLLM sync folder.' });
+    }
+
+    // Detect encryption
+    const isEncrypted = fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+
+    // Determine excludeDirs
+    const settings = readSettings();
+    const excludeModels = settings.autoSync?.excludeModels !== false;
+    const excludeDirs = ['python_env', 'containers'];
+    if (excludeModels) excludeDirs.push('models');
+
+    // Restore data from the sync folder
+    restoreDirSync(syncDataDir, DATA_DIR, isEncrypted, [AUTO_SYNC_DATE_FILE, ...excludeDirs]);
+
+    // Reload caches
+    loadUsersFromDisk();
+    loadUniversesFromDisk();
+    loadSettingsFromDisk();
+
+    // Update auto-sync settings to point to this directory
+    const updatedSettings = readSettings();
+    writeSettings({
+      ...updatedSettings,
+      autoSync: {
+        enabled: true,
+        directory: directory.trim(),
+        excludeModels,
+        encrypt: isEncrypted,
+      },
+    });
+
+    const remoteDate = fs.readFileSync(syncDateFile, 'utf-8').trim();
+    auditLog({ event: 'ADMIN_AUTO_SYNC_IMPORT', message: `Admin imported sync data from ${directory}`, username: adminUsername, req });
+    return res.json({ success: true, importedDate: remoteDate });
+  } catch (err) {
+    console.error('Auto-sync import error:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
   }
 });
 
@@ -6959,9 +7361,21 @@ if (require.main === module) {
     server.listen(PORT, () => {
       console.log(`Server running on HTTPS port ${PORT}`);
       startPythonProcess();
+
+      // Auto-sync on startup: pull remote data if newer
+      const startupSettings = readSettings();
+      if (startupSettings.autoSync && startupSettings.autoSync.enabled) {
+        console.log('[auto-sync] Running startup sync...');
+        const result = performAutoSync('startup');
+        if (result.success) {
+          console.log(`[auto-sync] Startup sync complete (direction: ${result.direction}).`);
+        } else {
+          console.warn(`[auto-sync] Startup sync issue: ${result.error}`);
+        }
+      }
     });
     setupGracefulShutdown(server);
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus };

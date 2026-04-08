@@ -577,6 +577,128 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
             </div>
           }
 
+          @if (isUnlocked()) {
+            <!-- Auto-Sync Settings -->
+            <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
+              <div class="space-y-1">
+                <h2 class="text-xl font-semibold text-secondary-900">Auto-Sync</h2>
+                <p class="text-sm text-muted">
+                  Automatically sync your data to an external directory (e.g. OneDrive, Google Drive, Dropbox) when the server starts and stops.
+                  This allows you to share data between multiple computers.
+                </p>
+              </div>
+
+              <div class="flex items-center justify-between gap-4 p-4 rounded-lg border border-secondary-200 bg-secondary-50">
+                <div class="space-y-1">
+                  <div class="font-medium text-secondary-900 flex items-center gap-2">
+                    <span>🔄</span>
+                    Enable Auto-Sync
+                  </div>
+                  <p class="text-sm text-muted">
+                    When enabled, data will be synced to the specified directory on server start/stop.
+                  </p>
+                </div>
+                <button
+                  (click)="onToggleAutoSync()"
+                  [disabled]="isTogglingAutoSync() || (!autoSyncEnabled() && !autoSyncDirectory.trim())"
+                  [class]="autoSyncEnabled()
+                    ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
+                    : 'px-4 py-2 rounded-lg bg-green-100 border border-green-200 text-green-700 hover:bg-green-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'"
+                >
+                  {{ isTogglingAutoSync() ? 'Updating...' : (autoSyncEnabled() ? 'Disable' : 'Enable') }}
+                </button>
+              </div>
+
+              <div class="space-y-3">
+                <div>
+                  <label for="autoSyncDir" class="block text-sm font-medium text-secondary-800 mb-1">Sync directory</label>
+                  <input
+                    id="autoSyncDir"
+                    type="text"
+                    [(ngModel)]="autoSyncDirectory"
+                    placeholder="e.g. C:\\Users\\YourName\\OneDrive\\LocalLLM"
+                    class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                  />
+                  <p class="text-xs text-muted mt-1">
+                    A folder named "LocalLLM Data" will be created inside this directory containing your data.
+                  </p>
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" [(ngModel)]="autoSyncExcludeModels" class="w-4 h-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500" />
+                    <span class="text-sm text-secondary-800">Exclude models (recommended — models are usually too large for cloud storage)</span>
+                  </label>
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" [(ngModel)]="autoSyncEncrypt" class="w-4 h-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500" />
+                    <span class="text-sm text-secondary-800">Encrypt data before saving (for privacy)</span>
+                  </label>
+                </div>
+              </div>
+
+              @if (autoSyncEnabled()) {
+                <div class="space-y-3 border-t border-secondary-200 pt-4">
+                  <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div class="space-y-1">
+                      <div class="font-medium text-secondary-900 text-sm">Sync status</div>
+                      @if (autoSyncLastSync()) {
+                        <p class="text-xs text-muted">Last sync: {{ autoSyncLastSync() | date: 'medium' }}</p>
+                      } @else {
+                        <p class="text-xs text-muted">No sync performed yet.</p>
+                      }
+                      @if (autoSyncLastError()) {
+                        <p class="text-xs text-red-600">Last error: {{ autoSyncLastError() }}</p>
+                      }
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button
+                        (click)="onTriggerSync('push')"
+                        [disabled]="isSyncing()"
+                        class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm"
+                      >
+                        {{ isSyncing() ? 'Syncing...' : 'Push to remote' }}
+                      </button>
+                      <button
+                        (click)="onTriggerSync('pull')"
+                        [disabled]="isSyncing()"
+                        class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm"
+                      >
+                        {{ isSyncing() ? 'Syncing...' : 'Pull from remote' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              <div class="border-t border-secondary-200 pt-4 space-y-3">
+                <div class="space-y-1">
+                  <div class="font-medium text-secondary-900 text-sm">Import from existing sync folder</div>
+                  <p class="text-xs text-muted">
+                    If you have an existing "LocalLLM Data" folder from another device, enter the parent directory path to import it.
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    [(ngModel)]="importSyncDirectory"
+                    placeholder="e.g. C:\\Users\\YourName\\OneDrive\\LocalLLM"
+                    class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                  />
+                  <button
+                    (click)="onImportSync()"
+                    [disabled]="!importSyncDirectory.trim() || isImportingSync()"
+                    class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
+                  >
+                    {{ isImportingSync() ? 'Importing...' : 'Import' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+
           <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
             <h3 class="text-lg font-semibold text-secondary-900">Security checklist</h3>
             <ul class="space-y-3 text-sm text-secondary-800">
@@ -639,6 +761,18 @@ export class AdminPageComponent implements OnDestroy {
   isTogglingKobold = signal(false);
   ollamaEnabled = signal<boolean>(false);
   isTogglingOllama = signal(false);
+
+  // Auto-Sync state
+  autoSyncEnabled = signal<boolean>(false);
+  isTogglingAutoSync = signal(false);
+  autoSyncDirectory = '';
+  autoSyncExcludeModels = true;
+  autoSyncEncrypt = false;
+  autoSyncLastSync = signal<string | null>(null);
+  autoSyncLastError = signal<string | null>(null);
+  isSyncing = signal(false);
+  importSyncDirectory = '';
+  isImportingSync = signal(false);
 
   // LLM Models state
   modelMenuOpen = signal(false);
@@ -906,6 +1040,7 @@ export class AdminPageComponent implements OnDestroy {
         this.ollamaEnabled.set(response.ollamaEnabled);
       }
     }
+    await this.loadAutoSyncStatus();
   }
 
   async onToggleRiskyApps(): Promise<void> {
@@ -962,6 +1097,89 @@ export class AdminPageComponent implements OnDestroy {
       this.statusMessage.set(`Ollama ${newValue ? 'enabled' : 'disabled'}.`);
     } finally {
       this.isTogglingOllama.set(false);
+    }
+  }
+
+  // --- Auto-Sync ---
+
+  private async loadAutoSyncStatus(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    const response = await this.adminService.getAutoSyncStatus(this.adminPasswordHash);
+    if (response.success && response.autoSync) {
+      this.autoSyncEnabled.set(response.autoSync.enabled);
+      this.autoSyncDirectory = response.autoSync.directory || '';
+      this.autoSyncExcludeModels = response.autoSync.excludeModels !== false;
+      this.autoSyncEncrypt = response.autoSync.encrypt === true;
+      if (response.status) {
+        this.autoSyncLastSync.set(response.status.lastSync);
+        this.autoSyncLastError.set(response.status.lastError);
+      }
+    }
+  }
+
+  async onToggleAutoSync(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isTogglingAutoSync.set(true);
+    try {
+      const newEnabled = !this.autoSyncEnabled();
+      const response = await this.adminService.setAutoSync({
+        enabled: newEnabled,
+        directory: this.autoSyncDirectory.trim(),
+        excludeModels: this.autoSyncExcludeModels,
+        encrypt: this.autoSyncEncrypt,
+      }, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to update auto-sync settings.');
+        return;
+      }
+      this.autoSyncEnabled.set(newEnabled);
+      this.statusMessage.set(`Auto-sync ${newEnabled ? 'enabled' : 'disabled'}.`);
+    } finally {
+      this.isTogglingAutoSync.set(false);
+    }
+  }
+
+  async onTriggerSync(direction: string): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isSyncing.set(true);
+    try {
+      const response = await this.adminService.triggerAutoSync(direction, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Sync failed.');
+        return;
+      }
+      this.autoSyncLastSync.set(response.timestamp ?? null);
+      this.autoSyncLastError.set(null);
+      this.statusMessage.set(`Sync complete (${response.direction ?? direction}).`);
+    } finally {
+      this.isSyncing.set(false);
+    }
+  }
+
+  async onImportSync(): Promise<void> {
+    if (!this.adminPasswordHash || !this.importSyncDirectory.trim()) return;
+    const confirmed = window.confirm('Import data from the sync folder? This will overwrite local data with the synced data.');
+    if (!confirmed) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isImportingSync.set(true);
+    try {
+      const response = await this.adminService.importAutoSync(this.importSyncDirectory.trim(), this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Import failed.');
+        return;
+      }
+      this.statusMessage.set(`Data imported successfully (synced: ${response.importedDate}).`);
+      this.autoSyncDirectory = this.importSyncDirectory.trim();
+      this.autoSyncEnabled.set(true);
+      this.importSyncDirectory = '';
+      await this.loadAutoSyncStatus();
+    } finally {
+      this.isImportingSync.set(false);
     }
   }
 
