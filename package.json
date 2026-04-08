@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve\"",
-    "start:lan": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve --configuration lan\"",
+    "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve --configuration lan\"",
+    "start:no-lan": "concurrently --names server,angular --prefix-colors blue,green \"HOST=127.0.0.1 npm run server\" \"ng serve\"",
     "server": "node server/server.js",
     "build": "ng build",
     "preview": "ng build --configuration preview && npx serve -s dist/local-llm/browser",
