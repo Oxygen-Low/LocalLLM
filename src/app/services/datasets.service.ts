@@ -12,6 +12,7 @@ export interface DatasetRow {
 export interface GenerateDatasetResponse {
   success: boolean;
   rows: DatasetRow[];
+  totalTokens?: number;
   error?: string;
 }
 
@@ -32,12 +33,12 @@ export class DatasetsService {
     instructions: string,
     provider: string,
     model: string,
-    numRows: number
+    numTokens: number
   ): Promise<GenerateDatasetResponse> {
     const res = await firstValueFrom(
       this.http.post<GenerateDatasetResponse>(
         `${environment.apiUrl}/api/datasets/generate`,
-        { instructions, provider, model, numRows }
+        { instructions, provider, model, numTokens }
       )
     );
     return res;

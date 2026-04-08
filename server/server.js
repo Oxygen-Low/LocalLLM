@@ -697,7 +697,8 @@ function writeUniverses(universes) {
 // ---------------------------------------------------------------------------
 let settingsCache = null;
 
-const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false } };
+const DEFAULT_MAX_DATASET_TOKENS_GB = 40;
+const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false }, maxDatasetTokensGB: DEFAULT_MAX_DATASET_TOKENS_GB };
 
 function loadSettingsFromDisk() {
   try {
@@ -2147,6 +2148,7 @@ app.get('/api/settings/apps', requireSession, (req, res) => {
       riskyAppsEnabled: settings.riskyAppsEnabled,
       koboldEnabled: settings.koboldEnabled,
       ollamaEnabled: settings.ollamaEnabled,
+      maxDatasetTokensGB: settings.maxDatasetTokensGB,
     });
   } catch (err) {
     console.error('Get app settings error:', err);
@@ -2222,6 +2224,31 @@ app.post('/api/admin/settings/ollama', async (req, res) => {
     return res.json({ success: true, ollamaEnabled: enabled });
   } catch (err) {
     console.error('Admin set ollama error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/settings/dataset-token-limit – Set max dataset token limit in GB (admin only)
+app.post('/api/admin/settings/dataset-token-limit', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, maxDatasetTokensGB } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin dataset token limit attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const limit = Number(maxDatasetTokensGB);
+    if (!Number.isFinite(limit) || limit < 1 || limit > 1000) {
+      return res.status(400).json({ success: false, error: 'maxDatasetTokensGB must be a number between 1 and 1000' });
+    }
+
+    const settings = readSettings();
+    writeSettings({ ...settings, maxDatasetTokensGB: limit });
+
+    auditLog({ event: 'ADMIN_SET_DATASET_TOKEN_LIMIT', message: `Admin set maxDatasetTokensGB to ${limit}`, username: adminUsername, req });
+    return res.json({ success: true, maxDatasetTokensGB: limit });
+  } catch (err) {
+    console.error('Admin set dataset token limit error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -4251,13 +4278,29 @@ app.delete('/api/coding-agent/memories/:id', requireSession, (req, res) => {
 // Datasets App – Generate AI training datasets using LLM
 // ---------------------------------------------------------------------------
 
-const MAX_DATASET_ROWS = 100;
 const MAX_DATASET_INSTRUCTIONS_LENGTH = 5000;
+const BYTES_PER_TOKEN = 4; // standard approximation: 1 token ≈ 4 bytes
+const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
+const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
+const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
+const LLM_MAX_RESPONSE_TOKENS = 4096; // max tokens for LLM completion
 
-// POST /api/datasets/generate – Generate dataset rows using an LLM
+// Helper to estimate token count from text
+function estimateTokenCount(text) {
+  return Math.ceil(Buffer.byteLength(text, 'utf-8') / BYTES_PER_TOKEN);
+}
+
+// Helper to get max dataset tokens from settings
+function getMaxDatasetTokens() {
+  const settings = readSettings();
+  const gb = settings.maxDatasetTokensGB || DEFAULT_MAX_DATASET_TOKENS_GB;
+  return gb * 1024 * 1024 * 1024 / BYTES_PER_TOKEN;
+}
+
+// POST /api/datasets/generate – Generate dataset rows using an LLM (token-based)
 app.post('/api/datasets/generate', requireSession, async (req, res) => {
   try {
-    const { instructions, provider, model, numRows } = req.body;
+    const { instructions, provider, model, numTokens } = req.body;
 
     if (!instructions || typeof instructions !== 'string' || instructions.trim().length === 0) {
       return res.status(400).json({ success: false, error: 'Instructions are required' });
@@ -4274,14 +4317,16 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ success: false, error: 'Model is required' });
     }
-    const rowCount =
-      typeof numRows === 'number'
-        ? numRows
-        : typeof numRows === 'string' && numRows.trim().length > 0
-          ? Number(numRows.trim())
+    const tokenCount =
+      typeof numTokens === 'number'
+        ? numTokens
+        : typeof numTokens === 'string' && numTokens.trim().length > 0
+          ? Number(numTokens.trim())
           : NaN;
-    if (!Number.isInteger(rowCount) || rowCount < 1 || rowCount > MAX_DATASET_ROWS) {
-      return res.status(400).json({ success: false, error: `Number of rows must be between 1 and ${MAX_DATASET_ROWS}` });
+    const maxTokens = getMaxDatasetTokens();
+    if (!Number.isInteger(tokenCount) || tokenCount < 1 || tokenCount > maxTokens) {
+      const settings = readSettings();
+      return res.status(400).json({ success: false, error: `Number of tokens must be between 1 and ${maxTokens} (${settings.maxDatasetTokensGB} GB)` });
     }
 
     // Validate local providers
@@ -4308,7 +4353,10 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
       }
     }
 
-    const prompt = `You are a dataset generator. Based on the following instructions, generate exactly ${rowCount} training data rows.
+    // Estimate number of rows from token count
+    const estimatedRows = Math.max(1, Math.min(Math.ceil(tokenCount / TOKENS_PER_ROW_ESTIMATE), MAX_ESTIMATED_ROWS));
+
+    const prompt = `You are a dataset generator. Based on the following instructions, generate training data rows. Target approximately ${tokenCount} tokens of total output (roughly ${estimatedRows} rows).
 
 Instructions: ${instructions.trim()}
 
@@ -4323,10 +4371,11 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
   {"instruction": "...", "input": "...", "output": "..."}
 ]`;
 
+    const llmMaxTokens = Math.min(tokenCount + LLM_TOKEN_BUFFER, LLM_MAX_RESPONSE_TOKENS);
     const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
       provider,
       model,
-      max_tokens: 4096,
+      max_tokens: llmMaxTokens,
       temperature: 0.8,
     });
 
@@ -4343,12 +4392,8 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       return res.status(500).json({ success: false, error: 'LLM did not return a valid array. Please try again.' });
     }
 
-    if (rows.length < rowCount) {
-      return res.status(502).json({ success: false, error: `LLM returned only ${rows.length} rows out of ${rowCount} requested. Please try again.` });
-    }
-
     // Validate and sanitize rows
-    const sanitizedRows = rows.slice(0, rowCount).map(r => ({
+    const sanitizedRows = rows.map(r => ({
       instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
       input: typeof r.input === 'string' ? r.input.trim() : '',
       output: typeof r.output === 'string' ? r.output.trim() : '',
@@ -4359,8 +4404,13 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       return res.status(502).json({ success: false, error: 'LLM returned rows with empty required fields. Please try again.' });
     }
 
-    auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows`, username: req.sessionUser, req });
-    res.json({ success: true, rows: sanitizedRows });
+    // Calculate total tokens generated
+    const totalTokens = sanitizedRows.reduce((sum, r) => {
+      return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
+    }, 0);
+
+    auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows (~${totalTokens} tokens)`, username: req.sessionUser, req });
+    res.json({ success: true, rows: sanitizedRows, totalTokens });
   } catch (err) {
     console.error('Dataset generate error:', err);
     const message = err.message || 'Internal server error';
@@ -4379,8 +4429,18 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ success: false, error: 'Dataset rows are required' });
     }
-    if (rows.length > MAX_DATASET_ROWS) {
-      return res.status(400).json({ success: false, error: `Maximum ${MAX_DATASET_ROWS} rows allowed` });
+
+    // Enforce token-based limit instead of row count
+    const totalTokens = rows.reduce((sum, r) => {
+      const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
+      const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
+      const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
+      return sum + instrTokens + inputTokens + outputTokens;
+    }, 0);
+    const maxTokens = getMaxDatasetTokens();
+    if (totalTokens > maxTokens) {
+      const settings = readSettings();
+      return res.status(400).json({ success: false, error: `Dataset exceeds the maximum token limit of ${maxTokens} tokens (${settings.maxDatasetTokensGB} GB)` });
     }
     if (!isGitAvailable()) {
       return res.status(503).json({ success: false, error: 'Git is not available on this server' });
@@ -4431,7 +4491,7 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
     try {
       execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
       fs.writeFileSync(path.join(tmpDir, 'dataset.jsonl'), jsonlContent + '\n');
-      fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description || 'AI-generated dataset'}\n\nThis is a Dataset repository containing ${rows.length} training data rows.\n`);
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description || 'AI-generated dataset'}\n\nThis is a Dataset repository containing ${rows.length} training data rows (~${totalTokens} tokens).\n`);
       execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
       execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
       execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
@@ -4452,7 +4512,7 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
     writeUserRepos(req.sessionUser, repos);
     registerRepoInMemory(req.sessionUser, repoId);
 
-    auditLog({ event: 'DATASET_REPO_CREATED', message: `Dataset repository "${name}" created with ${rows.length} rows`, username: req.sessionUser, req });
+    auditLog({ event: 'DATASET_REPO_CREATED', message: `Dataset repository "${name}" created with ${rows.length} rows (~${totalTokens} tokens)`, username: req.sessionUser, req });
     res.json({ success: true, repoId, repoName: name });
   } catch (err) {
     console.error('Dataset save error:', err);
@@ -7533,4 +7593,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB };

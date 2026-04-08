@@ -49,8 +49,8 @@ export class MockAdminService {
   }
   async deleteCharacter(): Promise<{ success: boolean }> { return { success: true }; }
 
-  async getRiskyAppsEnabled(): Promise<{ success: boolean; riskyAppsEnabled: boolean; koboldEnabled: boolean; ollamaEnabled: boolean }> {
-    return { success: true, riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false };
+  async getRiskyAppsEnabled(): Promise<{ success: boolean; riskyAppsEnabled: boolean; koboldEnabled: boolean; ollamaEnabled: boolean; maxDatasetTokensGB: number }> {
+    return { success: true, riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, maxDatasetTokensGB: 40 };
   }
   async setRiskyAppsEnabled(enabled: boolean): Promise<{ success: boolean; riskyAppsEnabled: boolean }> {
     return { success: true, riskyAppsEnabled: enabled };
@@ -60,5 +60,8 @@ export class MockAdminService {
   }
   async setOllamaEnabled(enabled: boolean): Promise<{ success: boolean; ollamaEnabled: boolean }> {
     return { success: true, ollamaEnabled: enabled };
+  }
+  async setDatasetTokenLimit(maxDatasetTokensGB: number): Promise<{ success: boolean; maxDatasetTokensGB: number }> {
+    return { success: true, maxDatasetTokensGB };
   }
 }

@@ -574,6 +574,36 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
                   {{ isTogglingOllama() ? 'Updating...' : (ollamaEnabled() ? 'Disable' : 'Enable') }}
                 </button>
               </div>
+
+              <div class="flex items-center justify-between gap-4 p-4 rounded-lg border border-secondary-200 bg-secondary-50">
+                <div class="space-y-1">
+                  <div class="font-medium text-secondary-900 flex items-center gap-2">
+                    <span>📊</span>
+                    Dataset Token Limit
+                  </div>
+                  <p class="text-sm text-muted">
+                    Maximum number of tokens (in GB) allowed per generated dataset. Default is 40 GB.
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input
+                    type="number"
+                    [(ngModel)]="datasetTokenLimitGB"
+                    min="1"
+                    max="1000"
+                    step="1"
+                    class="w-24 px-3 py-2 rounded-lg border border-secondary-200 text-sm text-right"
+                  />
+                  <span class="text-sm text-muted whitespace-nowrap">GB</span>
+                  <button
+                    (click)="onSaveDatasetTokenLimit()"
+                    [disabled]="isSavingDatasetTokenLimit()"
+                    class="px-4 py-2 rounded-lg bg-primary-100 border border-primary-200 text-primary-700 hover:bg-primary-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {{ isSavingDatasetTokenLimit() ? 'Saving...' : 'Save' }}
+                  </button>
+                </div>
+              </div>
             </div>
           }
 
@@ -761,6 +791,8 @@ export class AdminPageComponent implements OnDestroy {
   isTogglingKobold = signal(false);
   ollamaEnabled = signal<boolean>(false);
   isTogglingOllama = signal(false);
+  datasetTokenLimitGB = 40;
+  isSavingDatasetTokenLimit = signal(false);
 
   // Auto-Sync state
   autoSyncEnabled = signal<boolean>(false);
@@ -1039,6 +1071,9 @@ export class AdminPageComponent implements OnDestroy {
       if (typeof response.ollamaEnabled === 'boolean') {
         this.ollamaEnabled.set(response.ollamaEnabled);
       }
+      if (typeof response.maxDatasetTokensGB === 'number') {
+        this.datasetTokenLimitGB = response.maxDatasetTokensGB;
+      }
     }
     await this.loadAutoSyncStatus();
   }
@@ -1097,6 +1132,29 @@ export class AdminPageComponent implements OnDestroy {
       this.statusMessage.set(`Ollama ${newValue ? 'enabled' : 'disabled'}.`);
     } finally {
       this.isTogglingOllama.set(false);
+    }
+  }
+
+  async onSaveDatasetTokenLimit(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isSavingDatasetTokenLimit.set(true);
+    try {
+      const limit = this.datasetTokenLimitGB;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        this.errorMessage.set('Dataset token limit must be a whole number between 1 and 1000 GB.');
+        return;
+      }
+      const response = await this.adminService.setDatasetTokenLimit(limit, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to update dataset token limit.');
+        return;
+      }
+      this.datasetTokenLimitGB = limit;
+      this.statusMessage.set(`Dataset token limit set to ${limit} GB.`);
+    } finally {
+      this.isSavingDatasetTokenLimit.set(false);
     }
   }
 
