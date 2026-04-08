@@ -178,16 +178,19 @@ def _get_model(model_dir):
     return pair
 
 
-def _download_model(repo_id, target_dir):
+def _download_model(repo_id, target_dir, hf_token=None):
     """Download a HuggingFace model into *target_dir*."""
     from huggingface_hub import snapshot_download  # noqa: E402
 
     try:
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=target_dir,
-            local_dir_use_symlinks=False,
-        )
+        kwargs = {
+            "repo_id": repo_id,
+            "local_dir": target_dir,
+            "local_dir_use_symlinks": False,
+        }
+        if hf_token:
+            kwargs["token"] = hf_token
+        snapshot_download(**kwargs)
     except Exception as exc:
         error_msg = str(exc)
         if "404" in error_msg or "not found" in error_msg.lower():
@@ -220,7 +223,7 @@ def _dir_total_size(directory):
     return total
 
 
-def _download_worker(download_id, repo_id, target_dir):
+def _download_worker(download_id, repo_id, target_dir, hf_token=None):
     """Background thread that downloads a model and tracks progress."""
     try:
         with _downloads_lock:
@@ -236,7 +239,10 @@ def _download_worker(download_id, repo_id, target_dir):
         total_files = 0
         try:
             from huggingface_hub import list_repo_tree  # noqa: E402
-            total_files = sum(1 for entry in list_repo_tree(repo_id, recursive=True)
+            kwargs = {"repo_id": repo_id, "recursive": True}
+            if hf_token:
+                kwargs["token"] = hf_token
+            total_files = sum(1 for entry in list_repo_tree(**kwargs)
                              if hasattr(entry, 'size'))
         except Exception:
             pass  # If we can't get file count, progress will be indeterminate
@@ -262,7 +268,7 @@ def _download_worker(download_id, repo_id, target_dir):
 
         # Perform the actual download
         os.makedirs(target_dir, exist_ok=True)
-        _download_model(repo_id, target_dir)
+        _download_model(repo_id, target_dir, hf_token=hf_token)
 
         progress_stop.set()
         monitor.join(timeout=5)
@@ -323,6 +329,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_chat()
         elif self.path == "/download":
             self._handle_download()
+        elif self.path == "/download-dataset":
+            self._handle_download_dataset()
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -350,12 +358,16 @@ class _Handler(BaseHTTPRequestHandler):
 
         repo_id = data.get("repo_id", "")
         target_dir = data.get("target_dir", "")
+        hf_token = data.get("hf_token", None)
 
         if not repo_id or not isinstance(repo_id, str):
             self._send_json(400, {"error": "repo_id is required"})
             return
         if not target_dir or not isinstance(target_dir, str):
             self._send_json(400, {"error": "target_dir is required"})
+            return
+        if hf_token is not None and not isinstance(hf_token, str):
+            self._send_json(400, {"error": "hf_token must be a string"})
             return
 
         resolved_target = _validate_path_within_models_dir(target_dir)
@@ -370,6 +382,7 @@ class _Handler(BaseHTTPRequestHandler):
         thread = threading.Thread(
             target=_download_worker,
             args=(download_id, repo_id, resolved_target),
+            kwargs={"hf_token": hf_token if hf_token else None},
             daemon=True,
         )
         thread.start()
@@ -395,6 +408,117 @@ class _Handler(BaseHTTPRequestHandler):
             result = dict(dl)
 
         self._send_json(200, result)
+
+    # --------------------------------------------------------------------- #
+    # POST /download-dataset  (synchronous – returns rows)
+    # --------------------------------------------------------------------- #
+    def _handle_download_dataset(self):
+        data, err = self._read_json_body()
+        if err:
+            return
+
+        dataset_id = data.get("dataset_id", "")
+        split = data.get("split", "train")
+        max_rows = data.get("max_rows", 1000)
+        hf_token = data.get("hf_token", None)
+
+        if not dataset_id or not isinstance(dataset_id, str):
+            self._send_json(400, {"error": "dataset_id is required"})
+            return
+        if not isinstance(split, str) or not split.strip():
+            self._send_json(400, {"error": "split must be a non-empty string"})
+            return
+        if not isinstance(max_rows, int) or max_rows < 1:
+            self._send_json(400, {"error": "max_rows must be a positive integer"})
+            return
+        if hf_token is not None and not isinstance(hf_token, str):
+            self._send_json(400, {"error": "hf_token must be a string"})
+            return
+
+        try:
+            from datasets import load_dataset  # noqa: E402
+
+            kwargs = {
+                "path": dataset_id,
+                "split": split.strip(),
+                "trust_remote_code": False,
+            }
+            if hf_token:
+                kwargs["token"] = hf_token
+
+            ds = load_dataset(**kwargs)
+
+            # Limit the number of rows
+            if len(ds) > max_rows:
+                ds = ds.select(range(max_rows))
+
+            # Convert to instruction/input/output format
+            # Try to detect common column patterns
+            columns = ds.column_names
+            rows = []
+
+            # Common dataset formats
+            has_instruction = "instruction" in columns
+            has_input = "input" in columns
+            has_output = "output" in columns
+            has_text = "text" in columns
+            has_question = "question" in columns
+            has_answer = "answer" in columns
+            has_context = "context" in columns
+            has_prompt = "prompt" in columns
+            has_response = "response" in columns
+            has_completion = "completion" in columns
+            has_chosen = "chosen" in columns
+
+            for item in ds:
+                row = {"instruction": "", "input": "", "output": ""}
+
+                if has_instruction and has_output:
+                    # Standard Alpaca-style format
+                    row["instruction"] = str(item.get("instruction", ""))
+                    row["input"] = str(item.get("input", "")) if has_input else ""
+                    row["output"] = str(item.get("output", ""))
+                elif has_prompt and (has_response or has_completion or has_chosen):
+                    # Prompt/response format
+                    row["instruction"] = str(item.get("prompt", ""))
+                    out_key = "response" if has_response else ("completion" if has_completion else "chosen")
+                    row["output"] = str(item.get(out_key, ""))
+                elif has_question and has_answer:
+                    # Q&A format
+                    row["instruction"] = str(item.get("question", ""))
+                    row["input"] = str(item.get("context", "")) if has_context else ""
+                    answer = item.get("answer", "")
+                    if isinstance(answer, dict):
+                        row["output"] = str(answer.get("text", str(answer)))
+                    elif isinstance(answer, list):
+                        row["output"] = str(answer[0]) if answer else ""
+                    else:
+                        row["output"] = str(answer)
+                elif has_text:
+                    # Single text column
+                    row["instruction"] = str(item.get("text", ""))
+                    row["output"] = str(item.get("text", ""))
+                else:
+                    # Generic: use first two columns as instruction/output
+                    vals = [str(item.get(c, "")) for c in columns[:3]]
+                    row["instruction"] = vals[0] if vals else ""
+                    row["output"] = vals[1] if len(vals) > 1 else vals[0] if vals else ""
+                    row["input"] = vals[2] if len(vals) > 2 else ""
+
+                # Skip rows where both instruction and output are empty
+                if row["instruction"].strip() or row["output"].strip():
+                    rows.append(row)
+
+            self._send_json(200, {"rows": rows, "columns": columns, "total_available": len(ds)})
+
+        except Exception as exc:
+            error_msg = str(exc)
+            if "404" in error_msg or "not found" in error_msg.lower() or "doesn't exist" in error_msg.lower():
+                self._send_json(404, {"error": f"Dataset '{dataset_id}' not found on HuggingFace Hub"})
+            elif "401" in error_msg or "403" in error_msg:
+                self._send_json(403, {"error": f"Access denied for dataset '{dataset_id}'. It may be private or gated. Try adding a HuggingFace token."})
+            else:
+                self._send_json(500, {"error": f"Failed to load dataset: {error_msg}"})
 
     # --------------------------------------------------------------------- #
     # POST /chat

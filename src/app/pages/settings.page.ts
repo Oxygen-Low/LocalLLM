@@ -262,6 +262,96 @@ interface ProviderConfig {
             </div>
           </div>
 
+          <!-- HuggingFace Integration -->
+          <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
+            <h2 class="text-xl font-semibold text-secondary-900 mb-2">HuggingFace Integration</h2>
+            <p class="text-sm text-muted mb-6">Connect your HuggingFace account for faster dataset downloads and lower rate limits. Optional — public datasets and models can be accessed without a token.</p>
+
+            @if (hfSuccessMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                {{ hfSuccessMessage() }}
+              </div>
+            }
+            @if (hfErrorMessage()) {
+              <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {{ hfErrorMessage() }}
+              </div>
+            }
+
+            <div class="border border-secondary-100 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full" [ngClass]="hfConfigured() ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                  <h3 class="font-medium text-secondary-900">HuggingFace Access Token</h3>
+                </div>
+                @if (hfConfigured()) {
+                  <button
+                    (click)="removeHuggingFaceToken()"
+                    class="text-xs text-red-500 hover:text-red-700 transition-colors"
+                  >
+                    Remove Token
+                  </button>
+                }
+              </div>
+
+              @if (editingHuggingFace()) {
+                <div class="space-y-3">
+                  <div>
+                    <label for="hf-token" class="block text-xs font-medium text-secondary-600 mb-1">Access Token</label>
+                    <input
+                      id="hf-token"
+                      type="password"
+                      [(ngModel)]="hfToken"
+                      name="hfToken"
+                      placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
+                      autocomplete="off"
+                    />
+                    <p class="mt-1.5 text-xs text-muted">
+                      Create a token at
+                      <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline">huggingface.co/settings/tokens</a>
+                      with <strong>read</strong> access.
+                    </p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button
+                      (click)="saveHuggingFaceToken()"
+                      [disabled]="isSavingHuggingFace()"
+                      class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                    >
+                      {{ isSavingHuggingFace() ? 'Validating...' : 'Save Token' }}
+                    </button>
+                    <button
+                      (click)="cancelEditHuggingFace()"
+                      class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              } @else {
+                <div class="flex items-center justify-between">
+                  <div class="text-sm text-muted">
+                    @if (hfConfigured()) {
+                      <span class="text-green-600">✓ Connected</span>
+                      @if (hfUsername()) {
+                        <span class="text-secondary-400 ml-2">· {{ hfUsername() }}</span>
+                      }
+                    } @else {
+                      Not configured
+                    }
+                  </div>
+                  <button
+                    (click)="startEditHuggingFace()"
+                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                  >
+                    {{ hfConfigured() ? 'Update' : 'Configure' }}
+                  </button>
+                </div>
+              }
+            </div>
+          </div>
+
           <!-- GitHub Integration -->
           <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
             <h2 class="text-xl font-semibold text-secondary-900 mb-2">GitHub Integration</h2>
@@ -602,6 +692,15 @@ export class SettingsPageComponent implements OnInit {
   githubSuccessMessage = signal<string | null>(null);
   githubErrorMessage = signal<string | null>(null);
 
+  // HuggingFace Integration fields
+  hfConfigured = signal(false);
+  hfUsername = signal<string | null>(null);
+  editingHuggingFace = signal(false);
+  hfToken = '';
+  isSavingHuggingFace = signal(false);
+  hfSuccessMessage = signal<string | null>(null);
+  hfErrorMessage = signal<string | null>(null);
+
   private llmService = inject(LlmService);
   private codingAgentService = inject(CodingAgentService);
 
@@ -614,6 +713,7 @@ export class SettingsPageComponent implements OnInit {
     await Promise.all([
       this.loadApiKeyStatus(),
       this.loadGitHubStatus(),
+      this.loadHuggingFaceStatus(),
       this.loadPersonaData()
     ]);
   }
@@ -823,6 +923,63 @@ export class SettingsPageComponent implements OnInit {
       await this.loadGitHubStatus();
     } catch {
       this.githubErrorMessage.set('Failed to remove GitHub token');
+    }
+  }
+
+  // --- HuggingFace Integration methods ---
+
+  async loadHuggingFaceStatus(): Promise<void> {
+    try {
+      const status = await this.llmService.getHuggingFaceStatus();
+      this.hfConfigured.set(status.configured);
+      this.hfUsername.set(status.username);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  startEditHuggingFace(): void {
+    this.editingHuggingFace.set(true);
+    this.hfToken = '';
+    this.hfSuccessMessage.set(null);
+    this.hfErrorMessage.set(null);
+  }
+
+  cancelEditHuggingFace(): void {
+    this.editingHuggingFace.set(false);
+    this.hfToken = '';
+  }
+
+  async saveHuggingFaceToken(): Promise<void> {
+    if (!this.hfToken.trim()) {
+      this.hfErrorMessage.set('Please enter a HuggingFace token');
+      return;
+    }
+
+    this.isSavingHuggingFace.set(true);
+    this.hfErrorMessage.set(null);
+
+    try {
+      const result = await this.llmService.setHuggingFaceToken(this.hfToken.trim());
+      this.hfSuccessMessage.set(result.username ? `HuggingFace connected as ${result.username}` : 'HuggingFace token saved');
+      this.editingHuggingFace.set(false);
+      this.hfToken = '';
+      await this.loadHuggingFaceStatus();
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.hfErrorMessage.set(httpErr?.error?.error || 'Failed to save HuggingFace token');
+    } finally {
+      this.isSavingHuggingFace.set(false);
+    }
+  }
+
+  async removeHuggingFaceToken(): Promise<void> {
+    try {
+      await this.llmService.removeHuggingFaceToken();
+      this.hfSuccessMessage.set('HuggingFace token removed');
+      await this.loadHuggingFaceStatus();
+    } catch {
+      this.hfErrorMessage.set('Failed to remove HuggingFace token');
     }
   }
 

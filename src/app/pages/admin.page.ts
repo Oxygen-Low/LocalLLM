@@ -1,9 +1,10 @@
-import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef, OnDestroy } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from '../services/admin.service';
+import { LlmService } from '../services/llm.service';
 
 @Component({
   selector: 'app-admin',
@@ -374,6 +375,81 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
 
                 @if (modelMenuOpen()) {
                   <div class="space-y-4">
+                    <!-- HuggingFace Credential -->
+                    <div class="space-y-3 p-4 border border-secondary-100 rounded-lg bg-secondary-50">
+                      <div class="flex items-center justify-between">
+                        <h4 class="text-sm font-semibold text-secondary-900">HuggingFace Credential</h4>
+                        <span class="w-2 h-2 rounded-full" [ngClass]="adminHfConfigured() ? 'bg-green-500' : 'bg-secondary-300'"></span>
+                      </div>
+                      <p class="text-xs text-muted">Optional — improves download speeds and reduces rate limiting for model downloads.</p>
+                      @if (adminHfMessage()) {
+                        <div class="p-2 rounded text-xs" [ngClass]="adminHfMessageType() === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'">
+                          {{ adminHfMessage() }}
+                        </div>
+                      }
+                      @if (editingAdminHf()) {
+                        <div class="space-y-2">
+                          <input
+                            id="adminHfToken"
+                            type="password"
+                            [(ngModel)]="adminHfToken"
+                            placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
+                            autocomplete="off"
+                          />
+                          <p class="text-xs text-muted">
+                            Create a token at
+                            <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline">huggingface.co/settings/tokens</a>
+                            with <strong>read</strong> access.
+                          </p>
+                          <div class="flex gap-2">
+                            <button
+                              (click)="saveAdminHfToken()"
+                              [disabled]="isSavingAdminHf()"
+                              class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                            >
+                              {{ isSavingAdminHf() ? 'Validating...' : 'Save' }}
+                            </button>
+                            <button
+                              (click)="editingAdminHf.set(false); adminHfToken = ''"
+                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <div class="flex items-center justify-between">
+                          <div class="text-sm text-muted">
+                            @if (adminHfConfigured()) {
+                              <span class="text-green-600">✓ Configured</span>
+                              @if (adminHfUsername()) {
+                                <span class="text-secondary-400 ml-2">· {{ adminHfUsername() }}</span>
+                              }
+                            } @else {
+                              Not configured
+                            }
+                          </div>
+                          <div class="flex gap-2">
+                            <button
+                              (click)="editingAdminHf.set(true); adminHfToken = ''; adminHfMessage.set(null)"
+                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                            >
+                              {{ adminHfConfigured() ? 'Update' : 'Configure' }}
+                            </button>
+                            @if (adminHfConfigured()) {
+                              <button
+                                (click)="removeAdminHfToken()"
+                                class="px-3 py-1.5 rounded-lg border border-red-200 text-xs text-red-500 hover:text-red-700 transition-colors"
+                              >
+                                Remove
+                              </button>
+                            }
+                          </div>
+                        </div>
+                      }
+                    </div>
+
                     <!-- Upload GGUF Model -->
                     <div class="space-y-3 p-4 border border-secondary-100 rounded-lg bg-secondary-50">
                       <h4 class="text-sm font-semibold text-secondary-900">Upload GGUF model</h4>
@@ -820,6 +896,17 @@ export class AdminPageComponent implements OnDestroy {
   uploadModelName = '';
   selectedGgufFile: File | null = null;
 
+  // Admin HuggingFace Credential state
+  adminHfConfigured = signal(false);
+  adminHfUsername = signal<string | null>(null);
+  editingAdminHf = signal(false);
+  adminHfToken = '';
+  isSavingAdminHf = signal(false);
+  adminHfMessage = signal<string | null>(null);
+  adminHfMessageType = signal<'success' | 'error'>('success');
+
+  private llmService = inject(LlmService);
+
   constructor(
     private authService: AuthService,
     private adminService: AdminService
@@ -1248,6 +1335,7 @@ export class AdminPageComponent implements OnDestroy {
     this.modelMenuOpen.set(!wasOpen);
     if (!wasOpen && this.adminPasswordHash) {
       this.loadModels(this.adminPasswordHash);
+      this.loadAdminHfStatus();
     }
   }
 
@@ -1398,5 +1486,55 @@ export class AdminPageComponent implements OnDestroy {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+
+  // --- Admin HuggingFace Credential ---
+
+  private async loadAdminHfStatus(): Promise<void> {
+    try {
+      const status = await this.llmService.getHuggingFaceStatus();
+      this.adminHfConfigured.set(status.configured);
+      this.adminHfUsername.set(status.username);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async saveAdminHfToken(): Promise<void> {
+    if (!this.adminHfToken.trim()) {
+      this.adminHfMessage.set('Please enter a HuggingFace token');
+      this.adminHfMessageType.set('error');
+      return;
+    }
+
+    this.isSavingAdminHf.set(true);
+    this.adminHfMessage.set(null);
+
+    try {
+      const result = await this.llmService.setHuggingFaceToken(this.adminHfToken.trim());
+      this.adminHfMessage.set(result.username ? `Connected as ${result.username}` : 'Token saved');
+      this.adminHfMessageType.set('success');
+      this.editingAdminHf.set(false);
+      this.adminHfToken = '';
+      await this.loadAdminHfStatus();
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.adminHfMessage.set(httpErr?.error?.error || 'Failed to save HuggingFace token');
+      this.adminHfMessageType.set('error');
+    } finally {
+      this.isSavingAdminHf.set(false);
+    }
+  }
+
+  async removeAdminHfToken(): Promise<void> {
+    try {
+      await this.llmService.removeHuggingFaceToken();
+      this.adminHfMessage.set('HuggingFace token removed');
+      this.adminHfMessageType.set('success');
+      await this.loadAdminHfStatus();
+    } catch {
+      this.adminHfMessage.set('Failed to remove HuggingFace token');
+      this.adminHfMessageType.set('error');
+    }
   }
 }
