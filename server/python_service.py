@@ -499,7 +499,8 @@ class _Handler(BaseHTTPRequestHandler):
                     row["instruction"] = str(item.get("text", ""))
                     row["output"] = str(item.get("text", ""))
                 else:
-                    # Generic: use first two columns as instruction/output
+                    # Generic fallback: map up to the first 3 columns to
+                    # instruction / output / input respectively.
                     vals = [str(item.get(c, "")) for c in columns[:3]]
                     row["instruction"] = vals[0] if vals else ""
                     row["output"] = vals[1] if len(vals) > 1 else vals[0] if vals else ""

@@ -574,8 +574,9 @@ export class DatasetsPageComponent implements OnInit {
         this.importError.set(res.error || 'Failed to import dataset');
         this.currentStep.set('configure');
       }
-    } catch (err: any) {
-      this.importError.set(err?.error?.error || err?.message || 'An error occurred while importing');
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string }; message?: string };
+      this.importError.set(httpErr?.error?.error || httpErr?.message || 'An error occurred while importing');
       this.currentStep.set('configure');
     } finally {
       this.isImporting.set(false);
