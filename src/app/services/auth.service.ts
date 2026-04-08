@@ -73,7 +73,10 @@ async function sha256Fallback(message: string): Promise<string> {
   padded[data.length] = 0x80;
   // Append original length in bits as 64-bit big-endian
   const view = new DataView(padded.buffer);
-  view.setUint32(padded.length - 4, bitLen, false);
+  // High 32 bits (for messages > 2^32 bits / 512MB)
+  view.setUint32(padded.length - 8, Math.floor(bitLen / 0x100000000), false);
+  // Low 32 bits
+  view.setUint32(padded.length - 4, bitLen >>> 0, false);
 
   // Process each 512-bit (64-byte) block
   for (let offset = 0; offset < padded.length; offset += 64) {
