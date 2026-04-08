@@ -4,11 +4,10 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
+const http = require('http');
 const dns = require('dns');
 const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
-const selfsigned = require('selfsigned');
 const multer = require('multer');
 
 const app = express();
@@ -3851,8 +3850,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
 
     // SSRF-safe URL validation for outbound clone request
     const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
-    if (!ssrfCheck.valid || ssrfCheck.parsed.protocol !== 'https:') {
-      const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
+    if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+      const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
       return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
     }
 
@@ -4859,8 +4858,8 @@ app.post('/api/web-seo/apps', requireSession, async (req, res) => {
         return res.status(400).json({ success: false, error: 'Repo details are required for repo type' });
       }
       const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
-      if (!ssrfCheck.valid || ssrfCheck.parsed.protocol !== 'https:') {
-        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
+      if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
         return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
       }
     }
@@ -5837,19 +5836,19 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
     }
     // SSRF-safe URL validation for outbound clone request
     const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
-    if (!ssrfCheck.valid || ssrfCheck.parsed.protocol !== 'https:') {
-      const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTPS URLs are supported';
+    if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+      const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
       return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
     }
-    // Additional hardening: ensure cloneUrl is a well-formed HTTPS URL and not an option-like argument
+    // Additional hardening: ensure cloneUrl is a well-formed URL and not an option-like argument
     let parsedCloneUrl;
     try {
       parsedCloneUrl = new URL(cloneUrl);
     } catch {
       return res.status(400).json({ success: false, error: 'Invalid clone URL: malformed URL' });
     }
-    if (parsedCloneUrl.protocol !== 'https:' || !parsedCloneUrl.hostname) {
-      return res.status(400).json({ success: false, error: 'Invalid clone URL: must be HTTPS with a valid host' });
+    if ((parsedCloneUrl.protocol !== 'http:' && parsedCloneUrl.protocol !== 'https:') || !parsedCloneUrl.hostname) {
+      return res.status(400).json({ success: false, error: 'Invalid clone URL: must be HTTP/HTTPS with a valid host' });
     }
     // Disallow values that might be interpreted as git options or contain unsafe whitespace
     if (/^\s*-/.test(cloneUrl) || /\s/.test(cloneUrl)) {
@@ -7806,65 +7805,15 @@ app.get('/api/providers', requireSession, async (req, res) => {
   }
 });
 
-// Generate or load self-signed TLS certificate for HTTPS (development only)
-const CERT_DIR = path.join(__dirname, '..', 'data');
-const CERT_KEY_FILE = path.join(CERT_DIR, 'dev-key.pem');
-const CERT_FILE = path.join(CERT_DIR, 'dev-cert.pem');
-
-async function getOrCreateCert() {
-  if (fs.existsSync(CERT_KEY_FILE) && fs.existsSync(CERT_FILE)) {
-    return {
-      key: fs.readFileSync(CERT_KEY_FILE, 'utf-8'),
-      cert: fs.readFileSync(CERT_FILE, 'utf-8'),
-    };
-  }
-
-  const attrs = [{ name: 'commonName', value: 'localhost' }];
-  const subjectAltName = {
-    name: 'subjectAltName',
-    altNames: [
-      { type: 2, value: 'localhost' },
-      { type: 7, ip: '127.0.0.1' },
-      { type: 7, ip: '0.0.0.0' },
-    ]
-  };
-
-  // When binding to all interfaces, add local network IPs to the certificate
-  if (HOST === '0.0.0.0' || HOST === '::') {
-    try {
-      const os = require('os');
-      const ifaces = os.networkInterfaces();
-      for (const name of Object.keys(ifaces)) {
-        for (const iface of ifaces[name]) {
-          if (!iface.internal && iface.family === 'IPv4') {
-            subjectAltName.altNames.push({ type: 7, ip: iface.address });
-          }
-        }
-      }
-    } catch (_) { /* ignore */ }
-  }
-
-  const pems = await selfsigned.generate(attrs, { days: 365, keySize: 2048, extensions: [subjectAltName] });
-
-  if (!fs.existsSync(CERT_DIR)) {
-    fs.mkdirSync(CERT_DIR, { recursive: true });
-  }
-  fs.writeFileSync(CERT_KEY_FILE, pems.private, 'utf-8');
-  fs.writeFileSync(CERT_FILE, pems.cert, 'utf-8');
-
-  return { key: pems.private, cert: pems.cert };
-}
-
-async function createHttpsServer() {
+async function createHttpServer() {
   await ensureAdminAccount();
-  const httpsOptions = await getOrCreateCert();
-  return https.createServer(httpsOptions, app);
+  return http.createServer(app);
 }
 
 if (require.main === module) {
-  createHttpsServer().then((server) => {
+  createHttpServer().then((server) => {
     server.listen(PORT, HOST, () => {
-      console.log(`Server running on https://${HOST}:${PORT}`);
+      console.log(`Server running on http://${HOST}:${PORT}`);
       startPythonProcess();
 
       // Auto-sync on startup: pull remote data if newer
@@ -7883,4 +7832,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB };
