@@ -93,8 +93,11 @@ import { environment } from '../../environments/environment';
             <button
               type="submit"
               [disabled]="isLoading()"
-              class="w-full btn-primary py-3 text-center disabled:opacity-50 disabled:cursor-not-allowed"
+              class="w-full btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              @if (isLoading()) {
+                <span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              }
               {{ isLoading() ? 'Signing in...' : 'Sign In' }}
             </button>
           </form>
