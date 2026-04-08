@@ -79,6 +79,28 @@ describe('AuthService', () => {
       const hash2 = await service.hashPassword('Password2!');
       expect(hash1).not.toBe(hash2);
     });
+
+    it('should produce correct SHA-256 for known test vector "abc"', async () => {
+      const hash = await service.hashPassword('abc');
+      expect(hash).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    });
+
+    it('should produce correct SHA-256 for empty string', async () => {
+      const hash = await service.hashPassword('');
+      expect(hash).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    });
+
+    it('should work when crypto.subtle is unavailable (fallback)', async () => {
+      const originalSubtle = crypto.subtle;
+      // Temporarily remove crypto.subtle to trigger fallback
+      Object.defineProperty(crypto, 'subtle', { value: undefined, configurable: true, writable: true });
+      try {
+        const hash = await service.hashPassword('abc');
+        expect(hash).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+      } finally {
+        Object.defineProperty(crypto, 'subtle', { value: originalSubtle, configurable: true, writable: true });
+      }
+    });
   });
 
   describe('validatePassword', () => {
