@@ -832,6 +832,28 @@ function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
 }
 
 /**
+ * Build the list of directory names to exclude during sync.
+ */
+function buildSyncExcludeDirs(syncConfig) {
+  const excludeDirs = ['python_env', 'containers'];
+  if (syncConfig.excludeModels) {
+    excludeDirs.push('models');
+  }
+  return excludeDirs;
+}
+
+/**
+ * Detect whether a sync folder contains encrypted files.
+ */
+function detectSyncEncryption(syncDataDir) {
+  try {
+    return fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Perform an auto-sync operation. Direction is determined by comparing
  * the Date file in the sync folder to the local sync timestamp.
  * The most recent data wins.
@@ -859,10 +881,7 @@ function performAutoSync(trigger, forcedDirection) {
     const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
 
     // Build the list of directories to exclude
-    const excludeDirs = ['python_env', 'containers'];
-    if (syncConfig.excludeModels) {
-      excludeDirs.push('models');
-    }
+    const excludeDirs = buildSyncExcludeDirs(syncConfig);
 
     const syncTimestamp = new Date().toISOString();
     let syncDirection = forcedDirection || 'push'; // default: local → remote
@@ -891,7 +910,7 @@ function performAutoSync(trigger, forcedDirection) {
       console.log(`[auto-sync] Pulling data from sync folder (trigger: ${trigger})...`);
 
       // Check if the remote data is encrypted
-      const isEncrypted = fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+      const isEncrypted = detectSyncEncryption(syncDataDir);
 
       restoreDirSync(syncDataDir, DATA_DIR, isEncrypted, [AUTO_SYNC_DATE_FILE, ...excludeDirs]);
 
@@ -2270,7 +2289,7 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
   }
 });
 
-// GET /api/admin/auto-sync/status – Get current auto-sync configuration and status (admin only)
+// POST /api/admin/auto-sync/status – Get current auto-sync configuration and status (admin only)
 app.post('/api/admin/auto-sync/status', async (req, res) => {
   try {
     const { adminUsername, adminPassword } = req.body;
@@ -2359,13 +2378,12 @@ app.post('/api/admin/auto-sync/import', async (req, res) => {
     }
 
     // Detect encryption
-    const isEncrypted = fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+    const isEncrypted = detectSyncEncryption(syncDataDir);
 
     // Determine excludeDirs
     const settings = readSettings();
-    const excludeModels = settings.autoSync?.excludeModels !== false;
-    const excludeDirs = ['python_env', 'containers'];
-    if (excludeModels) excludeDirs.push('models');
+    const syncConfigForExclude = { excludeModels: settings.autoSync?.excludeModels !== false };
+    const excludeDirs = buildSyncExcludeDirs(syncConfigForExclude);
 
     // Restore data from the sync folder
     restoreDirSync(syncDataDir, DATA_DIR, isEncrypted, [AUTO_SYNC_DATE_FILE, ...excludeDirs]);
@@ -2382,7 +2400,7 @@ app.post('/api/admin/auto-sync/import', async (req, res) => {
       autoSync: {
         enabled: true,
         directory: directory.trim(),
-        excludeModels,
+        excludeModels: syncConfigForExclude.excludeModels,
         encrypt: isEncrypted,
       },
     });
