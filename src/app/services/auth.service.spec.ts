@@ -353,6 +353,7 @@ describe('AuthService', () => {
 
     it('should log failed login attempts', async () => {
       logger.clearLogs();
+      (service as any).clearLoginAttempts('logtest2'); // Ensure attempts are cleared
       const loginPromise = service.login('logtest2', 'WrongPass1!');
       await flushAsync();
       const req = httpMock.expectOne('/api/auth/login');
