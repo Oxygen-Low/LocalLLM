@@ -50,6 +50,8 @@ interface AppSettingsResponse {
   success: boolean;
   error?: string;
   riskyAppsEnabled?: boolean;
+  koboldEnabled?: boolean;
+  ollamaEnabled?: boolean;
 }
 
 @Injectable({
@@ -242,6 +244,36 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update app settings' };
+    }
+  }
+
+  async setKoboldEnabled(enabled: boolean, adminPasswordHash: string): Promise<AppSettingsResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AppSettingsResponse>(`${environment.apiUrl}/api/admin/settings/kobold`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          enabled,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update Kobold.cpp settings' };
+    }
+  }
+
+  async setOllamaEnabled(enabled: boolean, adminPasswordHash: string): Promise<AppSettingsResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AppSettingsResponse>(`${environment.apiUrl}/api/admin/settings/ollama`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          enabled,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update Ollama settings' };
     }
   }
 

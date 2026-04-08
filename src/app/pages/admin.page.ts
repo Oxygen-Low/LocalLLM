@@ -532,6 +532,48 @@ import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from 
                   {{ isTogglingRiskyApps() ? 'Updating...' : (riskyAppsEnabled() ? 'Disable risky apps' : 'Enable risky apps') }}
                 </button>
               </div>
+
+              <div class="flex items-center justify-between gap-4 p-4 rounded-lg border border-secondary-200 bg-secondary-50">
+                <div class="space-y-1">
+                  <div class="font-medium text-secondary-900 flex items-center gap-2">
+                    <span>🤖</span>
+                    Kobold.cpp
+                  </div>
+                  <p class="text-sm text-muted">
+                    Enable auto-detection and usage of a locally running Kobold.cpp server as an LLM provider.
+                  </p>
+                </div>
+                <button
+                  (click)="onToggleKobold()"
+                  [disabled]="isTogglingKobold()"
+                  [class]="koboldEnabled()
+                    ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
+                    : 'px-4 py-2 rounded-lg bg-green-100 border border-green-200 text-green-700 hover:bg-green-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'"
+                >
+                  {{ isTogglingKobold() ? 'Updating...' : (koboldEnabled() ? 'Disable' : 'Enable') }}
+                </button>
+              </div>
+
+              <div class="flex items-center justify-between gap-4 p-4 rounded-lg border border-secondary-200 bg-secondary-50">
+                <div class="space-y-1">
+                  <div class="font-medium text-secondary-900 flex items-center gap-2">
+                    <span>🦙</span>
+                    Ollama
+                  </div>
+                  <p class="text-sm text-muted">
+                    Enable auto-detection and usage of a locally running Ollama server as an LLM provider.
+                  </p>
+                </div>
+                <button
+                  (click)="onToggleOllama()"
+                  [disabled]="isTogglingOllama()"
+                  [class]="ollamaEnabled()
+                    ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
+                    : 'px-4 py-2 rounded-lg bg-green-100 border border-green-200 text-green-700 hover:bg-green-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'"
+                >
+                  {{ isTogglingOllama() ? 'Updating...' : (ollamaEnabled() ? 'Disable' : 'Enable') }}
+                </button>
+              </div>
             </div>
           }
 
@@ -593,6 +635,10 @@ export class AdminPageComponent implements OnDestroy {
   // App Settings state
   riskyAppsEnabled = signal<boolean>(true);
   isTogglingRiskyApps = signal(false);
+  koboldEnabled = signal<boolean>(false);
+  isTogglingKobold = signal(false);
+  ollamaEnabled = signal<boolean>(false);
+  isTogglingOllama = signal(false);
 
   // LLM Models state
   modelMenuOpen = signal(false);
@@ -849,8 +895,16 @@ export class AdminPageComponent implements OnDestroy {
 
   private async loadAppSettings(): Promise<void> {
     const response = await this.adminService.getRiskyAppsEnabled();
-    if (response.success && typeof response.riskyAppsEnabled === 'boolean') {
-      this.riskyAppsEnabled.set(response.riskyAppsEnabled);
+    if (response.success) {
+      if (typeof response.riskyAppsEnabled === 'boolean') {
+        this.riskyAppsEnabled.set(response.riskyAppsEnabled);
+      }
+      if (typeof response.koboldEnabled === 'boolean') {
+        this.koboldEnabled.set(response.koboldEnabled);
+      }
+      if (typeof response.ollamaEnabled === 'boolean') {
+        this.ollamaEnabled.set(response.ollamaEnabled);
+      }
     }
   }
 
@@ -870,6 +924,44 @@ export class AdminPageComponent implements OnDestroy {
       this.statusMessage.set(`Risky apps ${newValue ? 'enabled' : 'disabled'}.`);
     } finally {
       this.isTogglingRiskyApps.set(false);
+    }
+  }
+
+  async onToggleKobold(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isTogglingKobold.set(true);
+    try {
+      const newValue = !this.koboldEnabled();
+      const response = await this.adminService.setKoboldEnabled(newValue, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to update Kobold.cpp settings.');
+        return;
+      }
+      this.koboldEnabled.set(newValue);
+      this.statusMessage.set(`Kobold.cpp ${newValue ? 'enabled' : 'disabled'}.`);
+    } finally {
+      this.isTogglingKobold.set(false);
+    }
+  }
+
+  async onToggleOllama(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+    this.isTogglingOllama.set(true);
+    try {
+      const newValue = !this.ollamaEnabled();
+      const response = await this.adminService.setOllamaEnabled(newValue, this.adminPasswordHash);
+      if (!response.success) {
+        this.errorMessage.set(response.error ?? 'Failed to update Ollama settings.');
+        return;
+      }
+      this.ollamaEnabled.set(newValue);
+      this.statusMessage.set(`Ollama ${newValue ? 'enabled' : 'disabled'}.`);
+    } finally {
+      this.isTogglingOllama.set(false);
     }
   }
 

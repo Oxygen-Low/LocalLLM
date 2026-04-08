@@ -102,6 +102,10 @@ const MAX_GGUF_FILE_SIZE = 20 * 1024 * 1024 * 1024; // 20 GB max upload
 const PYTHON_SERVICE_PORT = parseInt(process.env.PYTHON_SERVICE_PORT || '5555', 10);
 const PYTHON_SERVICE_URL = `http://127.0.0.1:${PYTHON_SERVICE_PORT}`;
 
+// Kobold.cpp and Ollama local LLM backends
+const KOBOLD_URL = process.env.KOBOLD_URL || 'http://127.0.0.1:5001';
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+
 // Ensure models directory exists
 if (!fs.existsSync(MODELS_DIR)) {
   fs.mkdirSync(MODELS_DIR, { recursive: true });
@@ -693,7 +697,7 @@ function writeUniverses(universes) {
 // ---------------------------------------------------------------------------
 let settingsCache = null;
 
-const DEFAULT_SETTINGS = { riskyAppsEnabled: true };
+const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false };
 
 function loadSettingsFromDisk() {
   try {
@@ -1886,7 +1890,12 @@ app.delete('/api/admin/universes/:universeId/characters/:characterId', async (re
 app.get('/api/settings/apps', requireSession, (req, res) => {
   try {
     const settings = readSettings();
-    return res.json({ success: true, riskyAppsEnabled: settings.riskyAppsEnabled });
+    return res.json({
+      success: true,
+      riskyAppsEnabled: settings.riskyAppsEnabled,
+      koboldEnabled: settings.koboldEnabled,
+      ollamaEnabled: settings.ollamaEnabled,
+    });
   } catch (err) {
     console.error('Get app settings error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
@@ -1913,6 +1922,54 @@ app.post('/api/admin/settings/risky-apps', async (req, res) => {
     return res.json({ success: true, riskyAppsEnabled: enabled });
   } catch (err) {
     console.error('Admin set risky apps error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/settings/kobold – Enable or disable Kobold.cpp auto-detection (admin only)
+app.post('/api/admin/settings/kobold', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, enabled } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin kobold settings attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'enabled must be a boolean' });
+    }
+
+    const settings = readSettings();
+    writeSettings({ ...settings, koboldEnabled: enabled });
+
+    auditLog({ event: 'ADMIN_SET_KOBOLD', message: `Admin set koboldEnabled to ${enabled}`, username: adminUsername, req });
+    return res.json({ success: true, koboldEnabled: enabled });
+  } catch (err) {
+    console.error('Admin set kobold error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/settings/ollama – Enable or disable Ollama auto-detection (admin only)
+app.post('/api/admin/settings/ollama', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, enabled } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin ollama settings attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'enabled must be a boolean' });
+    }
+
+    const settings = readSettings();
+    writeSettings({ ...settings, ollamaEnabled: enabled });
+
+    auditLog({ event: 'ADMIN_SET_OLLAMA', message: `Admin set ollamaEnabled to ${enabled}`, username: adminUsername, req });
+    return res.json({ success: true, ollamaEnabled: enabled });
+  } catch (err) {
+    console.error('Admin set ollama error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -4286,11 +4343,15 @@ const { chromium } = require('playwright-core');
     }
 
     if (!selectedProvider) {
-      const kobold = await checkKoboldStatus();
-      if (kobold.available) {
-        selectedProvider = 'kobold';
-        selectedModel = kobold.model;
-      } else {
+      const settings = readSettings();
+      if (settings.koboldEnabled) {
+        const kobold = await checkKoboldStatus();
+        if (kobold.available) {
+          selectedProvider = 'kobold';
+          selectedModel = kobold.model;
+        }
+      }
+      if (!selectedProvider && settings.ollamaEnabled) {
         const ollama = await checkOllamaStatus();
         if (ollama.available && ollama.models.length > 0) {
           selectedProvider = 'ollama';
@@ -5736,6 +5797,244 @@ function sendSSE(res, event, data) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Kobold.cpp and Ollama auto-detection and streaming
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a Kobold.cpp server is running and available.
+ * @returns {{ available: boolean, model: string }}
+ */
+async function checkKoboldStatus() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${KOBOLD_URL}/api/v1/model`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return { available: false, model: '' };
+    const data = await response.json();
+    return { available: true, model: data.result || 'kobold-model' };
+  } catch {
+    return { available: false, model: '' };
+  }
+}
+
+/**
+ * Check if an Ollama server is running and list available models.
+ * @returns {{ available: boolean, models: string[] }}
+ */
+async function checkOllamaStatus() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${OLLAMA_URL}/api/tags`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return { available: false, models: [] };
+    const data = await response.json();
+    const models = (data.models || []).map(m => m.name || m.model).filter(Boolean);
+    return { available: true, models };
+  } catch {
+    return { available: false, models: [] };
+  }
+}
+
+/**
+ * Stream a chat completion from Kobold.cpp (OpenAI-compatible API).
+ */
+async function streamFromKobold(res, messages, options = {}, signal) {
+  if (options.think) {
+    messages = enhanceMessagesForThink(messages);
+  }
+
+  const body = {
+    messages: messages.map(m => {
+      if (m.role === 'system' && Array.isArray(m.content)) {
+        return { ...m, content: m.content.map(p => p.text || '').join('\n') };
+      }
+      return m;
+    }),
+    max_tokens: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
+    temperature: 0.7,
+    stream: true,
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+
+  const response = await fetch(`${KOBOLD_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Kobold.cpp error ${response.status}: ${errorBody}`);
+  }
+
+  let fullContent = '';
+  let fullThinking = '';
+  let inThinkTag = false;
+
+  await parseSSEStream(response, (eventType, eventData) => {
+    if (eventData === '[DONE]') return;
+    try {
+      const parsed = JSON.parse(eventData);
+      const delta = parsed.choices?.[0]?.delta;
+      if (!delta) return;
+
+      if (delta.content != null) {
+        let chunk = delta.content;
+        while (chunk.length > 0) {
+          if (inThinkTag) {
+            const endIdx = chunk.indexOf('</think>');
+            if (endIdx !== -1) {
+              const thinkPart = chunk.substring(0, endIdx);
+              fullThinking += thinkPart;
+              if (thinkPart) sendSSE(res, 'thinking', { content: thinkPart });
+              inThinkTag = false;
+              chunk = chunk.substring(endIdx + 8);
+            } else {
+              fullThinking += chunk;
+              sendSSE(res, 'thinking', { content: chunk });
+              chunk = '';
+            }
+          } else {
+            const startIdx = chunk.indexOf('<think>');
+            if (startIdx !== -1) {
+              const contentPart = chunk.substring(0, startIdx);
+              if (contentPart) {
+                fullContent += contentPart;
+                sendSSE(res, 'content', { content: contentPart });
+              }
+              inThinkTag = true;
+              chunk = chunk.substring(startIdx + 7);
+            } else {
+              fullContent += chunk;
+              sendSSE(res, 'content', { content: chunk });
+              chunk = '';
+            }
+          }
+        }
+      }
+    } catch (_e) { /* skip unparseable chunks */ }
+  });
+
+  return { content: fullContent, thinking: fullThinking };
+}
+
+/**
+ * Stream a chat completion from Ollama.
+ */
+async function streamFromOllama(res, messages, model, options = {}, signal) {
+  if (options.think) {
+    messages = enhanceMessagesForThink(messages);
+  }
+
+  const body = {
+    model,
+    messages: messages.map(m => {
+      if (typeof m.content === 'string') return { role: m.role, content: m.content };
+      const text = m.content.filter(p => p.type === 'text').map(p => p.text || '').join('\n');
+      return { role: m.role, content: text };
+    }),
+    stream: true,
+    options: {
+      num_predict: options.think ? THINK_MAX_TOKENS : LLM_DEFAULT_MAX_TOKENS,
+      temperature: 0.7,
+    },
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROXY_TIMEOUT_MS * LOCAL_MODEL_TIMEOUT_MULTIPLIER);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+
+  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Ollama error ${response.status}: ${errorBody}`);
+  }
+
+  let fullContent = '';
+  let fullThinking = '';
+  let inThinkTag = false;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.done) break;
+          let chunk = parsed.message?.content || '';
+          if (!chunk) continue;
+
+          while (chunk.length > 0) {
+            if (inThinkTag) {
+              const endIdx = chunk.indexOf('</think>');
+              if (endIdx !== -1) {
+                const thinkPart = chunk.substring(0, endIdx);
+                fullThinking += thinkPart;
+                if (thinkPart) sendSSE(res, 'thinking', { content: thinkPart });
+                inThinkTag = false;
+                chunk = chunk.substring(endIdx + 8);
+              } else {
+                fullThinking += chunk;
+                sendSSE(res, 'thinking', { content: chunk });
+                chunk = '';
+              }
+            } else {
+              const startIdx = chunk.indexOf('<think>');
+              if (startIdx !== -1) {
+                const contentPart = chunk.substring(0, startIdx);
+                if (contentPart) {
+                  fullContent += contentPart;
+                  sendSSE(res, 'content', { content: contentPart });
+                }
+                inThinkTag = true;
+                chunk = chunk.substring(startIdx + 7);
+              } else {
+                fullContent += chunk;
+                sendSSE(res, 'content', { content: chunk });
+                chunk = '';
+              }
+            }
+          }
+        } catch (_e) { /* skip unparseable chunks */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { content: fullContent, thinking: fullThinking };
+}
+
 /**
  * Simple non-streaming LLM completion helper for background tasks.
  * Tries to find any available provider for the user.
@@ -6412,6 +6711,21 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       if (!localModels.some(m => m.id === selectedModel)) {
         return res.status(400).json({ success: false, error: 'Selected local model not found' });
       }
+    } else if (provider === 'kobold') {
+      const settings = readSettings();
+      if (!settings.koboldEnabled) {
+        return res.status(400).json({ success: false, error: 'Kobold.cpp is not enabled' });
+      }
+      selectedModel = model || 'kobold-model';
+    } else if (provider === 'ollama') {
+      const settings = readSettings();
+      if (!settings.ollamaEnabled) {
+        return res.status(400).json({ success: false, error: 'Ollama is not enabled' });
+      }
+      if (typeof model !== 'string' || !model.trim()) {
+        return res.status(400).json({ success: false, error: 'No model selected for Ollama' });
+      }
+      selectedModel = model.trim();
     } else if (VALID_PROVIDERS.includes(provider)) {
       const keys = readUserApiKeys(req.sessionUser);
       providerKeys = keys[provider];
@@ -6447,6 +6761,10 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     let result;
     if (provider === 'local') {
       result = await streamFromLocalModel(res, processedMessages, selectedModel, options, clientAbort.signal);
+    } else if (provider === 'kobold') {
+      result = await streamFromKobold(res, processedMessages, options, clientAbort.signal);
+    } else if (provider === 'ollama') {
+      result = await streamFromOllama(res, processedMessages, selectedModel, options, clientAbort.signal);
     } else if (provider === 'anthropic') {
       result = await streamFromAnthropic(res, processedMessages, providerKeys.apiKey, selectedModel, options, clientAbort.signal);
     } else if (provider === 'google') {
@@ -6572,6 +6890,32 @@ app.get('/api/providers', requireSession, async (req, res) => {
       }
     }
 
+    // Check Kobold.cpp and Ollama if enabled by admin
+    const settings = readSettings();
+    if (settings.koboldEnabled) {
+      const kobold = await checkKoboldStatus();
+      if (kobold.available) {
+        providers.push({
+          id: 'kobold',
+          name: 'Kobold.cpp',
+          model: kobold.model,
+          available: true,
+        });
+      }
+    }
+    if (settings.ollamaEnabled) {
+      const ollama = await checkOllamaStatus();
+      if (ollama.available && ollama.models.length > 0) {
+        providers.push({
+          id: 'ollama',
+          name: 'Ollama',
+          model: ollama.models[0],
+          models: ollama.models.map(m => ({ id: m, name: m })),
+          available: true,
+        });
+      }
+    }
+
     res.json({ success: true, providers });
   } catch (err) {
     console.error('Get providers error:', err);
@@ -6620,4 +6964,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR };
+module.exports = { app, createHttpsServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL };
