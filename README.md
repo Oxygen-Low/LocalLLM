@@ -6,6 +6,14 @@ If you would like to see the current state of the ui, and apps currently availab
 ## Setup
 Just clone the repository and enter the directory ("git clone https://github.com/Oxygen-Low/LocalLLM.git", "cd LocalLLM"), then run "npm install", then test with "npm test" (optional), then start it with "npm start".
 
+By default, the server listens on all network interfaces so you can access it from other devices on your local network (e.g. a phone or tablet on the same Wi-Fi). Open `https://<your-ip>:3000` from the other device, where `<your-ip>` is the local IP address of the machine running the server (e.g. `192.168.1.100`).
+
+To restrict the server to localhost only (no LAN access), run:
+
+```
+npm run start:no-lan
+```
+
 ## Admin Account
 Once you start for the first time, you will gain your admin credentials, and you can log in via it to gain access to the admin panel.
 
