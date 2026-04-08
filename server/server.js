@@ -4387,11 +4387,35 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
     try {
       rows = JSON.parse(cleaned);
     } catch {
-      return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
+      // LLM may return concatenated JSON objects instead of an array.
+      // Try to extract individual objects and wrap them in an array.
+      try {
+        const objects = [];
+        // Match top-level JSON objects by tracking brace depth
+        let depth = 0;
+        let start = -1;
+        for (let i = 0; i < cleaned.length; i++) {
+          const ch = cleaned[i];
+          if (ch === '{') {
+            if (depth === 0) start = i;
+            depth++;
+          } else if (ch === '}') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+              objects.push(JSON.parse(cleaned.slice(start, i + 1)));
+              start = -1;
+            }
+          }
+        }
+        if (objects.length === 0) throw new Error('No JSON objects found');
+        rows = objects;
+      } catch {
+        return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
+      }
     }
 
     if (!Array.isArray(rows)) {
-      return res.status(500).json({ success: false, error: 'LLM did not return a valid array. Please try again.' });
+      rows = [rows];
     }
 
     // Validate and sanitize rows
