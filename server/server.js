@@ -1184,17 +1184,17 @@ function startPythonProcess() {
         });
       }
 
-      // Install transformers and huggingface_hub
-      console.log('Installing transformers and huggingface_hub...');
+      // Install transformers, huggingface_hub and datasets
+      console.log('Installing transformers, huggingface_hub, and datasets...');
       execFileSync(venvPip, [
-        'install', 'transformers', 'huggingface_hub', 'accelerate',
+        'install', 'transformers', 'huggingface_hub', 'accelerate', 'datasets',
       ], {
         timeout: 300000, // 5 minutes
         stdio: 'inherit',
       });
 
       fs.writeFileSync(transformersMarker, new Date().toISOString(), 'utf-8');
-      console.log('transformers, torch, and huggingface_hub installed successfully');
+      console.log('transformers, torch, huggingface_hub, and datasets installed successfully');
     } catch (err) {
       console.error('Failed to install Python dependencies:', err.message);
       console.error('The local LLM feature will be unavailable until the dependencies are installed.');
@@ -3314,6 +3314,82 @@ function removeUserIntegration(username, integrationId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// HuggingFace Integration
+// ---------------------------------------------------------------------------
+
+// GET /api/user/integrations/huggingface/status - Check if HuggingFace token is configured
+app.get('/api/user/integrations/huggingface/status', requireSession, (req, res) => {
+  try {
+    const integrations = readUserIntegrations(req.sessionUser);
+    const hf = integrations.huggingface;
+    res.json({
+      success: true,
+      configured: !!hf?.token,
+      username: hf?.hfUsername || null,
+    });
+  } catch (err) {
+    console.error('HuggingFace status error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/integrations/huggingface - Save HuggingFace token
+app.put('/api/user/integrations/huggingface', requireSession, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token || typeof token !== 'string' || token.length > 500) {
+      return res.status(400).json({ success: false, error: 'Valid HuggingFace token is required' });
+    }
+
+    // Validate token by calling HuggingFace API
+    let hfUsername;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const hfRes = await fetch('https://huggingface.co/api/whoami-v2', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!hfRes.ok) {
+        return res.status(400).json({ success: false, error: 'Invalid HuggingFace token. Please check your token and try again.' });
+      }
+
+      const hfUser = await hfRes.json();
+      hfUsername = hfUser.name || hfUser.fullname || null;
+    } catch (fetchErr) {
+      if (fetchErr.name === 'AbortError') {
+        return res.status(504).json({ success: false, error: 'HuggingFace API request timed out' });
+      }
+      return res.status(502).json({ success: false, error: 'Could not connect to HuggingFace API' });
+    }
+
+    writeUserIntegration(req.sessionUser, 'huggingface', { token, hfUsername });
+    auditLog({ event: 'HF_TOKEN_SET', message: `HuggingFace token configured${hfUsername ? ` for ${hfUsername}` : ''}`, username: req.sessionUser, req });
+    res.json({ success: true, username: hfUsername });
+  } catch (err) {
+    console.error('Set HuggingFace token error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/user/integrations/huggingface - Remove HuggingFace token
+app.delete('/api/user/integrations/huggingface', requireSession, (req, res) => {
+  try {
+    removeUserIntegration(req.sessionUser, 'huggingface');
+    auditLog({ event: 'HF_TOKEN_REMOVED', message: 'HuggingFace token removed', username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Remove HuggingFace token error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // GET /api/user/integrations/github/status - Check if GitHub token is configured
 app.get('/api/user/integrations/github/status', requireSession, (req, res) => {
   try {
@@ -4550,6 +4626,154 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
   } catch (err) {
     console.error('Dataset save error:', err);
     res.status(500).json({ success: false, error: 'Failed to save dataset' });
+  }
+});
+
+// POST /api/datasets/import-huggingface – Import a dataset from HuggingFace Hub
+app.post('/api/datasets/import-huggingface', requireSession, async (req, res) => {
+  try {
+    const { datasetId, name, split, maxRows } = req.body;
+
+    if (!datasetId || typeof datasetId !== 'string' || !datasetId.trim()) {
+      return res.status(400).json({ success: false, error: 'datasetId is required (e.g. "tatsu-lab/alpaca")' });
+    }
+
+    const trimmedDatasetId = datasetId.trim();
+    if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(trimmedDatasetId)) {
+      return res.status(400).json({ success: false, error: 'Invalid datasetId format. Expected "owner/dataset" (e.g. "tatsu-lab/alpaca")' });
+    }
+
+    const datasetName = (name?.trim() || trimmedDatasetId.split('/').pop() || trimmedDatasetId).substring(0, 100);
+    if (!REPO_NAME_REGEX.test(datasetName)) {
+      return res.status(400).json({ success: false, error: 'Invalid dataset name. Use letters, digits, hyphens, underscores, or dots (1–100 chars).' });
+    }
+
+    const safeSplit = (split && typeof split === 'string') ? split.trim().substring(0, 100) : 'train';
+    const safeMaxRows = (typeof maxRows === 'number' && Number.isInteger(maxRows) && maxRows > 0) ? Math.min(maxRows, 50000) : 1000;
+
+    if (!isGitAvailable()) {
+      return res.status(503).json({ success: false, error: 'Git is not available on this server' });
+    }
+
+    const currentStorage = getUserStorageBytes(req.sessionUser);
+    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
+      return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
+    }
+
+    const repos = readUserRepos(req.sessionUser);
+    if (repos.some(r => r.name === datasetName && r.status !== 'archived')) {
+      return res.status(409).json({ success: false, error: 'A repository with this name already exists' });
+    }
+
+    // Check Python service is healthy
+    const serviceHealthy = await checkPythonServiceHealth();
+    if (!serviceHealthy) {
+      return res.status(503).json({ success: false, error: 'Python service is not running. Please wait for it to start.' });
+    }
+
+    // Retrieve user's HuggingFace token if available
+    const integrations = readUserIntegrations(req.sessionUser);
+    const hfToken = integrations.huggingface?.token || null;
+
+    // Call Python service to download the dataset
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout for dataset download
+      const downloadBody = {
+        dataset_id: trimmedDatasetId,
+        split: safeSplit,
+        max_rows: safeMaxRows,
+      };
+      if (hfToken) {
+        downloadBody.hf_token = hfToken;
+      }
+      const downloadRes = await fetch(`${PYTHON_SERVICE_URL}/download-dataset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(downloadBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      const downloadResult = await downloadRes.json();
+      if (!downloadRes.ok || downloadResult.error) {
+        return res.status(downloadRes.status === 200 ? 500 : downloadRes.status).json({
+          success: false,
+          error: downloadResult.error || 'Failed to download dataset from HuggingFace',
+        });
+      }
+
+      const rows = downloadResult.rows;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(502).json({ success: false, error: 'No rows returned from HuggingFace dataset' });
+      }
+
+      // Enforce token-based limit
+      const totalTokens = rows.reduce((sum, r) => {
+        const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
+        const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
+        const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
+        return sum + instrTokens + inputTokens + outputTokens;
+      }, 0);
+      const maxTokens = getMaxDatasetTokens();
+      if (totalTokens > maxTokens) {
+        const settings = readSettings();
+        return res.status(400).json({ success: false, error: `Dataset exceeds the maximum token limit of ${maxTokens} tokens (${settings.maxDatasetTokensGB} GB)` });
+      }
+
+      // Create the dataset repository
+      const repoId = crypto.randomUUID();
+      const authKey = crypto.randomBytes(32).toString('base64url');
+      const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
+      fs.mkdirSync(bareDir, { recursive: true });
+      execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
+
+      // Build JSONL content
+      const jsonlContent = rows.map(r => JSON.stringify({
+        instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
+        input: typeof r.input === 'string' ? r.input.trim() : '',
+        output: typeof r.output === 'string' ? r.output.trim() : '',
+      })).join('\n');
+
+      const description = `Imported from HuggingFace: ${trimmedDatasetId} (split: ${safeSplit})`;
+
+      const os = require('os');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localllm-hfds-'));
+      try {
+        execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
+        fs.writeFileSync(path.join(tmpDir, 'dataset.jsonl'), jsonlContent + '\n');
+        fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${datasetName}\n\n${description}\n\nThis is a Dataset repository containing ${rows.length} imported rows (~${totalTokens} tokens).\n\nSource: [${trimmedDatasetId}](https://huggingface.co/datasets/${trimmedDatasetId})\n`);
+        execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
+        execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
+        execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
+        execFileSync('git', ['-C', tmpDir, 'commit', '-m', `Import dataset from HuggingFace: ${trimmedDatasetId}`], { timeout: 10000 });
+        execFileSync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
+      } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+
+      const repoEntry = {
+        id: repoId, name: datasetName, description, status: 'active',
+        type: 'dataset',
+        authKey, username: req.sessionUser, defaultBranch: 'main',
+        createdAt: new Date().toISOString(), lastActivity: Date.now(),
+        archivedAt: null, containerId: null, containerName: null,
+      };
+      repos.push(repoEntry);
+      writeUserRepos(req.sessionUser, repos);
+      registerRepoInMemory(req.sessionUser, repoId);
+
+      auditLog({ event: 'DATASET_IMPORTED', message: `Dataset "${datasetName}" imported from HuggingFace (${trimmedDatasetId}, ${rows.length} rows, ~${totalTokens} tokens)`, username: req.sessionUser, req });
+      res.json({ success: true, repoId, repoName: datasetName, rowCount: rows.length, totalTokens });
+    } catch (downloadErr) {
+      if (downloadErr.name === 'AbortError') {
+        return res.status(504).json({ success: false, error: 'Dataset download timed out. Try a smaller dataset or fewer rows.' });
+      }
+      return res.status(500).json({ success: false, error: `Failed to import dataset: ${downloadErr.message}` });
+    }
+  } catch (err) {
+    console.error('Dataset import error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -5827,12 +6051,20 @@ app.post('/api/admin/models', async (req, res) => {
 
     const displayName = (name?.trim() || trimmedRepoId.split('/').pop() || trimmedRepoId).substring(0, 200);
 
+    // Retrieve admin's HuggingFace token if available (improves download speed and reduces rate limiting)
+    const adminIntegrations = readUserIntegrations(adminUsername);
+    const adminHfToken = adminIntegrations.huggingface?.token || null;
+
     // Start the download on the Python service (returns immediately with download_id)
     try {
+      const downloadBody = { repo_id: trimmedRepoId, target_dir: targetDir };
+      if (adminHfToken) {
+        downloadBody.hf_token = adminHfToken;
+      }
       const downloadRes = await fetch(`${PYTHON_SERVICE_URL}/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo_id: trimmedRepoId, target_dir: targetDir }),
+        body: JSON.stringify(downloadBody),
       });
 
       const downloadResult = await downloadRes.json();

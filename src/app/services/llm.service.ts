@@ -157,6 +157,33 @@ export class LlmService {
     );
   }
 
+  // --- HuggingFace Integration ---
+
+  async getHuggingFaceStatus(): Promise<{ configured: boolean; username: string | null }> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; configured: boolean; username: string | null }>(
+        `${environment.apiUrl}/api/user/integrations/huggingface/status`
+      )
+    );
+    return { configured: res.configured, username: res.username };
+  }
+
+  async setHuggingFaceToken(token: string): Promise<{ username: string | null }> {
+    const res = await firstValueFrom(
+      this.http.put<{ success: boolean; username: string | null }>(
+        `${environment.apiUrl}/api/user/integrations/huggingface`,
+        { token }
+      )
+    );
+    return { username: res.username };
+  }
+
+  async removeHuggingFaceToken(): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`${environment.apiUrl}/api/user/integrations/huggingface`)
+    );
+  }
+
   async setProviderModel(provider: string, selectedModel: string): Promise<void> {
     await firstValueFrom(
       this.http.put(`${environment.apiUrl}/api/user/api-keys/${provider}/model`, {

@@ -23,6 +23,15 @@ export interface SaveDatasetResponse {
   error?: string;
 }
 
+export interface ImportDatasetResponse {
+  success: boolean;
+  repoId?: string;
+  repoName?: string;
+  rowCount?: number;
+  totalTokens?: number;
+  error?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -53,6 +62,21 @@ export class DatasetsService {
       this.http.post<SaveDatasetResponse>(
         `${environment.apiUrl}/api/datasets/save`,
         { name, description, rows }
+      )
+    );
+    return res;
+  }
+
+  async importFromHuggingFace(
+    datasetId: string,
+    name: string,
+    split: string,
+    maxRows: number
+  ): Promise<ImportDatasetResponse> {
+    const res = await firstValueFrom(
+      this.http.post<ImportDatasetResponse>(
+        `${environment.apiUrl}/api/datasets/import-huggingface`,
+        { datasetId, name, split, maxRows }
       )
     );
     return res;

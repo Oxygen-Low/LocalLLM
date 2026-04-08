@@ -7,6 +7,7 @@ import { LlmService, ProviderInfo } from '../services/llm.service';
 import { DatasetsService, DatasetRow } from '../services/datasets.service';
 
 type WizardStep = 'configure' | 'generating' | 'results';
+type DatasetMode = 'generate' | 'import';
 
 @Component({
   selector: 'app-datasets',
@@ -29,8 +30,30 @@ type WizardStep = 'configure' | 'generating' | 'results';
           </div>
         </div>
 
-        <!-- STEP 1: Configure -->
+        <!-- Mode selector -->
         @if (currentStep() === 'configure') {
+          <div class="max-w-2xl mx-auto mb-6">
+            <div class="flex rounded-lg border border-secondary-200 bg-white overflow-hidden">
+              <button
+                (click)="datasetMode.set('generate')"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [ngClass]="datasetMode() === 'generate' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
+              >
+                Generate with AI
+              </button>
+              <button
+                (click)="datasetMode.set('import')"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [ngClass]="datasetMode() === 'import' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
+              >
+                Import from HuggingFace
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- STEP 1: Configure (Generate) -->
+        @if (currentStep() === 'configure' && datasetMode() === 'generate') {
           <div class="max-w-2xl mx-auto">
             <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-6">
 
@@ -117,6 +140,87 @@ type WizardStep = 'configure' | 'generating' | 'results';
                 class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {{ t.translate('datasets.generateButton') }}
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- STEP 1: Configure (Import from HuggingFace) -->
+        @if (currentStep() === 'configure' && datasetMode() === 'import') {
+          <div class="max-w-2xl mx-auto">
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-6">
+
+              <!-- Dataset ID -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                  HuggingFace Dataset ID
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="importDatasetId"
+                  placeholder="e.g. tatsu-lab/alpaca"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
+                />
+                <p class="text-xs text-muted mt-1">Enter the HuggingFace dataset ID in "owner/name" format.</p>
+              </div>
+
+              <!-- Dataset Name -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                  Repository Name
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="importName"
+                  placeholder="e.g. alpaca-dataset"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
+                />
+                <p class="text-xs text-muted mt-1">Name for the local dataset repository. If empty, the dataset name will be used.</p>
+              </div>
+
+              <!-- Split -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                  Split
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="importSplit"
+                  placeholder="train"
+                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
+                />
+                <p class="text-xs text-muted mt-1">Dataset split to import (e.g. "train", "test", "validation").</p>
+              </div>
+
+              <!-- Max Rows -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                  Max Rows
+                </label>
+                <input
+                  type="number"
+                  [(ngModel)]="importMaxRows"
+                  min="1"
+                  max="50000"
+                  step="1"
+                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
+                />
+                <p class="text-xs text-muted mt-1">Maximum number of rows to import (1–50,000).</p>
+              </div>
+
+              @if (importError()) {
+                <div class="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
+                  {{ importError() }}
+                </div>
+              }
+
+              <!-- Import button -->
+              <button
+                (click)="importFromHuggingFace()"
+                [disabled]="!canImport() || isImporting()"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {{ isImporting() ? 'Importing...' : 'Import Dataset' }}
               </button>
             </div>
           </div>
@@ -280,6 +384,7 @@ export class DatasetsPageComponent implements OnInit {
 
   // Wizard state
   currentStep = signal<WizardStep>('configure');
+  datasetMode = signal<DatasetMode>('generate');
 
   // Configuration
   instructions = '';
@@ -303,6 +408,14 @@ export class DatasetsPageComponent implements OnInit {
   saveSuccess = signal(false);
   savedRepoName = signal('');
   saveErrorMessage = signal('');
+
+  // Import from HuggingFace
+  importDatasetId = '';
+  importName = '';
+  importSplit = 'train';
+  importMaxRows = 1000;
+  isImporting = signal(false);
+  importError = signal('');
 
   async ngOnInit(): Promise<void> {
     this.isLoadingProviders.set(true);
@@ -423,6 +536,50 @@ export class DatasetsPageComponent implements OnInit {
       this.saveErrorMessage.set(err?.error?.error || err?.message || 'An error occurred while saving');
     } finally {
       this.isSaving.set(false);
+    }
+  }
+
+  // --- Import from HuggingFace ---
+
+  canImport(): boolean {
+    return (
+      this.importDatasetId.trim().length > 0 &&
+      Number.isInteger(this.importMaxRows) &&
+      this.importMaxRows >= 1
+    );
+  }
+
+  async importFromHuggingFace(): Promise<void> {
+    if (!this.canImport() || this.isImporting()) return;
+
+    this.isImporting.set(true);
+    this.importError.set('');
+    this.currentStep.set('generating');
+
+    try {
+      const res = await this.datasetsService.importFromHuggingFace(
+        this.importDatasetId.trim(),
+        this.importName.trim(),
+        this.importSplit.trim() || 'train',
+        this.importMaxRows
+      );
+      if (res.success) {
+        this.generatedRows.set([]);
+        this.generationError.set('');
+        this.saveSuccess.set(true);
+        this.savedRepoName.set(res.repoName || this.importDatasetId);
+        this.saveErrorMessage.set('');
+        this.currentStep.set('results');
+      } else {
+        this.importError.set(res.error || 'Failed to import dataset');
+        this.currentStep.set('configure');
+      }
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string }; message?: string };
+      this.importError.set(httpErr?.error?.error || httpErr?.message || 'An error occurred while importing');
+      this.currentStep.set('configure');
+    } finally {
+      this.isImporting.set(false);
     }
   }
 }
