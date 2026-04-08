@@ -2143,8 +2143,9 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       if (transcript) {
         await this.sendVoiceMessage(transcript);
       }
-    } catch {
-      this.errorMessage.set('Voice recognition failed. Please try again.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      this.errorMessage.set(`Voice recognition failed: ${msg}. Check your microphone permissions and try again.`);
     }
   }
 
