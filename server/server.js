@@ -4280,6 +4280,10 @@ app.delete('/api/coding-agent/memories/:id', requireSession, (req, res) => {
 
 const MAX_DATASET_INSTRUCTIONS_LENGTH = 5000;
 const BYTES_PER_TOKEN = 4; // standard approximation: 1 token ≈ 4 bytes
+const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
+const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
+const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
+const LLM_MAX_RESPONSE_TOKENS = 4096; // max tokens for LLM completion
 
 // Helper to estimate token count from text
 function estimateTokenCount(text) {
@@ -4349,8 +4353,8 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
       }
     }
 
-    // Estimate number of rows from token count (each row ≈ 100 tokens on average)
-    const estimatedRows = Math.max(1, Math.min(Math.ceil(tokenCount / 100), 500));
+    // Estimate number of rows from token count
+    const estimatedRows = Math.max(1, Math.min(Math.ceil(tokenCount / TOKENS_PER_ROW_ESTIMATE), MAX_ESTIMATED_ROWS));
 
     const prompt = `You are a dataset generator. Based on the following instructions, generate training data rows. Target approximately ${tokenCount} tokens of total output (roughly ${estimatedRows} rows).
 
@@ -4367,7 +4371,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
   {"instruction": "...", "input": "...", "output": "..."}
 ]`;
 
-    const llmMaxTokens = Math.min(tokenCount + 512, 4096);
+    const llmMaxTokens = Math.min(tokenCount + LLM_TOKEN_BUFFER, LLM_MAX_RESPONSE_TOKENS);
     const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
       provider,
       model,

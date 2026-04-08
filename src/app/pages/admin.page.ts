@@ -1141,9 +1141,9 @@ export class AdminPageComponent implements OnDestroy {
     this.statusMessage.set(null);
     this.isSavingDatasetTokenLimit.set(true);
     try {
-      const limit = Math.floor(this.datasetTokenLimitGB);
-      if (limit < 1 || limit > 1000) {
-        this.errorMessage.set('Dataset token limit must be between 1 and 1000 GB.');
+      const limit = this.datasetTokenLimitGB;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        this.errorMessage.set('Dataset token limit must be a whole number between 1 and 1000 GB.');
         return;
       }
       const response = await this.adminService.setDatasetTokenLimit(limit, this.adminPasswordHash);
