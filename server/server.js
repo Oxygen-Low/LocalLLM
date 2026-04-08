@@ -4285,7 +4285,6 @@ const BYTES_PER_TOKEN = 4; // standard approximation: 1 token ≈ 4 bytes
 const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
 const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
 const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
-const LLM_MAX_RESPONSE_TOKENS = 4096; // max tokens for LLM completion
 
 // Helper to estimate token count from text
 function estimateTokenCount(text) {
@@ -4373,7 +4372,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
   {"instruction": "...", "input": "...", "output": "..."}
 ]`;
 
-    const llmMaxTokens = Math.min(tokenCount + LLM_TOKEN_BUFFER, LLM_MAX_RESPONSE_TOKENS);
+    const llmMaxTokens = tokenCount + LLM_TOKEN_BUFFER;
     const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
       provider,
       model,
