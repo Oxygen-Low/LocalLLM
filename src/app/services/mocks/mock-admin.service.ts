@@ -49,10 +49,16 @@ export class MockAdminService {
   }
   async deleteCharacter(): Promise<{ success: boolean }> { return { success: true }; }
 
-  async getRiskyAppsEnabled(): Promise<{ success: boolean; riskyAppsEnabled: boolean }> {
-    return { success: true, riskyAppsEnabled: true };
+  async getRiskyAppsEnabled(): Promise<{ success: boolean; riskyAppsEnabled: boolean; koboldEnabled: boolean; ollamaEnabled: boolean }> {
+    return { success: true, riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false };
   }
   async setRiskyAppsEnabled(enabled: boolean): Promise<{ success: boolean; riskyAppsEnabled: boolean }> {
     return { success: true, riskyAppsEnabled: enabled };
+  }
+  async setKoboldEnabled(enabled: boolean): Promise<{ success: boolean; koboldEnabled: boolean }> {
+    return { success: true, koboldEnabled: enabled };
+  }
+  async setOllamaEnabled(enabled: boolean): Promise<{ success: boolean; ollamaEnabled: boolean }> {
+    return { success: true, ollamaEnabled: enabled };
   }
 }
