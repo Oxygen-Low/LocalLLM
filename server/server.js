@@ -625,6 +625,11 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+// Default application settings – defined before initialization so the settings
+// file can be seeded with the complete defaults when created for the first time.
+const DEFAULT_MAX_DATASET_TOKENS_GB = 40;
+const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false }, maxDatasetTokensGB: DEFAULT_MAX_DATASET_TOKENS_GB };
+
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -645,7 +650,7 @@ if (!fs.existsSync(UNIVERSES_FILE)) {
   fs.writeFileSync(UNIVERSES_FILE, JSON.stringify([]), 'utf-8');
 }
 if (!fs.existsSync(SETTINGS_FILE)) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ riskyAppsEnabled: true }), 'utf-8');
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf-8');
 }
 
 // In-memory users cache – loaded from disk once at startup, kept in sync on every write
@@ -696,9 +701,6 @@ function writeUniverses(universes) {
 // App Settings – in-memory cache with disk persistence
 // ---------------------------------------------------------------------------
 let settingsCache = null;
-
-const DEFAULT_MAX_DATASET_TOKENS_GB = 40;
-const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false }, maxDatasetTokensGB: DEFAULT_MAX_DATASET_TOKENS_GB };
 
 function loadSettingsFromDisk() {
   try {
