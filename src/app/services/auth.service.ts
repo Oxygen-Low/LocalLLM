@@ -41,6 +41,10 @@ const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15-minute lockout
 // A07: Inactivity timeout
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+// crypto.subtle requires a secure context (HTTPS or localhost)
+const INSECURE_CONTEXT_ERROR = 'INSECURE_CONTEXT';
+const INSECURE_CONTEXT_MESSAGE = 'A secure (HTTPS) connection is required. Please access this site using HTTPS.';
+
 @Injectable({
   providedIn: 'root',
 })
@@ -89,6 +93,9 @@ export class AuthService {
   }
 
   async hashPassword(password: string): Promise<string> {
+    if (!crypto?.subtle) {
+      throw new Error(INSECURE_CONTEXT_ERROR);
+    }
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -396,6 +403,10 @@ export class AuthService {
       this.securityLogger.log('SIGNUP_FAILURE', response.error ?? 'Unknown error', username);
       return { success: false, error: response.error };
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === INSECURE_CONTEXT_ERROR) {
+        this.securityLogger.log('SIGNUP_FAILURE', 'Insecure context – HTTPS required', username);
+        return { success: false, error: INSECURE_CONTEXT_MESSAGE };
+      }
       const error = err as { error?: AuthResponse; status?: number };
       const message = error.error?.error ?? 'Failed to create account. Please try again.';
       this.securityLogger.log('SIGNUP_FAILURE', message, username);
@@ -437,6 +448,11 @@ export class AuthService {
       this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
       return { success: false, error: 'Invalid username or password' };
     } catch (error) {
+      if (error instanceof Error && error.message === INSECURE_CONTEXT_ERROR) {
+        this.securityLogger.log('LOGIN_FAILURE', 'Insecure context – HTTPS required', normalizedUsername);
+        return { success: false, error: INSECURE_CONTEXT_MESSAGE };
+      }
+
       this.recordFailedAttempt(normalizedUsername);
 
       if (error instanceof HttpErrorResponse && error.status > 0) {
@@ -504,6 +520,9 @@ export class AuthService {
 
       return { success: false, error: response.error, retryAfterSeconds: response.retryAfterSeconds };
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === INSECURE_CONTEXT_ERROR) {
+        return { success: false, error: INSECURE_CONTEXT_MESSAGE };
+      }
       const error = err as { error?: AuthResponse; status?: number };
       const message = error.error?.error ?? 'Failed to change password. Please try again.';
       const retryAfterSeconds = error.error?.retryAfterSeconds;
@@ -572,6 +591,9 @@ export class AuthService {
 
       return { success: false, error: response.error };
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === INSECURE_CONTEXT_ERROR) {
+        return { success: false, error: INSECURE_CONTEXT_MESSAGE };
+      }
       const error = err as { error?: AuthResponse; status?: number };
       const message = error.error?.error ?? 'Failed to delete account. Please try again.';
       this.securityLogger.log('ACCOUNT_DELETE_FAILURE', message, user);
