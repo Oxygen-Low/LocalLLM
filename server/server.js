@@ -29,6 +29,7 @@ const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
 const CERTS_DIR = path.join(DATA_DIR, 'certs');
 const CERT_KEY_FILE = path.join(CERTS_DIR, 'server.key');
 const CERT_FILE = path.join(CERTS_DIR, 'server.cert');
+const CERT_VALIDITY_DAYS = parseInt(process.env.CERT_VALIDITY_DAYS, 10) || 365;
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
@@ -7861,7 +7862,7 @@ function ensureSelfSignedCert() {
       'req', '-x509', '-newkey', 'rsa:2048',
       '-keyout', CERT_KEY_FILE,
       '-out', CERT_FILE,
-      '-days', '365',
+      '-days', String(CERT_VALIDITY_DAYS),
       '-nodes',
       '-subj', '/CN=LocalLLM',
       '-addext', `subjectAltName=${sanConfig}`,
@@ -7874,8 +7875,8 @@ function ensureSelfSignedCert() {
     return null;
   }
 
-  // Restrict permissions on the private key
-  fs.chmodSync(CERT_KEY_FILE, 0o600);
+  // Restrict permissions on the private key (Unix-like systems only)
+  try { fs.chmodSync(CERT_KEY_FILE, 0o600); } catch { /* Windows does not support Unix permissions */ }
 
   console.log('[https] Self-signed certificate generated successfully.');
   console.log(`[https] SANs: ${sanConfig}`);
