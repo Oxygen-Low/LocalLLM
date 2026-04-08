@@ -8,6 +8,7 @@ import { marked } from 'marked';
 import { environment } from '../../environments/environment';
 import { LlmService, type ProviderInfo, type UniverseSummary, type UniverseCharacterSummary, type SearchEvent, type SendMessageOptions, type StreamResult, type ChatMessage as LlmChatMessage } from '../services/llm.service';
 import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type ContainerInfo, type FileEntry, type AgentMemory } from '../services/coding-agent.service';
+import { VoiceService } from '../services/voice.service';
 
 type WizardStep = 'check-github' | 'select-repo' | 'select-mode' | 'container-manager' | 'background-running' | 'manual-workspace';
 
@@ -1100,6 +1101,19 @@ interface ToolCall {
                       class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 text-sm focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 resize-none max-h-24 overflow-y-auto"
                       (input)="autoChatResize($event)"
                     ></textarea>
+                    @if (voiceService.recognitionSupported) {
+                      <button
+                        (click)="enterVoiceMode()"
+                        [disabled]="isAiResponding()"
+                        class="px-2 py-2 rounded-lg border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
+                        aria-label="Voice mode"
+                        title="Voice mode"
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                      </button>
+                    }
                     <button
                       (click)="sendChatMessage()"
                       [disabled]="isAiResponding() || !chatInput.trim() || !selectedProvider()"
@@ -1118,6 +1132,101 @@ interface ToolCall {
           </div>
         }
       }
+
+      <!-- Voice Mode Overlay -->
+      @if (voiceModeActive()) {
+        <div class="fixed inset-0 z-50 bg-gradient-to-b from-secondary-900 to-secondary-800 flex flex-col items-center justify-center text-white">
+          <!-- Close button -->
+          <button
+            (click)="exitVoiceMode()"
+            class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors"
+            aria-label="Exit voice mode"
+          >
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          <!-- Character display -->
+          <div class="mb-4 text-center">
+            @if (selectedCharacter()) {
+              <p class="text-sm text-purple-300">🎭 {{ selectedCharacter()?.name }}</p>
+            }
+          </div>
+
+          <!-- Status / transcript -->
+          <div class="text-center mb-8 px-6 max-w-lg min-h-[80px]">
+            @if (voiceService.isListening()) {
+              <div class="flex items-center justify-center gap-2 mb-3">
+                <span class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+                <span class="text-sm text-red-300 font-medium">Listening...</span>
+              </div>
+              @if (voiceService.interimTranscript()) {
+                <p class="text-lg text-white/80 italic">{{ voiceService.interimTranscript() }}</p>
+              }
+            } @else if (voiceService.isSpeaking()) {
+              <div class="flex items-center justify-center gap-2 mb-3">
+                <span class="text-sm text-green-300 font-medium">🔊 Speaking...</span>
+              </div>
+              <p class="text-sm text-white/60">Tap the mic to interrupt</p>
+            } @else if (voiceProcessing()) {
+              <div class="flex items-center justify-center gap-2">
+                <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                <span class="text-sm text-white/70">Thinking...</span>
+              </div>
+            } @else {
+              <p class="text-sm text-white/60">Tap the mic to start talking</p>
+            }
+          </div>
+
+          <!-- Mic button -->
+          <button
+            (click)="toggleVoiceListening()"
+            [disabled]="voiceProcessing()"
+            class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50"
+            [ngClass]="voiceService.isListening()
+              ? 'bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30'
+              : 'bg-white/10 hover:bg-white/20 border-2 border-white/30'"
+            aria-label="Toggle microphone"
+          >
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          </button>
+
+          <!-- Voice picker -->
+          <div class="mt-8 relative">
+            <button
+              (click)="showVoicePicker.set(!showVoicePicker())"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707a1 1 0 011.707.707v14a1 1 0 01-1.707.707L5.586 15z" />
+              </svg>
+              <span class="max-w-[200px] truncate">{{ getSelectedVoiceLabel() }}</span>
+              <svg class="w-3 h-3 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            @if (showVoicePicker()) {
+              <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 max-h-64 overflow-y-auto bg-secondary-800 rounded-lg border border-secondary-600 shadow-xl py-1 z-50">
+                @for (v of voiceService.availableVoices(); track $index) {
+                  <button
+                    (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate"
+                    [ngClass]="voiceService.selectedVoiceIndex() === $index ? 'bg-primary-700/40 text-primary-300' : 'text-white/80'"
+                  >
+                    {{ v.label }}
+                  </button>
+                }
+                @if (voiceService.availableVoices().length === 0) {
+                  <p class="px-4 py-2 text-sm text-white/50">No voices available</p>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
     </div>
   `,
 })
@@ -1131,6 +1240,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   private llmService = inject(LlmService);
   private route = inject(ActivatedRoute);
   private http = inject(HttpClient);
+  voiceService = inject(VoiceService);
 
   // Wizard state
   currentStep = signal<WizardStep>('check-github');
@@ -1237,6 +1347,11 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   showMemoriesPanel = signal(false);
   newMemoryContent = '';
 
+  // Voice mode state
+  voiceModeActive = signal(false);
+  voiceProcessing = signal(false);
+  showVoicePicker = signal(false);
+
   private statusInterval: ReturnType<typeof setInterval> | null = null;
   private clickOutsideListener: ((e: Event) => void) | null = null;
   private providerPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -1281,6 +1396,8 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       document.removeEventListener('click', this.clickOutsideListener);
     }
     this.stopProviderPolling();
+    this.voiceService.stopListening();
+    this.voiceService.stopSpeaking();
   }
 
   async checkSetup(): Promise<void> {
@@ -1992,6 +2109,91 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   }
 
   // --- Manual Mode: AI Chat ---
+
+  // ---------------------------------------------------------------------------
+  // Voice Mode
+  // ---------------------------------------------------------------------------
+
+  enterVoiceMode(): void {
+    this.voiceModeActive.set(true);
+    this.showVoicePicker.set(false);
+  }
+
+  exitVoiceMode(): void {
+    this.voiceService.stopListening();
+    this.voiceService.stopSpeaking();
+    this.voiceModeActive.set(false);
+    this.voiceProcessing.set(false);
+    this.showVoicePicker.set(false);
+  }
+
+  async toggleVoiceListening(): Promise<void> {
+    if (this.voiceService.isListening()) {
+      this.voiceService.stopListening();
+      return;
+    }
+
+    // If TTS is speaking, stop it and start listening
+    if (this.voiceService.isSpeaking()) {
+      this.voiceService.stopSpeaking();
+    }
+
+    try {
+      const transcript = await this.voiceService.startListening();
+      if (transcript) {
+        await this.sendVoiceMessage(transcript);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      this.errorMessage.set(`Voice recognition failed: ${msg}. Check your microphone permissions and try again.`);
+    }
+  }
+
+  private async sendVoiceMessage(message: string): Promise<void> {
+    if (!message.trim() || this.isAiResponding() || !this.selectedProvider()) return;
+
+    this.voiceProcessing.set(true);
+    this.streamingSearches.set([]);
+    this.chatMessages.update(msgs => [...msgs, { role: 'user', content: message }]);
+    this.scrollChatToBottom();
+    this.isAiResponding.set(true);
+    this.toolIterationCount.set(0);
+
+    try {
+      await this.runAiLoop();
+
+      // Speak the last assistant response via TTS if still in voice mode
+      if (this.voiceModeActive()) {
+        const msgs = this.chatMessages();
+        const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
+        if (lastAssistant) {
+          const textToSpeak = lastAssistant.displayContent || this.getContentAsString(lastAssistant.content);
+          this.voiceProcessing.set(false);
+          await this.voiceService.speak(textToSpeak);
+        }
+      }
+    } catch {
+      this.chatMessages.update(msgs => [...msgs, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+    } finally {
+      this.isAiResponding.set(false);
+      this.streamingThinking.set('');
+      this.streamingContent.set('');
+      this.streamingSearches.set([]);
+      this.thinkingDone.set(false);
+      this.toolIterationCount.set(0);
+      this.voiceProcessing.set(false);
+      this.scrollChatToBottom();
+    }
+  }
+
+  getSelectedVoiceLabel(): string {
+    const voices = this.voiceService.availableVoices();
+    const idx = this.voiceService.selectedVoiceIndex();
+    if (voices.length > 0 && idx < voices.length) {
+      return voices[idx].label;
+    }
+    return 'Default Voice';
+  }
 
   onChatEnterKey(event: Event): void {
     const ke = event as KeyboardEvent;
