@@ -4391,18 +4391,26 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       // Try to extract individual objects and wrap them in an array.
       try {
         const objects = [];
-        // Match top-level JSON objects by tracking brace depth
+        // Match top-level JSON objects by tracking brace depth (string-aware)
         let depth = 0;
         let start = -1;
+        let inString = false;
         for (let i = 0; i < cleaned.length; i++) {
-          const ch = cleaned[i];
-          if (ch === '{') {
+          const char = cleaned[i];
+          if (inString) {
+            if (char === '\\') { i++; continue; } // skip escaped character
+            if (char === '"') inString = false;
+            continue;
+          }
+          if (char === '"') { inString = true; continue; }
+          if (char === '{') {
             if (depth === 0) start = i;
             depth++;
-          } else if (ch === '}') {
+          } else if (char === '}') {
             depth--;
             if (depth === 0 && start !== -1) {
-              objects.push(JSON.parse(cleaned.slice(start, i + 1)));
+              const candidate = cleaned.slice(start, i + 1);
+              try { objects.push(JSON.parse(candidate)); } catch { /* skip malformed object */ }
               start = -1;
             }
           }
