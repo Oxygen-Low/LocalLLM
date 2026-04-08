@@ -54,6 +54,35 @@ interface AppSettingsResponse {
   ollamaEnabled?: boolean;
 }
 
+export interface AutoSyncConfig {
+  enabled: boolean;
+  directory: string;
+  excludeModels: boolean;
+  encrypt: boolean;
+}
+
+export interface AutoSyncStatusResponse {
+  success: boolean;
+  error?: string;
+  autoSync?: AutoSyncConfig;
+  status?: { lastSync: string | null; lastError: string | null; syncing: boolean };
+  hasExistingData?: boolean;
+  remoteDate?: string | null;
+}
+
+export interface AutoSyncTriggerResponse {
+  success: boolean;
+  error?: string;
+  direction?: string;
+  timestamp?: string;
+}
+
+export interface AutoSyncImportResponse {
+  success: boolean;
+  error?: string;
+  importedDate?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -376,6 +405,67 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to upload model' };
+    }
+  }
+
+  // --- Auto-Sync ---
+
+  async setAutoSync(config: { enabled: boolean; directory: string; excludeModels: boolean; encrypt: boolean }, adminPasswordHash: string): Promise<{ success: boolean; error?: string; autoSync?: AutoSyncConfig }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; autoSync?: AutoSyncConfig }>(`${environment.apiUrl}/api/admin/settings/auto-sync`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          ...config,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update auto-sync settings' };
+    }
+  }
+
+  async getAutoSyncStatus(adminPasswordHash: string): Promise<AutoSyncStatusResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AutoSyncStatusResponse>(`${environment.apiUrl}/api/admin/auto-sync/status`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to get auto-sync status' };
+    }
+  }
+
+  async triggerAutoSync(direction: string, adminPasswordHash: string): Promise<AutoSyncTriggerResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AutoSyncTriggerResponse>(`${environment.apiUrl}/api/admin/auto-sync/trigger`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          direction,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to trigger auto-sync' };
+    }
+  }
+
+  async importAutoSync(directory: string, adminPasswordHash: string): Promise<AutoSyncImportResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AutoSyncImportResponse>(`${environment.apiUrl}/api/admin/auto-sync/import`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          directory,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to import sync data' };
     }
   }
 }
