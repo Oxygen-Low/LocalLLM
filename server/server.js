@@ -13,6 +13,7 @@ const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 const SERVER_INSTANCE_ID = crypto.randomUUID();
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -606,7 +607,7 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:4200',
+  origin: process.env.CORS_ORIGIN || (HOST === '0.0.0.0' || HOST === '::' ? true : 'http://localhost:4200'),
   exposedHeaders: ['X-Server-Instance-ID']
 }));
 app.use((req, res, next) => {
@@ -7819,7 +7820,31 @@ async function getOrCreateCert() {
   }
 
   const attrs = [{ name: 'commonName', value: 'localhost' }];
-  const pems = await selfsigned.generate(attrs, { days: 365, keySize: 2048 });
+  const subjectAltName = {
+    name: 'subjectAltName',
+    altNames: [
+      { type: 2, value: 'localhost' },
+      { type: 7, ip: '127.0.0.1' },
+      { type: 7, ip: '0.0.0.0' },
+    ]
+  };
+
+  // When binding to all interfaces, add local network IPs to the certificate
+  if (HOST === '0.0.0.0' || HOST === '::') {
+    try {
+      const os = require('os');
+      const ifaces = os.networkInterfaces();
+      for (const name of Object.keys(ifaces)) {
+        for (const iface of ifaces[name]) {
+          if (!iface.internal && iface.family === 'IPv4') {
+            subjectAltName.altNames.push({ type: 7, ip: iface.address });
+          }
+        }
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  const pems = await selfsigned.generate(attrs, { days: 365, keySize: 2048, extensions: [subjectAltName] });
 
   if (!fs.existsSync(CERT_DIR)) {
     fs.mkdirSync(CERT_DIR, { recursive: true });
@@ -7838,8 +7863,8 @@ async function createHttpsServer() {
 
 if (require.main === module) {
   createHttpsServer().then((server) => {
-    server.listen(PORT, () => {
-      console.log(`Server running on HTTPS port ${PORT}`);
+    server.listen(PORT, HOST, () => {
+      console.log(`Server running on https://${HOST}:${PORT}`);
       startPythonProcess();
 
       // Auto-sync on startup: pull remote data if newer

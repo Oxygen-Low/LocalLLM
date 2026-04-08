@@ -4,6 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve\"",
+    "start:lan": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve --configuration lan\"",
     "server": "node server/server.js",
     "build": "ng build",
     "preview": "ng build --configuration preview && npx serve -s dist/local-llm/browser",
