@@ -4509,7 +4509,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
             }
           }
           if (objects.length === 0) {
-            lastError = 'Failed to parse LLM response as valid JSON. Please try again.';
+            lastError = 'Failed to parse LLM response as valid JSON.';
             continue; // retry
           }
           rows = objects;
@@ -4528,7 +4528,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 
         const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
         if (hasEmptyRequiredFields) {
-          lastError = 'LLM returned rows with empty required fields. Please try again.';
+          lastError = 'LLM returned rows with empty required fields.';
           continue; // retry
         }
 
