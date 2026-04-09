@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve --configuration lan\"",
-    "start:no-lan": "concurrently --names server,angular --prefix-colors blue,green \"HOST=127.0.0.1 npm run server\" \"ng serve\"",
+    "start:no-lan": "concurrently --names server,angular --prefix-colors blue,green \"cross-env HOST=127.0.0.1 npm run server\" \"ng serve\"",
     "server": "node server/server.js",
     "build": "ng build",
     "preview": "ng build --configuration preview && npx serve -s dist/local-llm/browser",
@@ -32,6 +32,7 @@
     "@angular/router": "^21.2.8",
     "concurrently": "^9.2.1",
     "cors": "^2.8.6",
+    "cross-env": "^10.1.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "helmet": "^8.1.0",
