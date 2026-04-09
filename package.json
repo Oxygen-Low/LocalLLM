@@ -46,7 +46,7 @@
   "devDependencies": {
     "@angular/build": "^21.2.6",
     "@angular/cli": "^21.2.6",
-    "@angular/compiler-cli": "^21.2.7",
+    "@angular/compiler-cli": "^21.2.8",
     "@tailwindcss/typography": "^0.5.16",
     "autoprefixer": "^10.4.21",
     "jsdom": "^29.0.2",
