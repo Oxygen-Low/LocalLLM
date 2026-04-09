@@ -4451,6 +4451,14 @@ const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
 const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
 const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
 const MAX_DATASET_RETRIES = 3; // maximum number of retries when retryOnFail is enabled
+const REFINE_ROW_PROMPT_TEMPLATE = `You are a dataset quality refinement assistant. Your task is to improve a single training data row for an LLM fine-tuning dataset.
+
+Review and fix the following training data row:
+- Fix any grammar, spelling, or punctuation errors
+- Improve clarity and readability
+- Ensure consistency between the instruction, input, and output fields
+- Fix any factual inaccuracies if obvious
+- Maintain the original intent and meaning`;
 
 // Helper to estimate token count from text
 function estimateTokenCount(text) {
@@ -4941,6 +4949,153 @@ app.post('/api/datasets/:id/unarchive', requireSession, (req, res) => {
   } catch (err) {
     console.error('Unarchive dataset error:', err);
     res.status(500).json({ success: false, error: 'Failed to unarchive dataset' });
+  }
+});
+
+// POST /api/datasets/:id/refine – Refine an existing dataset row-by-row using an LLM
+app.post('/api/datasets/:id/refine', requireSession, async (req, res) => {
+  try {
+    const { provider, model, instructions } = req.body;
+    const datasetId = req.params.id;
+
+    // Validate provider and model (same validation as /api/datasets/generate)
+    if (!provider || typeof provider !== 'string') {
+      return res.status(400).json({ success: false, error: 'Provider is required' });
+    }
+    if (!VALID_PROVIDERS.includes(provider) && !LOCAL_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ success: false, error: `Invalid provider "${provider}". Supported providers: ${ALL_PROVIDERS.join(', ')}` });
+    }
+    if (!model || typeof model !== 'string') {
+      return res.status(400).json({ success: false, error: 'Model is required' });
+    }
+
+    if (instructions && typeof instructions === 'string' && instructions.length > MAX_DATASET_INSTRUCTIONS_LENGTH) {
+      return res.status(400).json({ success: false, error: `Instructions must be ${MAX_DATASET_INSTRUCTIONS_LENGTH} characters or less` });
+    }
+
+    // Validate local / cloud provider credentials
+    if (provider === 'local') {
+      const localModels = readLocalModels();
+      if (!localModels.some(m => m.id === model.trim())) {
+        return res.status(400).json({ success: false, error: 'Selected local model not found' });
+      }
+    } else if (provider === 'kobold') {
+      const settings = readSettings();
+      if (!settings.koboldEnabled) {
+        return res.status(400).json({ success: false, error: 'Kobold.cpp is not enabled' });
+      }
+    } else if (provider === 'ollama') {
+      const settings = readSettings();
+      if (!settings.ollamaEnabled) {
+        return res.status(400).json({ success: false, error: 'Ollama is not enabled' });
+      }
+    } else {
+      const keys = readUserApiKeys(req.sessionUser);
+      if (!keys[provider]?.apiKey) {
+        return res.status(400).json({ success: false, error: `No API key configured for provider "${provider}". Add one in Settings.` });
+      }
+    }
+
+    // Look up the existing dataset
+    const datasets = readUserDatasets(req.sessionUser);
+    const ds = datasets.find(d => d.id === datasetId && d.status === 'active');
+    if (!ds) {
+      return res.status(404).json({ success: false, error: 'Active dataset not found' });
+    }
+
+    // Read existing JSONL rows
+    const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
+    const filePath = path.join(datasetDir, 'dataset.jsonl');
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, error: 'Dataset file not found' });
+    }
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
+    if (lines.length === 0) {
+      return res.status(400).json({ success: false, error: 'Dataset has no rows to refine' });
+    }
+
+    let originalRows;
+    try {
+      originalRows = lines.map((line, idx) => {
+        const parsed = JSON.parse(line);
+        if (typeof parsed.instruction !== 'string' || typeof parsed.output !== 'string') {
+          throw new Error(`Row ${idx + 1} is missing required fields`);
+        }
+        return {
+          instruction: parsed.instruction,
+          input: typeof parsed.input === 'string' ? parsed.input : '',
+          output: parsed.output,
+        };
+      });
+    } catch (parseErr) {
+      return res.status(400).json({ success: false, error: `Failed to parse dataset: ${parseErr.message}` });
+    }
+
+    // Build custom instruction portion for the prompt
+    const customInstructions = (instructions && typeof instructions === 'string' && instructions.trim().length > 0)
+      ? `\n\nAdditional refinement instructions from the user:\n${instructions.trim()}`
+      : '';
+
+    // Process each row independently
+    const refinedRows = [];
+    for (let i = 0; i < originalRows.length; i++) {
+      const row = originalRows[i];
+      const refinementPrompt = `${REFINE_ROW_PROMPT_TEMPLATE}${customInstructions}
+
+Here is the row to refine:
+${JSON.stringify(row)}
+
+Return ONLY a single valid JSON object with the corrected fields: "instruction", "input", and "output".
+Do not include any markdown, explanation, or extra text. Return raw JSON only.`;
+
+      try {
+        const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: refinementPrompt }], {
+          provider,
+          model,
+          max_tokens: 2048,
+          temperature: 0.3,
+        });
+
+        const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
+        let refined;
+        try {
+          refined = JSON.parse(cleaned);
+        } catch {
+          // Try to extract the first JSON object from the response
+          const match = cleaned.match(/\{[\s\S]*\}/);
+          if (match) {
+            refined = JSON.parse(match[0]);
+          } else {
+            // If parsing fails, keep the original row
+            refinedRows.push(row);
+            continue;
+          }
+        }
+
+        refinedRows.push({
+          instruction: typeof refined.instruction === 'string' && refined.instruction.trim() ? refined.instruction.trim() : row.instruction,
+          input: typeof refined.input === 'string' ? refined.input.trim() : row.input,
+          output: typeof refined.output === 'string' && refined.output.trim() ? refined.output.trim() : row.output,
+        });
+      } catch (rowErr) {
+        // On LLM failure for a single row, keep the original
+        console.error(`Dataset refine: failed to refine row ${i + 1} of dataset "${ds.name}":`, rowErr.message || rowErr);
+        refinedRows.push(row);
+      }
+    }
+
+    // Calculate token count for the refined rows
+    const totalTokens = refinedRows.reduce((sum, r) => {
+      return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
+    }, 0);
+
+    auditLog({ event: 'DATASET_REFINED', message: `Refined dataset "${ds.name}" (${refinedRows.length} rows, ~${totalTokens} tokens)`, username: req.sessionUser, req });
+    return res.json({ success: true, rows: refinedRows, totalTokens, originalName: ds.name });
+  } catch (err) {
+    console.error('Dataset refine error:', err);
+    const message = err.message || 'Internal server error';
+    res.status(500).json({ success: false, error: message });
   }
 });
 

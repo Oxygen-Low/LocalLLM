@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { DatasetsService, DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, ImportDatasetResponse, DatasetListResponse } from './datasets.service';
+import { DatasetsService, DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, ImportDatasetResponse, RefineDatasetResponse, DatasetListResponse } from './datasets.service';
 
 describe('DatasetsService', () => {
   let service: DatasetsService;
@@ -224,6 +224,81 @@ describe('DatasetsService', () => {
       expect(req.request.method).toBe('POST');
       req.flush({ success: true });
       await promise;
+    });
+  });
+
+  describe('refine', () => {
+    it('should send POST request with provider, model, and instructions', async () => {
+      const mockResponse: RefineDatasetResponse = {
+        success: true,
+        rows: [
+          { instruction: 'Improved instruction', input: 'data', output: 'Improved result' },
+        ],
+        totalTokens: 200,
+        originalName: 'my-dataset',
+      };
+      const promise = service.refine('ds-123', 'openai', 'gpt-4', 'Fix formal tone');
+      const req = httpMock.expectOne('/api/datasets/ds-123/refine');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({
+        provider: 'openai',
+        model: 'gpt-4',
+        instructions: 'Fix formal tone',
+      });
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.rows.length).toBe(1);
+      expect(result.rows[0].instruction).toBe('Improved instruction');
+      expect(result.totalTokens).toBe(200);
+      expect(result.originalName).toBe('my-dataset');
+    });
+
+    it('should send empty instructions when none provided', async () => {
+      const mockResponse: RefineDatasetResponse = {
+        success: true,
+        rows: [{ instruction: 'Q1', input: '', output: 'A1' }],
+        totalTokens: 50,
+      };
+      const promise = service.refine('ds-456', 'anthropic', 'claude-3');
+      const req = httpMock.expectOne('/api/datasets/ds-456/refine');
+      expect(req.request.body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-3',
+        instructions: '',
+      });
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(true);
+    });
+
+    it('should return error response on failure', async () => {
+      const mockResponse: RefineDatasetResponse = {
+        success: false,
+        rows: [],
+        error: 'Dataset not found',
+      };
+      const promise = service.refine('ds-bad', 'openai', 'gpt-4', 'instructions');
+      const req = httpMock.expectOne('/api/datasets/ds-bad/refine');
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Dataset not found');
+      expect(result.rows).toEqual([]);
+    });
+
+    it('should handle multiple refined rows', async () => {
+      const rows: DatasetRow[] = [
+        { instruction: 'Q1', input: 'I1', output: 'O1' },
+        { instruction: 'Q2', input: 'I2', output: 'O2' },
+        { instruction: 'Q3', input: 'I3', output: 'O3' },
+      ];
+      const promise = service.refine('ds-multi', 'openai', 'gpt-4', '');
+      const req = httpMock.expectOne('/api/datasets/ds-multi/refine');
+      req.flush({ success: true, rows, totalTokens: 600 });
+      const result = await promise;
+      expect(result.rows.length).toBe(3);
+      expect(result.totalTokens).toBe(600);
     });
   });
 
