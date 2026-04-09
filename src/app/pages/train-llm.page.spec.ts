@@ -297,29 +297,26 @@ describe('TrainLlmPageComponent', () => {
     fixture.detectChanges();
 
     const instance = fixture.componentInstance;
-    instance.formTrainingMode = 'from-scratch';
     instance.showCreateView();
     fixture.detectChanges();
 
-    // Switch back to queue (triggers resetForm via create success, but we test showQueueView)
+    // Change training mode
+    instance.formTrainingMode = 'from-scratch';
+    expect(instance.formTrainingMode).toBe('from-scratch');
+
+    // Switching views and back should preserve form state (no auto-reset)
+    // but showCreateView clears the error, verifying the view transition works
     instance.showQueueView();
     flushAllPending();
     fixture.detectChanges();
 
-    // Switch to create view again
     instance.showCreateView();
     fixture.detectChanges();
 
-    // Training mode should still be from-scratch since showCreateView doesn't reset form
-    // But if we test the full flow, we need to verify resetForm resets it
-    // Let's set it and test directly
-    instance.formTrainingMode = 'from-scratch';
-    (instance as unknown as { resetForm: () => void })['resetForm']?.call(instance);
-
-    // resetForm is private, so we verify via the public property that should be reset
-    // after a successful job creation (which calls resetForm internally)
-    // For now, just verify the initial default
-    expect(fixture.componentInstance.formTrainingMode).toBeDefined();
+    // Verify default training mode is fine-tune for a fresh component
+    const fixture2 = TestBed.createComponent(TrainLlmPageComponent);
+    expect(fixture2.componentInstance.formTrainingMode).toBe('fine-tune');
     fixture.destroy();
+    fixture2.destroy();
   });
 });
