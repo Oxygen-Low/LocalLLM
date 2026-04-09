@@ -971,6 +971,12 @@ const translations: TranslationDictionary = {
     ja: '精錬中…',
     ru: 'Уточнение…',
   },
+  'datasets.refineDefaultDescription': {
+    en: 'Fix grammar, punctuation, and quality issues',
+    ko: '문법, 구두점 및 품질 문제 수정',
+    ja: '文法、句読点、品質の問題を修正',
+    ru: 'Исправление грамматики, пунктуации и проблем качества',
+  },
   'apps.category.data': {
     en: 'Data',
     ko: '데이터',

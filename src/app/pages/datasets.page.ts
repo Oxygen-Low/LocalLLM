@@ -836,7 +836,7 @@ interface QueueItem {
                               {{ t.translate('datasets.queueItem' + capitalize(item.status)) }}
                             </span>
                           </div>
-                          <p class="text-xs text-muted mt-1 truncate">{{ item.instructions || 'Default refinement' }}</p>
+                          <p class="text-xs text-muted mt-1 truncate">{{ item.instructions || t.translate('datasets.refineDefaultDescription') }}</p>
                           <p class="text-xs text-muted mt-0.5">{{ item.providerName }} · {{ item.model }}</p>
                         </div>
                         <div class="flex items-center gap-2 flex-shrink-0">
@@ -1551,7 +1551,7 @@ export class DatasetsPageComponent implements OnInit {
           try {
             const saveRes = await this.datasetsService.save(
               item.name,
-              `Refined dataset: ${item.instructions ? item.instructions.substring(0, MAX_QUEUE_DESCRIPTION_LENGTH) : 'Default refinement'}`,
+              `Refined dataset: ${item.instructions ? item.instructions.substring(0, MAX_QUEUE_DESCRIPTION_LENGTH) : 'Grammar and quality refinement'}`,
               res.rows
             );
             if (saveRes.success) {

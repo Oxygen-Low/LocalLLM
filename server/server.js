@@ -4451,6 +4451,14 @@ const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
 const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
 const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
 const MAX_DATASET_RETRIES = 3; // maximum number of retries when retryOnFail is enabled
+const REFINE_ROW_PROMPT_TEMPLATE = `You are a dataset quality refinement assistant. Your task is to improve a single training data row for an LLM fine-tuning dataset.
+
+Review and fix the following training data row:
+- Fix any grammar, spelling, or punctuation errors
+- Improve clarity and readability
+- Ensure consistency between the instruction, input, and output fields
+- Fix any factual inaccuracies if obvious
+- Maintain the original intent and meaning`;
 
 // Helper to estimate token count from text
 function estimateTokenCount(text) {
@@ -5033,14 +5041,7 @@ app.post('/api/datasets/:id/refine', requireSession, async (req, res) => {
     const refinedRows = [];
     for (let i = 0; i < originalRows.length; i++) {
       const row = originalRows[i];
-      const refinementPrompt = `You are a dataset quality refinement assistant. Your task is to improve a single training data row for an LLM fine-tuning dataset.
-
-Review and fix the following training data row:
-- Fix any grammar, spelling, or punctuation errors
-- Improve clarity and readability
-- Ensure consistency between the instruction, input, and output fields
-- Fix any factual inaccuracies if obvious
-- Maintain the original intent and meaning${customInstructions}
+      const refinementPrompt = `${REFINE_ROW_PROMPT_TEMPLATE}${customInstructions}
 
 Here is the row to refine:
 ${JSON.stringify(row)}
@@ -5077,8 +5078,9 @@ Do not include any markdown, explanation, or extra text. Return raw JSON only.`;
           input: typeof refined.input === 'string' ? refined.input.trim() : row.input,
           output: typeof refined.output === 'string' && refined.output.trim() ? refined.output.trim() : row.output,
         });
-      } catch {
+      } catch (rowErr) {
         // On LLM failure for a single row, keep the original
+        console.error(`Dataset refine: failed to refine row ${i + 1} of dataset "${ds.name}":`, rowErr.message || rowErr);
         refinedRows.push(row);
       }
     }
