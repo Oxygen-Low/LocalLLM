@@ -11,6 +11,10 @@ type DatasetMode = 'generate' | 'import' | 'queue';
 type PageView = 'list' | 'create';
 type QueueItemStatus = 'pending' | 'generating' | 'saving' | 'done' | 'failed';
 
+const GENERATING_PROGRESS_PERCENT = 60;
+const SAVING_PROGRESS_PERCENT = 90;
+const MAX_QUEUE_DESCRIPTION_LENGTH = 100;
+
 interface QueueItem {
   id: string;
   name: string;
@@ -606,7 +610,7 @@ interface QueueItem {
                       @if (item.status === 'generating' || item.status === 'saving') {
                         <div class="w-full bg-primary-100 rounded-full h-1.5 mt-2">
                           <div class="h-1.5 rounded-full bg-primary-500 transition-all duration-700 animate-pulse"
-                            [style.width.%]="item.status === 'generating' ? 60 : 90"
+                            [style.width.%]="getQueueItemProgress(item.status)"
                           ></div>
                         </div>
                       }
@@ -1203,6 +1207,10 @@ export class DatasetsPageComponent implements OnInit {
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
+  getQueueItemProgress(status: string): number {
+    return status === 'generating' ? GENERATING_PROGRESS_PERCENT : SAVING_PROGRESS_PERCENT;
+  }
+
   async startQueue(): Promise<void> {
     if (this.isQueueRunning()) return;
     this.isQueueRunning.set(true);
@@ -1232,7 +1240,7 @@ export class DatasetsPageComponent implements OnInit {
         if (!res.success || !res.rows || res.rows.length === 0) {
           this.updateQueueItem(item.id, {
             status: 'failed',
-            error: res.error || 'No rows generated',
+            error: res.error || 'Dataset generation completed but produced no data rows',
           });
           continue;
         }
@@ -1242,7 +1250,7 @@ export class DatasetsPageComponent implements OnInit {
         try {
           const saveRes = await this.datasetsService.save(
             item.name,
-            `Auto-generated via queue: ${item.instructions.substring(0, 100)}`,
+            `Auto-generated via queue: ${item.instructions.substring(0, MAX_QUEUE_DESCRIPTION_LENGTH)}`,
             res.rows
           );
           if (saveRes.success) {
