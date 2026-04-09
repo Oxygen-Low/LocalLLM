@@ -4465,6 +4465,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
     const llmMaxTokens = tokenCount + LLM_TOKEN_BUFFER;
     const maxAttempts = retryOnFail ? MAX_DATASET_RETRIES + 1 : 1;
     let lastError = '';
+    let bestResult = null; // track best result across attempts for insufficient-token retries
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let response;
@@ -4547,7 +4548,10 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 
       // If retry is enabled and the LLM did not produce enough tokens, retry
       if (retryOnFail && totalTokens < tokenCount * 0.5 && attempt < maxAttempts) {
-        lastError = `LLM only generated ~${totalTokens} tokens (requested ${tokenCount}). Retrying.`;
+        // Keep the best result so far in case all retries produce insufficient output
+        if (!bestResult || totalTokens > bestResult.totalTokens) {
+          bestResult = { rows: sanitizedRows, totalTokens };
+        }
         continue;
       }
 
@@ -4555,7 +4559,11 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       return res.json({ success: true, rows: sanitizedRows, totalTokens });
     }
 
-    // All retries exhausted — return last partial result or error
+    // All retries exhausted — return best partial result if available
+    if (bestResult) {
+      auditLog({ event: 'DATASET_GENERATED', message: `Generated ${bestResult.rows.length} dataset rows (~${bestResult.totalTokens} tokens) after ${maxAttempts} attempts (insufficient tokens)`, username: req.sessionUser, req });
+      return res.json({ success: true, rows: bestResult.rows, totalTokens: bestResult.totalTokens });
+    }
     return res.status(500).json({ success: false, error: lastError || 'Failed to generate dataset after multiple attempts.' });
   } catch (err) {
     console.error('Dataset generate error:', err);
