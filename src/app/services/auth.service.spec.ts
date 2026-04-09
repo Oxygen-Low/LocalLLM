@@ -312,7 +312,7 @@ describe('AuthService', () => {
     });
 
     it('should show server error message for server errors (500)', async () => {
-      const loginPromise = service.login('serverr', 'Password1!');
+      const loginPromise = service.login('servererr', 'Password1!');
       await flushAsync();
 
       const req = httpMock.expectOne('/api/auth/login');

@@ -524,7 +524,7 @@ export class AuthService {
         }
 
         // For rate limiting (429), lockout, or server errors – show the real message
-        this.securityLogger.log('LOGIN_FAILURE', serverMessage || `Server error (${error.status})`, normalizedUsername);
+        this.securityLogger.log('LOGIN_FAILURE', `Server returned status ${error.status}`, normalizedUsername);
         return { success: false, error: serverMessage || 'An error occurred. Please try again.' };
       }
 
