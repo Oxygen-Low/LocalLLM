@@ -351,7 +351,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
   isCreating = signal(false);
   createError = signal('');
 
-  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private static readonly POLL_INTERVAL_MS = 5000;
+  private jobPollingInterval: ReturnType<typeof setInterval> | null = null;
 
   async ngOnInit(): Promise<void> {
     await this.loadJobs();
@@ -400,8 +401,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
       if (datasetRes.success) {
         this.datasets.set(datasetRes.datasets.filter(d => d.status === 'active'));
       }
-    } catch {
-      // Silently fail — user can still see the queue
+    } catch (err) {
+      console.error('Failed to load models/datasets:', err);
     }
   }
 
@@ -452,8 +453,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
     try {
       await this.trainLlmService.cancelJob(id);
       await this.loadJobs();
-    } catch {
-      // Silently fail
+    } catch (err) {
+      console.error('Failed to cancel job:', err);
     }
   }
 
@@ -461,8 +462,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
     try {
       await this.trainLlmService.deleteJob(id);
       await this.loadJobs();
-    } catch {
-      // Silently fail
+    } catch (err) {
+      console.error('Failed to delete job:', err);
     }
   }
 
@@ -498,19 +499,19 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
   }
 
   private startPolling(): void {
-    this.pollInterval = setInterval(async () => {
+    this.jobPollingInterval = setInterval(async () => {
       const currentJobs = this.jobs();
       const hasActive = currentJobs.some(j => this.trainLlmService.isActive(j.status));
       if (hasActive && this.pageView() === 'queue') {
         await this.loadJobs();
       }
-    }, 5000);
+    }, TrainLlmPageComponent.POLL_INTERVAL_MS);
   }
 
   private stopPolling(): void {
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    if (this.jobPollingInterval) {
+      clearInterval(this.jobPollingInterval);
+      this.jobPollingInterval = null;
     }
   }
 

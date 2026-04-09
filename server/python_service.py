@@ -323,8 +323,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         class _ProgressCallback(TrainerCallback):
             """Update training progress in the shared dict."""
 
-            def __init__(self, jid, phase="training"):
-                self._jid = jid
+            def __init__(self, job_id, phase="training"):
+                self._job_id = job_id
                 self._phase = phase
 
             def on_step_end(self, args, state, control, **kwargs):
@@ -333,7 +333,7 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                 else:
                     pct = 0
                 with _trainings_lock:
-                    job = _active_trainings.get(self._jid)
+                    job = _active_trainings.get(self._job_id)
                     if job:
                         job["progress"] = pct
                         job["current_epoch"] = int(state.epoch) if state.epoch else 0
@@ -341,7 +341,7 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
             def on_epoch_end(self, args, state, control, **kwargs):
                 with _trainings_lock:
-                    job = _active_trainings.get(self._jid)
+                    job = _active_trainings.get(self._job_id)
                     if job:
                         job["current_epoch"] = int(state.epoch) if state.epoch else 0
 
@@ -350,17 +350,14 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
         # Load model and tokenizer
         gguf_filename = _find_gguf_file(model_dir)
-        device_map = _get_device_map()
 
         load_kwargs = {
             "torch_dtype": torch.float32,
             "low_cpu_mem_usage": True,
+            # Training requires a single device; disable device_map to avoid
+            # issues with model parallelism during backpropagation.
+            "device_map": None,
         }
-        # For training we need CPU or single device, not device_map="auto"
-        if device_map == "auto" and torch.cuda.is_available():
-            load_kwargs["device_map"] = None
-        else:
-            load_kwargs["device_map"] = None
 
         if gguf_filename:
             tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
@@ -499,8 +496,12 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
                     post_args = TrainingArguments(
                         output_dir=output_dir,
+                        # Use fewer epochs for post-training (half of main
+                        # training, min 1) to refine without overfitting.
                         num_train_epochs=max(1, epochs // 2),
                         per_device_train_batch_size=batch_size,
+                        # Lower learning rate for post-training to make
+                        # smaller, more careful adjustments.
                         learning_rate=learning_rate / 2,
                         save_strategy="no",
                         logging_steps=1,
@@ -730,12 +731,26 @@ class _Handler(BaseHTTPRequestHandler):
         if not os.path.isdir(resolved_model_dir):
             self._send_json(400, {"error": "model_dir does not exist"})
             return
-        if not os.path.isfile(dataset_path):
-            self._send_json(400, {"error": "dataset_path does not exist"})
-            return
-        if post_dataset_path and not os.path.isfile(post_dataset_path):
-            self._send_json(400, {"error": "post_dataset_path does not exist"})
-            return
+
+        # Validate dataset paths – they must be absolute and must not contain
+        # path traversal sequences.  The Node.js server already validates them
+        # via ensureWithinDir, but we re-check here as defence-in-depth.
+        for label, dp in [("dataset_path", dataset_path),
+                          ("post_dataset_path", post_dataset_path)]:
+            if dp is None:
+                continue
+            real = os.path.realpath(dp)
+            if ".." in dp.split(os.sep):
+                self._send_json(400, {"error": f"{label} contains invalid path components"})
+                return
+            if not os.path.isfile(real):
+                self._send_json(400, {"error": f"{label} does not exist"})
+                return
+
+        # Use resolved (realpath) dataset paths to prevent symlink attacks
+        resolved_dataset_path = os.path.realpath(dataset_path)
+        resolved_post_dataset_path = (os.path.realpath(post_dataset_path)
+                                      if post_dataset_path else None)
 
         if not isinstance(epochs, int) or epochs < 1 or epochs > 100:
             self._send_json(400, {"error": "epochs must be between 1 and 100"})
@@ -747,9 +762,9 @@ class _Handler(BaseHTTPRequestHandler):
         job_id = str(uuid.uuid4())
         thread = threading.Thread(
             target=_train_worker,
-            args=(job_id, resolved_model_dir, dataset_path, resolved_output_dir),
+            args=(job_id, resolved_model_dir, resolved_dataset_path, resolved_output_dir),
             kwargs={
-                "post_dataset_path": post_dataset_path,
+                "post_dataset_path": resolved_post_dataset_path,
                 "epochs": epochs,
                 "learning_rate": float(learning_rate),
                 "batch_size": batch_size,
