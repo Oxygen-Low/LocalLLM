@@ -756,10 +756,10 @@ const translations: TranslationDictionary = {
     ru: 'Название набора данных',
   },
   'datasets.datasetNameHint': {
-    en: 'Name for the local dataset. If empty, the dataset name will be used.',
-    ko: '로컬 데이터셋의 이름입니다. 비어 있으면 데이터셋 이름이 사용됩니다.',
-    ja: 'ローカルデータセットの名前。空の場合、データセット名が使用されます。',
-    ru: 'Имя для локального набора данных. Если пусто, будет использовано имя набора данных.',
+    en: 'Name for the local dataset. If empty, the HuggingFace dataset name will be used.',
+    ko: '로컬 데이터셋의 이름입니다. 비어 있으면 HuggingFace 데이터셋 이름이 사용됩니다.',
+    ja: 'ローカルデータセットの名前。空の場合、HuggingFaceデータセット名が使用されます。',
+    ru: 'Имя для локального набора данных. Если пусто, будет использовано имя из HuggingFace.',
   },
   'apps.category.data': {
     en: 'Data',

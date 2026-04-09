@@ -4879,9 +4879,9 @@ app.delete('/api/datasets/:id', requireSession, (req, res) => {
     const ds = datasets[dsIdx];
 
     if (ds.status === 'active') {
-      try { const dd = getUserDatasetDir(req.sessionUser, ds.id); if (fs.existsSync(dd)) fs.rmSync(dd, { recursive: true, force: true }); } catch {}
+      try { const dd = getUserDatasetDir(req.sessionUser, ds.id); if (fs.existsSync(dd)) fs.rmSync(dd, { recursive: true, force: true }); } catch (rmErr) { console.error('Delete dataset files error:', rmErr.message); }
     } else {
-      try { const ap = getUserDatasetArchivePath(req.sessionUser, ds.id); if (fs.existsSync(ap)) fs.unlinkSync(ap); } catch {}
+      try { const ap = getUserDatasetArchivePath(req.sessionUser, ds.id); if (fs.existsSync(ap)) fs.unlinkSync(ap); } catch (rmErr) { console.error('Delete dataset archive error:', rmErr.message); }
     }
 
     datasets.splice(dsIdx, 1);
