@@ -321,7 +321,8 @@ interface QueueItem {
                           <td class="px-3 py-2 text-right">
                             <button (click)="deleteViewRow($index)"
                               class="px-2 py-1 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs transition-colors"
-                              [title]="t.translate('datasets.deleteRow')">
+                              [title]="t.translate('datasets.deleteRow')"
+                              [attr.aria-label]="t.translate('datasets.deleteRow')">
                               ✕
                             </button>
                           </td>

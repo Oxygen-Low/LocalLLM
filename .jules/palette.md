@@ -5,3 +5,7 @@
 ## 2026-04-05 - [Accessibility] ARIA State Attributes for Custom Dropdowns and Toggles
 **Learning:** Custom interactive elements like dropdown triggers and toggle buttons (often styled with `ngClass` for visual states) in complex interfaces like the Coding Agent toolbar are announced merely as "buttons" by screen readers, failing to convey their dynamic state (expanded/collapsed or pressed/unpressed). This is a reusable UX pattern required across the application's design system wherever native `<select>` or `<input type="checkbox">` elements cannot be used.
 **Action:** Always apply `[attr.aria-expanded]="stateVariable"` and `aria-haspopup="listbox" | "menu"` to custom dropdown toggle buttons. Apply `[attr.aria-pressed]="stateVariable"` to custom toggle buttons that retain state. This ensures screen readers announce the exact current state of these interactive components without relying on visual cues.
+
+## 2024-04-09 - [Added missing aria-label to close buttons in datasets list]
+**Learning:** Icon-only close buttons (like the `✕` character used in the datasets page to delete a row) often miss an `aria-label` which causes screen readers to either read them as 'multiplication sign' or nothing at all, breaking accessibility.
+**Action:** Always ensure that icon-only buttons (`<button>` tags with no text content, including those that just use SVG or a single character like `✕`) have an explicit `[attr.aria-label]` attribute to make their function clear to assistive technologies.
