@@ -7,8 +7,23 @@ import { LlmService, ProviderInfo } from '../services/llm.service';
 import { DatasetsService, DatasetRow, DatasetEntry } from '../services/datasets.service';
 
 type WizardStep = 'configure' | 'generating' | 'results';
-type DatasetMode = 'generate' | 'import';
+type DatasetMode = 'generate' | 'import' | 'queue';
 type PageView = 'list' | 'create';
+type QueueItemStatus = 'pending' | 'generating' | 'saving' | 'done' | 'failed';
+
+interface QueueItem {
+  id: string;
+  name: string;
+  instructions: string;
+  providerId: string;
+  providerName: string;
+  model: string;
+  numTokens: number;
+  retryOnFail: boolean;
+  status: QueueItemStatus;
+  error?: string;
+  rowCount?: number;
+}
 
 @Component({
   selector: 'app-datasets',
@@ -212,6 +227,13 @@ type PageView = 'list' | 'create';
               >
                 Import from HuggingFace
               </button>
+              <button
+                (click)="datasetMode.set('queue')"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [ngClass]="datasetMode() === 'queue' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
+              >
+                {{ t.translate('datasets.queueTab') }}
+              </button>
             </div>
           </div>
         }
@@ -403,6 +425,237 @@ type PageView = 'list' | 'create';
                 {{ isImporting() ? 'Importing...' : 'Import Dataset' }}
               </button>
             </div>
+          </div>
+        }
+
+        <!-- QUEUE MODE -->
+        @if (currentStep() === 'configure' && datasetMode() === 'queue') {
+          <div class="max-w-3xl mx-auto space-y-6">
+
+            <!-- Queue description -->
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-5">
+              <h2 class="text-lg font-bold text-secondary-900 mb-1">{{ t.translate('datasets.queueTitle') }}</h2>
+              <p class="text-sm text-muted">{{ t.translate('datasets.queueSubtitle') }}</p>
+            </div>
+
+            <!-- Add to queue form -->
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-4">
+
+              <!-- Dataset name -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.queueJobName') }}</label>
+                <input
+                  type="text"
+                  [(ngModel)]="queueItemName"
+                  [placeholder]="t.translate('datasets.queueJobNamePlaceholder')"
+                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
+                />
+              </div>
+
+              <!-- Instructions -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.instructions') }}</label>
+                <textarea
+                  [(ngModel)]="queueItemInstructions"
+                  rows="3"
+                  [placeholder]="t.translate('datasets.instructionsPlaceholder')"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-none transition-colors"
+                ></textarea>
+              </div>
+
+              <!-- Provider Selection -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.providerLabel') }}</label>
+                @if (isLoadingProviders()) {
+                  <div class="text-sm text-muted">{{ t.translate('datasets.loadingProviders') }}</div>
+                } @else if (availableProviders().length === 0) {
+                  <div class="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    {{ t.translate('datasets.noProviders') }}
+                  </div>
+                } @else {
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @for (p of availableProviders(); track p.id) {
+                      <button
+                        (click)="selectQueueProvider(p)"
+                        class="text-left p-3 rounded-lg border transition-all"
+                        [ngClass]="queueSelectedProvider()?.id === p.id
+                          ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
+                          : 'border-secondary-200 hover:border-primary-300 bg-white'"
+                      >
+                        <div class="font-medium text-secondary-900 text-sm">{{ p.name }}</div>
+                        <div class="text-xs text-muted mt-0.5">{{ p.model }}</div>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+
+              <!-- Model override for queue -->
+              @if (queueSelectedProvider() && queueSelectedProvider()!.models && queueSelectedProvider()!.models!.length > 1) {
+                <div>
+                  <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.modelLabel') }}</label>
+                  <select
+                    [(ngModel)]="queueSelectedModel"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  >
+                    @for (m of queueSelectedProvider()!.models!; track m) {
+                      <option [value]="getModelId(m)">{{ getModelLabel(m) }}</option>
+                    }
+                  </select>
+                </div>
+              }
+
+              <!-- Number of tokens -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.numTokensLabel') }}</label>
+                <input
+                  type="number"
+                  [(ngModel)]="queueItemTokens"
+                  min="1"
+                  max="4096"
+                  step="1"
+                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                />
+              </div>
+
+              <!-- Retry on fail -->
+              <div class="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="queueRetryOnFail"
+                  [(ngModel)]="queueItemRetryOnFail"
+                  class="mt-0.5 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-200"
+                />
+                <div>
+                  <label for="queueRetryOnFail" class="text-sm font-semibold text-secondary-900 cursor-pointer">{{ t.translate('datasets.retryOnFailLabel') }}</label>
+                  <p class="text-xs text-muted mt-0.5">{{ t.translate('datasets.retryOnFailHint') }}</p>
+                </div>
+              </div>
+
+              <!-- Add to queue button -->
+              <button
+                (click)="addToQueue()"
+                [disabled]="!canAddToQueue()"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {{ t.translate('datasets.addToQueue') }}
+              </button>
+            </div>
+
+            <!-- Queue list -->
+            @if (queueItems().length > 0) {
+              <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-4">
+                <!-- Overall progress -->
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="text-lg font-bold text-secondary-900">{{ t.translate('datasets.queueTab') }} ({{ queueItems().length }})</h3>
+                  <div class="text-sm text-muted">
+                    {{ t.translate('datasets.queueProgress').replace('{completed}', queueCompletedCount().toString()).replace('{total}', queueItems().length.toString()) }}
+                  </div>
+                </div>
+
+                <!-- Overall progress bar -->
+                <div class="w-full bg-secondary-100 rounded-full h-2.5">
+                  <div
+                    class="h-2.5 rounded-full transition-all duration-500"
+                    [ngClass]="queueHasErrors() ? 'bg-amber-500' : 'bg-primary-600'"
+                    [style.width.%]="queueOverallProgress()"
+                  ></div>
+                </div>
+
+                <!-- Queue items -->
+                <div class="space-y-3">
+                  @for (item of queueItems(); track item.id) {
+                    <div class="rounded-lg border p-4 transition-colors"
+                      [ngClass]="{
+                        'border-secondary-200 bg-white': item.status === 'pending',
+                        'border-primary-300 bg-primary-50': item.status === 'generating' || item.status === 'saving',
+                        'border-green-300 bg-green-50': item.status === 'done',
+                        'border-red-300 bg-red-50': item.status === 'failed'
+                      }">
+                      <div class="flex items-center justify-between gap-3 mb-2">
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-2">
+                            <span class="font-semibold text-sm text-secondary-900 truncate">{{ item.name }}</span>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
+                              [ngClass]="{
+                                'bg-secondary-100 text-secondary-600': item.status === 'pending',
+                                'bg-primary-100 text-primary-700': item.status === 'generating' || item.status === 'saving',
+                                'bg-green-100 text-green-700': item.status === 'done',
+                                'bg-red-100 text-red-700': item.status === 'failed'
+                              }">
+                              {{ t.translate('datasets.queueItem' + capitalize(item.status)) }}
+                            </span>
+                          </div>
+                          <p class="text-xs text-muted mt-1 truncate">{{ item.instructions }}</p>
+                          <p class="text-xs text-muted mt-0.5">{{ item.providerName }} · {{ item.model }} · {{ item.numTokens }} tokens</p>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                          @if (item.status === 'done' && item.rowCount) {
+                            <span class="text-xs text-green-700 font-medium">{{ item.rowCount }} rows</span>
+                          }
+                          @if (item.status === 'pending' && !isQueueRunning()) {
+                            <button (click)="removeFromQueue(item.id)"
+                              class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors">
+                              {{ t.translate('datasets.removeFromQueue') }}
+                            </button>
+                          }
+                        </div>
+                      </div>
+
+                      <!-- Per-item progress bar -->
+                      @if (item.status === 'generating' || item.status === 'saving') {
+                        <div class="w-full bg-primary-100 rounded-full h-1.5 mt-2">
+                          <div class="h-1.5 rounded-full bg-primary-500 transition-all duration-700 animate-pulse"
+                            [style.width.%]="item.status === 'generating' ? 60 : 90"
+                          ></div>
+                        </div>
+                      }
+
+                      @if (item.status === 'failed' && item.error) {
+                        <p class="text-xs text-red-600 mt-2">{{ item.error }}</p>
+                      }
+                    </div>
+                  }
+                </div>
+
+                <!-- Queue action buttons -->
+                <div class="flex gap-3 pt-2">
+                  @if (!isQueueRunning()) {
+                    @if (queueHasPending()) {
+                      <button (click)="startQueue()"
+                        class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors">
+                        {{ t.translate('datasets.startQueue') }}
+                      </button>
+                    }
+                    <button (click)="clearQueue()"
+                      class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+                      {{ t.translate('datasets.clearQueue') }}
+                    </button>
+                  } @else {
+                    <button (click)="stopQueue()"
+                      class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors">
+                      {{ t.translate('datasets.stopQueue') }}
+                    </button>
+                    <span class="flex items-center gap-2 text-sm text-muted">
+                      <span class="animate-spin w-4 h-4 border-2 border-primary-200 border-t-primary-600 rounded-full"></span>
+                      {{ t.translate('datasets.queueRunning') }}
+                    </span>
+                  }
+                </div>
+
+                @if (queueCompletedCount() === queueItems().length && queueItems().length > 0 && !isQueueRunning()) {
+                  <div class="p-3 rounded-lg bg-green-100 border border-green-300 text-green-800 text-sm text-center">
+                    {{ t.translate('datasets.queueAllDone') }}
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="text-center py-8 bg-white rounded-xl border border-secondary-200 shadow-sm">
+                <div class="text-4xl mb-3">📋</div>
+                <h3 class="text-base font-semibold text-secondary-900 mb-1">{{ t.translate('datasets.queueEmpty') }}</h3>
+                <p class="text-sm text-muted">{{ t.translate('datasets.queueEmptyHint') }}</p>
+              </div>
+            }
           </div>
         }
 
@@ -612,6 +865,17 @@ export class DatasetsPageComponent implements OnInit {
   importMaxRows = 1000;
   isImporting = signal(false);
   importError = signal('');
+
+  // Queue
+  queueItems = signal<QueueItem[]>([]);
+  isQueueRunning = signal(false);
+  private queueStopRequested = false;
+  queueItemName = '';
+  queueItemInstructions = '';
+  queueSelectedProvider = signal<ProviderInfo | null>(null);
+  queueSelectedModel = '';
+  queueItemTokens = 1000;
+  queueItemRetryOnFail = false;
 
   async ngOnInit(): Promise<void> {
     await this.loadDatasets();
@@ -865,5 +1129,164 @@ export class DatasetsPageComponent implements OnInit {
     } finally {
       this.actionInProgress.set(false);
     }
+  }
+
+  // --- Queue methods ---
+
+  selectQueueProvider(provider: ProviderInfo): void {
+    this.queueSelectedProvider.set(provider);
+    const firstModel = provider.models?.[0];
+    this.queueSelectedModel = provider.model || (typeof firstModel === 'string' ? firstModel : firstModel?.id ?? '');
+  }
+
+  canAddToQueue(): boolean {
+    const hasModel = !!(this.queueSelectedModel || this.queueSelectedProvider()?.model);
+    return (
+      this.queueItemName.trim().length > 0 &&
+      this.queueItemInstructions.trim().length > 0 &&
+      this.queueSelectedProvider() !== null &&
+      hasModel &&
+      Number.isInteger(this.queueItemTokens) &&
+      this.queueItemTokens >= 1
+    );
+  }
+
+  addToQueue(): void {
+    if (!this.canAddToQueue()) return;
+    const provider = this.queueSelectedProvider()!;
+    const model = this.queueSelectedModel || provider.model || '';
+    const item: QueueItem = {
+      id: crypto.randomUUID(),
+      name: this.queueItemName.trim(),
+      instructions: this.queueItemInstructions.trim(),
+      providerId: provider.id,
+      providerName: provider.name,
+      model,
+      numTokens: this.queueItemTokens,
+      retryOnFail: this.queueItemRetryOnFail,
+      status: 'pending',
+    };
+    this.queueItems.update(items => [...items, item]);
+    this.queueItemName = '';
+    this.queueItemInstructions = '';
+  }
+
+  removeFromQueue(id: string): void {
+    this.queueItems.update(items => items.filter(item => item.id !== id));
+  }
+
+  clearQueue(): void {
+    this.queueItems.set([]);
+  }
+
+  queueCompletedCount(): number {
+    return this.queueItems().filter(i => i.status === 'done' || i.status === 'failed').length;
+  }
+
+  queueOverallProgress(): number {
+    const items = this.queueItems();
+    if (items.length === 0) return 0;
+    const completed = items.filter(i => i.status === 'done' || i.status === 'failed').length;
+    const inProgress = items.filter(i => i.status === 'generating' || i.status === 'saving').length;
+    return ((completed + inProgress * 0.5) / items.length) * 100;
+  }
+
+  queueHasErrors(): boolean {
+    return this.queueItems().some(i => i.status === 'failed');
+  }
+
+  queueHasPending(): boolean {
+    return this.queueItems().some(i => i.status === 'pending');
+  }
+
+  capitalize(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  async startQueue(): Promise<void> {
+    if (this.isQueueRunning()) return;
+    this.isQueueRunning.set(true);
+    this.queueStopRequested = false;
+
+    const items = this.queueItems();
+    for (const item of items) {
+      if (this.queueStopRequested) break;
+      if (item.status !== 'pending') continue;
+
+      // Generate
+      this.updateQueueItem(item.id, { status: 'generating' });
+      try {
+        const res = await this.datasetsService.generate(
+          item.instructions,
+          item.providerId,
+          item.model,
+          item.numTokens,
+          item.retryOnFail
+        );
+
+        if (this.queueStopRequested) {
+          this.updateQueueItem(item.id, { status: 'pending' });
+          break;
+        }
+
+        if (!res.success || !res.rows || res.rows.length === 0) {
+          this.updateQueueItem(item.id, {
+            status: 'failed',
+            error: res.error || 'No rows generated',
+          });
+          continue;
+        }
+
+        // Save
+        this.updateQueueItem(item.id, { status: 'saving' });
+        try {
+          const saveRes = await this.datasetsService.save(
+            item.name,
+            `Auto-generated via queue: ${item.instructions.substring(0, 100)}`,
+            res.rows
+          );
+          if (saveRes.success) {
+            this.updateQueueItem(item.id, {
+              status: 'done',
+              rowCount: res.rows.length,
+            });
+          } else {
+            this.updateQueueItem(item.id, {
+              status: 'failed',
+              error: saveRes.error || 'Failed to save dataset',
+            });
+          }
+        } catch (saveErr: any) {
+          this.updateQueueItem(item.id, {
+            status: 'failed',
+            error: saveErr?.error?.error || saveErr?.message || 'Failed to save dataset',
+          });
+        }
+      } catch (err: any) {
+        if (!this.queueStopRequested) {
+          this.updateQueueItem(item.id, {
+            status: 'failed',
+            error: err?.error?.error || err?.message || 'Generation failed',
+          });
+        } else {
+          this.updateQueueItem(item.id, { status: 'pending' });
+          break;
+        }
+      }
+    }
+
+    this.isQueueRunning.set(false);
+    // Refresh the datasets list so newly saved datasets appear
+    await this.loadDatasets();
+  }
+
+  stopQueue(): void {
+    this.queueStopRequested = true;
+  }
+
+  private updateQueueItem(id: string, update: Partial<QueueItem>): void {
+    this.queueItems.update(items =>
+      items.map(item => (item.id === id ? { ...item, ...update } : item))
+    );
   }
 }
