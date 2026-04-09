@@ -221,6 +221,11 @@ export class SignupPageComponent {
       return;
     }
 
+    if (this.username.trim().toLowerCase() === 'username') {
+      this.errorMessage.set('This username is not allowed');
+      return;
+    }
+
     this.isLoading.set(true);
 
     try {

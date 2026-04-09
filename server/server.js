@@ -1416,6 +1416,12 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid password format' });
     }
 
+    // Prevent signup with trivially insecure username/password combination
+    if (username.trim().toLowerCase() === 'username') {
+      auditLog({ event: 'SIGNUP_FAILURE', message: 'Rejected reserved username "username"', username, req });
+      return res.status(400).json({ success: false, error: 'This username is not allowed' });
+    }
+
     // A.8.25: Server-side username validation
     const usernameErrors = validateUsername(username);
     if (usernameErrors.length > 0) {
