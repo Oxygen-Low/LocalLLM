@@ -5,9 +5,9 @@ import { AuthService } from './auth.service';
 import { SecurityLoggerService } from './security-logger.service';
 
 async function flushAsync(): Promise<void> {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  for (let i = 0; i < 10; i++) {
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  }
 }
 
 describe('AuthService', () => {
