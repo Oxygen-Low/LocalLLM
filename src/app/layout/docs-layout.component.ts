@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
@@ -15,6 +15,9 @@ export interface DocNavItem {
   selector: 'app-docs-layout',
   standalone: true,
   imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, LanguageSelectorComponent],
+  // ⚡ Bolt: Added ChangeDetectionStrategy.OnPush to prevent unnecessary re-renders in this layout component,
+  // relying on Signals (mobileSidebarOpen) and internal state instead of default change detection.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="flex flex-col min-h-screen bg-white">
       <div class="flex flex-1">

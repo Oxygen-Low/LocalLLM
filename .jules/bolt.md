@@ -4,3 +4,6 @@
 ## 2026-04-07 - [Optimize Component Rendering with OnPush Change Detection]
 **Learning:** In a highly interactive app that leverages Angular Signals for reactive state management, omitting `ChangeDetectionStrategy.OnPush` on complex UI components leads to unnecessary re-renders driven by default change detection, degrading performance and increasing CPU consumption, especially during heavy interactions like streaming updates.
 **Action:** Default to `ChangeDetectionStrategy.OnPush` for presentational or signal-driven component decorators. This keeps Angular’s change detection targeted and helps avoid redundant component checks, but components that rely on mutable inputs, imperative subscriptions, or external non-signal state may still require `ChangeDetectionStrategy.Default` or explicit `markForCheck()`.
+## 2026-04-09 - Ensure Comments Exist for OnPush Optimization Inclusions
+**Learning:** During the application of `ChangeDetectionStrategy.OnPush` to signal-heavy components, adding a comment alongside the change detailing why it was added ensures compliance with project constraints (like Bolt's requirement to add comments explaining the optimization) and maintains clarity.
+**Action:** Always include an explanatory comment in the component decorator when adding `ChangeDetectionStrategy.OnPush` if required by the persona constraints.
