@@ -4878,6 +4878,104 @@ app.get('/api/datasets/:id', requireSession, (req, res) => {
   }
 });
 
+// GET /api/datasets/:id/rows – Get dataset rows from JSONL file
+app.get('/api/datasets/:id/rows', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const ds = datasets.find(d => d.id === req.params.id && d.status === 'active');
+    if (!ds) return res.status(404).json({ success: false, error: 'Active dataset not found' });
+    const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
+    const filePath = path.join(datasetDir, 'dataset.jsonl');
+    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Dataset file not found' });
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
+    const rows = lines.map((line, idx) => {
+      try {
+        const parsed = JSON.parse(line);
+        return {
+          instruction: typeof parsed.instruction === 'string' ? parsed.instruction : '',
+          input: typeof parsed.input === 'string' ? parsed.input : '',
+          output: typeof parsed.output === 'string' ? parsed.output : '',
+        };
+      } catch {
+        return { instruction: '', input: '', output: `[Parse error on line ${idx + 1}]` };
+      }
+    });
+    res.json({ success: true, rows });
+  } catch (err) {
+    console.error('Get dataset rows error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/datasets/:id/rows – Update all rows in a dataset
+app.put('/api/datasets/:id/rows', requireSession, (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'Dataset rows are required and must not be empty' });
+    }
+
+    // Validate row schema
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (typeof r !== 'object' || r === null || Array.isArray(r)) {
+        return res.status(400).json({ success: false, error: `Row ${i + 1} is not a valid object` });
+      }
+      if (typeof r.instruction !== 'string' || !r.instruction.trim()) {
+        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "instruction" field` });
+      }
+      if (typeof r.output !== 'string' || !r.output.trim()) {
+        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "output" field` });
+      }
+    }
+
+    // Enforce token-based limit
+    const totalTokens = rows.reduce((sum, r) => {
+      const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
+      const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
+      const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
+      return sum + instrTokens + inputTokens + outputTokens;
+    }, 0);
+    const maxTokens = getMaxDatasetTokens();
+    if (totalTokens > maxTokens) {
+      const settings = readSettings();
+      return res.status(400).json({ success: false, error: `Dataset exceeds the maximum token limit of ${maxTokens} tokens (${settings.maxDatasetTokensGB} GB)` });
+    }
+
+    const datasets = readUserDatasets(req.sessionUser);
+    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
+    if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Active dataset not found' });
+    const ds = datasets[dsIdx];
+
+    const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
+    const filePath = path.join(datasetDir, 'dataset.jsonl');
+    if (!fs.existsSync(datasetDir)) {
+      return res.status(404).json({ success: false, error: 'Dataset directory not found' });
+    }
+
+    // Build JSONL content
+    const jsonlContent = rows.map(r => JSON.stringify({
+      instruction: r.instruction.trim(),
+      input: typeof r.input === 'string' ? r.input.trim() : '',
+      output: r.output.trim(),
+    })).join('\n');
+    fs.writeFileSync(filePath, jsonlContent + '\n', { mode: 0o600 });
+
+    // Update metadata
+    ds.rowCount = rows.length;
+    ds.totalTokens = totalTokens;
+    datasets[dsIdx] = ds;
+    writeUserDatasets(req.sessionUser, datasets);
+
+    auditLog({ event: 'DATASET_UPDATED', message: `Dataset "${ds.name}" updated (${rows.length} rows, ~${totalTokens} tokens)`, username: req.sessionUser, req });
+    res.json({ success: true, rowCount: rows.length, totalTokens });
+  } catch (err) {
+    console.error('Update dataset rows error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // DELETE /api/datasets/:id – Delete a dataset
 app.delete('/api/datasets/:id', requireSession, (req, res) => {
   try {

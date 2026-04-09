@@ -8,7 +8,7 @@ import { DatasetsService, DatasetRow, DatasetEntry } from '../services/datasets.
 
 type WizardStep = 'configure' | 'generating' | 'results';
 type DatasetMode = 'generate' | 'import' | 'queue' | 'refine';
-type PageView = 'list' | 'create';
+type PageView = 'list' | 'create' | 'view';
 type QueueItemStatus = 'pending' | 'generating' | 'refining' | 'saving' | 'done' | 'failed';
 
 const GENERATING_PROGRESS_PERCENT = 60;
@@ -148,6 +148,11 @@ interface QueueItem {
                     </div>
                     <div class="flex items-center gap-2 flex-shrink-0">
                       @if (ds.status === 'active') {
+                        <button (click)="viewDataset(ds)"
+                          class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors"
+                          title="View & Edit">
+                          {{ t.translate('datasets.view') }}
+                        </button>
                         <a [href]="datasetsService.getDownloadUrl(ds.id)"
                           class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors"
                           title="Download">
@@ -203,6 +208,149 @@ interface QueueItem {
               </div>
             </div>
           }
+        }
+
+        <!-- ============================================================ -->
+        <!-- VIEW/EDIT VIEW                                                -->
+        <!-- ============================================================ -->
+        @if (pageView() === 'view') {
+          <div class="max-w-5xl mx-auto space-y-6">
+
+            <!-- Back button and title -->
+            <div class="flex items-center justify-between flex-wrap gap-4">
+              <div class="flex items-center gap-3">
+                <button (click)="backToList()"
+                  class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+                  ← {{ t.translate('datasets.backToList') }}
+                </button>
+                <h2 class="text-xl font-bold text-secondary-900">
+                  {{ t.translate('datasets.viewTitle').replace('{name}', viewingDataset()?.name || '') }}
+                </h2>
+              </div>
+              <div class="flex items-center gap-2">
+                @if (viewHasChanges()) {
+                  <span class="text-xs text-amber-600 font-medium">{{ t.translate('datasets.unsavedChanges') }}</span>
+                  <button (click)="discardViewChanges()"
+                    class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors">
+                    {{ t.translate('datasets.discardChanges') }}
+                  </button>
+                }
+                <button (click)="addViewRow()"
+                  class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors">
+                  + {{ t.translate('datasets.addRow') }}
+                </button>
+                <button (click)="saveViewChanges()"
+                  [disabled]="isSavingView() || !viewHasChanges()"
+                  class="px-4 py-1.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  @if (isSavingView()) { {{ t.translate('datasets.savingChanges') }} } @else { {{ t.translate('datasets.saveChanges') }} }
+                </button>
+              </div>
+            </div>
+
+            <!-- Dataset info -->
+            @if (viewingDataset()) {
+              <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-4">
+                <div class="flex items-center gap-4 text-sm text-muted">
+                  @if (viewingDataset()!.description) {
+                    <span>{{ viewingDataset()!.description }}</span>
+                    <span>·</span>
+                  }
+                  <span>{{ viewRows().length }} {{ t.translate('datasets.rows') }}</span>
+                  <span>·</span>
+                  <span>{{ viewingDataset()!.createdAt | date:'medium' }}</span>
+                </div>
+              </div>
+            }
+
+            @if (isLoadingViewRows()) {
+              <div class="text-center py-16">
+                <div class="animate-spin w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full mx-auto mb-4"></div>
+                <p class="text-muted">{{ t.translate('datasets.loadingRows') }}</p>
+              </div>
+            } @else if (viewRows().length === 0) {
+              <div class="text-center py-16 bg-white rounded-xl border border-secondary-200 shadow-sm">
+                <div class="text-5xl mb-4">📋</div>
+                <p class="text-muted text-sm mb-4">{{ t.translate('datasets.noRows') }}</p>
+                <button (click)="addViewRow()"
+                  class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+                  + {{ t.translate('datasets.addRow') }}
+                </button>
+              </div>
+            } @else {
+              <!-- Rows table -->
+              <div class="bg-white rounded-xl border border-secondary-200 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead class="bg-secondary-50 border-b border-secondary-200">
+                      <tr>
+                        <th class="px-3 py-3 text-left font-semibold text-secondary-700 w-10">#</th>
+                        <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInstruction') }}</th>
+                        <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInput') }}</th>
+                        <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableOutput') }}</th>
+                        <th class="px-3 py-3 text-right font-semibold text-secondary-700 w-16"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of viewRows(); track $index) {
+                        <tr class="border-b border-secondary-100 align-top">
+                          <td class="px-3 py-2 text-muted whitespace-nowrap">{{ $index + 1 }}</td>
+                          <td class="px-3 py-2">
+                            <textarea
+                              [ngModel]="row.instruction"
+                              (ngModelChange)="onViewRowChange($index, 'instruction', $event)"
+                              rows="2"
+                              class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                            ></textarea>
+                          </td>
+                          <td class="px-3 py-2">
+                            <textarea
+                              [ngModel]="row.input"
+                              (ngModelChange)="onViewRowChange($index, 'input', $event)"
+                              rows="2"
+                              class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                            ></textarea>
+                          </td>
+                          <td class="px-3 py-2">
+                            <textarea
+                              [ngModel]="row.output"
+                              (ngModelChange)="onViewRowChange($index, 'output', $event)"
+                              rows="2"
+                              class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                            ></textarea>
+                          </td>
+                          <td class="px-3 py-2 text-right">
+                            <button (click)="deleteViewRow($index)"
+                              class="px-2 py-1 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs transition-colors"
+                              [title]="t.translate('datasets.deleteRow')">
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Bottom actions -->
+              <div class="flex items-center justify-between">
+                <button (click)="addViewRow()"
+                  class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors">
+                  + {{ t.translate('datasets.addRow') }}
+                </button>
+                <div class="flex items-center gap-2">
+                  @if (viewSaveSuccess()) {
+                    <span class="text-sm text-green-600 font-medium">{{ t.translate('datasets.changesSaved') }}</span>
+                  }
+                  <button (click)="saveViewChanges()"
+                    [disabled]="isSavingView() || !viewHasChanges()"
+                    class="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    @if (isSavingView()) { {{ t.translate('datasets.savingChanges') }} } @else { {{ t.translate('datasets.saveChanges') }} }
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
         }
 
         <!-- ============================================================ -->
@@ -1126,6 +1274,15 @@ export class DatasetsPageComponent implements OnInit {
   refineSelectedModel = '';
   refineSaveName = '';
 
+  // View/Edit
+  viewingDataset = signal<DatasetEntry | null>(null);
+  viewRows = signal<DatasetRow[]>([]);
+  private viewOriginalRows: DatasetRow[] = [];
+  isLoadingViewRows = signal(false);
+  isSavingView = signal(false);
+  viewSaveSuccess = signal(false);
+  viewHasChanges = signal(false);
+
   async ngOnInit(): Promise<void> {
     await this.loadDatasets();
   }
@@ -1378,6 +1535,103 @@ export class DatasetsPageComponent implements OnInit {
     } finally {
       this.actionInProgress.set(false);
     }
+  }
+
+  // --- View/Edit methods ---
+
+  async viewDataset(ds: DatasetEntry): Promise<void> {
+    this.viewingDataset.set(ds);
+    this.viewRows.set([]);
+    this.viewOriginalRows = [];
+    this.viewHasChanges.set(false);
+    this.viewSaveSuccess.set(false);
+    this.pageView.set('view');
+    this.isLoadingViewRows.set(true);
+    try {
+      const res = await this.datasetsService.getDatasetRows(ds.id);
+      if (res.success) {
+        const rows = res.rows || [];
+        this.viewRows.set(rows);
+        this.viewOriginalRows = rows.map(r => ({ ...r }));
+      } else {
+        this.errorMessage.set(res.error || 'Failed to load dataset rows');
+        this.pageView.set('list');
+      }
+    } catch (err: any) {
+      this.errorMessage.set(err?.error?.error || err?.message || 'Failed to load dataset rows');
+      this.pageView.set('list');
+    } finally {
+      this.isLoadingViewRows.set(false);
+    }
+  }
+
+  onViewRowChange(index: number, field: 'instruction' | 'input' | 'output', value: string): void {
+    this.viewRows.update(rows => {
+      const updated = [...rows];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+    this.checkViewChanges();
+  }
+
+  addViewRow(): void {
+    this.viewRows.update(rows => [...rows, { instruction: '', input: '', output: '' }]);
+    this.checkViewChanges();
+  }
+
+  deleteViewRow(index: number): void {
+    this.viewRows.update(rows => rows.filter((_, i) => i !== index));
+    this.checkViewChanges();
+  }
+
+  discardViewChanges(): void {
+    this.viewRows.set(this.viewOriginalRows.map(r => ({ ...r })));
+    this.viewHasChanges.set(false);
+    this.viewSaveSuccess.set(false);
+  }
+
+  async saveViewChanges(): Promise<void> {
+    const ds = this.viewingDataset();
+    if (!ds || this.isSavingView()) return;
+
+    this.isSavingView.set(true);
+    this.viewSaveSuccess.set(false);
+    this.errorMessage.set('');
+
+    try {
+      const res = await this.datasetsService.updateDatasetRows(ds.id, this.viewRows());
+      if (res.success) {
+        this.viewOriginalRows = this.viewRows().map(r => ({ ...r }));
+        this.viewHasChanges.set(false);
+        this.viewSaveSuccess.set(true);
+        // Update the viewing dataset metadata
+        this.viewingDataset.update(d => d ? { ...d, rowCount: res.rowCount ?? d.rowCount, totalTokens: res.totalTokens ?? d.totalTokens } : d);
+      } else {
+        this.errorMessage.set(res.error || 'Failed to save changes');
+      }
+    } catch (err: any) {
+      this.errorMessage.set(err?.error?.error || err?.message || 'Failed to save changes');
+    } finally {
+      this.isSavingView.set(false);
+    }
+  }
+
+  private checkViewChanges(): void {
+    const current = this.viewRows();
+    const original = this.viewOriginalRows;
+    if (current.length !== original.length) {
+      this.viewHasChanges.set(true);
+      return;
+    }
+    for (let i = 0; i < current.length; i++) {
+      if (current[i].instruction !== original[i].instruction ||
+          current[i].input !== original[i].input ||
+          current[i].output !== original[i].output) {
+        this.viewHasChanges.set(true);
+        return;
+      }
+    }
+    this.viewHasChanges.set(false);
   }
 
   // --- Refine methods ---
