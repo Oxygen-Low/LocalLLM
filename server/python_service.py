@@ -54,6 +54,10 @@ _model_lock = threading.Lock()
 _active_downloads = {}
 _downloads_lock = threading.Lock()
 
+# Active training jobs: { job_id: { status, progress, error, output_dir, ... } }
+_active_trainings = {}
+_trainings_lock = threading.Lock()
+
 # Maximum number of cached models (to limit memory usage)
 MAX_CACHED_MODELS = 2
 
@@ -292,6 +296,270 @@ def _download_worker(download_id, repo_id, target_dir, hf_token=None):
                 })
 
 
+def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path=None,
+                  epochs=3, learning_rate=2e-5, batch_size=4):
+    """Background thread that fine-tunes a model on a dataset and tracks progress."""
+    try:
+        with _trainings_lock:
+            _active_trainings[job_id] = {
+                "status": "starting",
+                "progress": 0,
+                "current_epoch": 0,
+                "total_epochs": epochs,
+                "phase": "training",
+                "error": None,
+            }
+
+        from transformers import (  # noqa: E402
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            TrainingArguments,
+            Trainer,
+            TrainerCallback,
+            DataCollatorForLanguageModeling,
+        )
+        import torch  # noqa: E402
+
+        class _ProgressCallback(TrainerCallback):
+            """Update training progress in the shared dict."""
+
+            def __init__(self, jid, phase="training"):
+                self._jid = jid
+                self._phase = phase
+
+            def on_step_end(self, args, state, control, **kwargs):
+                if state.max_steps > 0:
+                    pct = int((state.global_step / state.max_steps) * 100)
+                else:
+                    pct = 0
+                with _trainings_lock:
+                    job = _active_trainings.get(self._jid)
+                    if job:
+                        job["progress"] = pct
+                        job["current_epoch"] = int(state.epoch) if state.epoch else 0
+                        job["phase"] = self._phase
+
+            def on_epoch_end(self, args, state, control, **kwargs):
+                with _trainings_lock:
+                    job = _active_trainings.get(self._jid)
+                    if job:
+                        job["current_epoch"] = int(state.epoch) if state.epoch else 0
+
+        with _trainings_lock:
+            _active_trainings[job_id]["status"] = "loading_model"
+
+        # Load model and tokenizer
+        gguf_filename = _find_gguf_file(model_dir)
+        device_map = _get_device_map()
+
+        load_kwargs = {
+            "torch_dtype": torch.float32,
+            "low_cpu_mem_usage": True,
+        }
+        # For training we need CPU or single device, not device_map="auto"
+        if device_map == "auto" and torch.cuda.is_available():
+            load_kwargs["device_map"] = None
+        else:
+            load_kwargs["device_map"] = None
+
+        if gguf_filename:
+            tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
+            model = AutoModelForCausalLM.from_pretrained(
+                model_dir, gguf_file=gguf_filename, **load_kwargs
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(model_dir)
+            model = AutoModelForCausalLM.from_pretrained(model_dir, **load_kwargs)
+
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        if torch.cuda.is_available():
+            model = model.cuda()
+
+        model.train()
+
+        with _trainings_lock:
+            _active_trainings[job_id]["status"] = "loading_dataset"
+
+        # Load JSONL dataset
+        def _load_jsonl(fpath):
+            rows = []
+            with open(fpath, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        rows.append(json.loads(line))
+            return rows
+
+        raw_rows = _load_jsonl(dataset_path)
+        if not raw_rows:
+            raise ValueError("Dataset is empty")
+
+        # Format rows into text for causal LM training
+        def _format_row(row):
+            parts = []
+            if row.get("instruction"):
+                parts.append(f"### Instruction:\n{row['instruction']}")
+            if row.get("input"):
+                parts.append(f"### Input:\n{row['input']}")
+            if row.get("output"):
+                parts.append(f"### Response:\n{row['output']}")
+            return "\n\n".join(parts) if parts else ""
+
+        texts = [_format_row(r) for r in raw_rows]
+        texts = [t for t in texts if t.strip()]
+
+        if not texts:
+            raise ValueError("No valid training samples after formatting")
+
+        # Tokenize
+        max_length = 512
+        encodings = tokenizer(
+            texts,
+            truncation=True,
+            max_length=max_length,
+            padding="max_length",
+            return_tensors="pt",
+        )
+
+        # Create a simple torch dataset
+        class _TextDataset(torch.utils.data.Dataset):
+            def __init__(self, enc):
+                self.input_ids = enc["input_ids"]
+                self.attention_mask = enc["attention_mask"]
+
+            def __len__(self):
+                return len(self.input_ids)
+
+            def __getitem__(self, idx):
+                return {
+                    "input_ids": self.input_ids[idx],
+                    "attention_mask": self.attention_mask[idx],
+                    "labels": self.input_ids[idx].clone(),
+                }
+
+        train_dataset = _TextDataset(encodings)
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        with _trainings_lock:
+            _active_trainings[job_id]["status"] = "training"
+
+        # Training arguments
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            num_train_epochs=epochs,
+            per_device_train_batch_size=batch_size,
+            learning_rate=learning_rate,
+            save_strategy="no",
+            logging_steps=1,
+            report_to="none",
+            fp16=torch.cuda.is_available(),
+            gradient_accumulation_steps=max(1, 8 // batch_size),
+            warmup_ratio=0.1,
+            weight_decay=0.01,
+            max_grad_norm=1.0,
+            dataloader_pin_memory=False,
+        )
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+            callbacks=[_ProgressCallback(job_id, "training")],
+        )
+
+        trainer.train()
+
+        # Post-training phase (if post-dataset provided)
+        if post_dataset_path and os.path.isfile(post_dataset_path):
+            with _trainings_lock:
+                job = _active_trainings.get(job_id)
+                if job:
+                    job["status"] = "post_training"
+                    job["phase"] = "post_training"
+                    job["progress"] = 0
+
+            post_rows = _load_jsonl(post_dataset_path)
+            if post_rows:
+                post_texts = [_format_row(r) for r in post_rows]
+                post_texts = [t for t in post_texts if t.strip()]
+
+                if post_texts:
+                    post_encodings = tokenizer(
+                        post_texts,
+                        truncation=True,
+                        max_length=max_length,
+                        padding="max_length",
+                        return_tensors="pt",
+                    )
+                    post_dataset = _TextDataset(post_encodings)
+
+                    post_args = TrainingArguments(
+                        output_dir=output_dir,
+                        num_train_epochs=max(1, epochs // 2),
+                        per_device_train_batch_size=batch_size,
+                        learning_rate=learning_rate / 2,
+                        save_strategy="no",
+                        logging_steps=1,
+                        report_to="none",
+                        fp16=torch.cuda.is_available(),
+                        gradient_accumulation_steps=max(1, 8 // batch_size),
+                        warmup_ratio=0.05,
+                        weight_decay=0.01,
+                        max_grad_norm=1.0,
+                        dataloader_pin_memory=False,
+                    )
+
+                    post_trainer = Trainer(
+                        model=model,
+                        args=post_args,
+                        train_dataset=post_dataset,
+                        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+                        callbacks=[_ProgressCallback(job_id, "post_training")],
+                    )
+
+                    post_trainer.train()
+
+        # Save the final model
+        with _trainings_lock:
+            job = _active_trainings.get(job_id)
+            if job:
+                job["status"] = "saving"
+                job["progress"] = 95
+
+        model.save_pretrained(output_dir)
+        tokenizer.save_pretrained(output_dir)
+
+        total_size = _dir_total_size(output_dir)
+
+        with _trainings_lock:
+            job = _active_trainings.get(job_id)
+            if job:
+                job.update({
+                    "status": "completed",
+                    "progress": 100,
+                    "phase": "done",
+                    "size": total_size,
+                })
+
+        # Evict from model cache so re-load picks up trained weights
+        with _model_lock:
+            _model_cache.pop(model_dir, None)
+            _model_cache.pop(output_dir, None)
+
+    except Exception as exc:
+        with _trainings_lock:
+            job = _active_trainings.get(job_id)
+            if job:
+                job.update({
+                    "status": "failed",
+                    "error": str(exc),
+                })
+
+
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     """Multi-threaded HTTP server so /health stays responsive during long /chat requests."""
     daemon_threads = True
@@ -321,6 +589,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ok"})
         elif parsed.path == "/download-progress":
             self._handle_download_progress(parsed)
+        elif parsed.path == "/train-progress":
+            self._handle_train_progress(parsed)
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -331,6 +601,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_download()
         elif self.path == "/download-dataset":
             self._handle_download_dataset()
+        elif self.path == "/train":
+            self._handle_train()
+        elif self.path == "/train-cancel":
+            self._handle_train_cancel()
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -408,6 +682,128 @@ class _Handler(BaseHTTPRequestHandler):
             result = dict(dl)
 
         self._send_json(200, result)
+
+    # --------------------------------------------------------------------- #
+    # POST /train  (async – returns job_id immediately)
+    # --------------------------------------------------------------------- #
+    def _handle_train(self):
+        data, err = self._read_json_body()
+        if err:
+            return
+
+        model_dir = data.get("model_dir", "")
+        dataset_path = data.get("dataset_path", "")
+        output_dir = data.get("output_dir", "")
+        post_dataset_path = data.get("post_dataset_path", None)
+        epochs = data.get("epochs", 3)
+        learning_rate = data.get("learning_rate", 2e-5)
+        batch_size = data.get("batch_size", 4)
+
+        if not model_dir or not isinstance(model_dir, str):
+            self._send_json(400, {"error": "model_dir is required"})
+            return
+        if not dataset_path or not isinstance(dataset_path, str):
+            self._send_json(400, {"error": "dataset_path is required"})
+            return
+        if not output_dir or not isinstance(output_dir, str):
+            self._send_json(400, {"error": "output_dir is required"})
+            return
+
+        # Validate model_dir is within allowed directory
+        resolved_model_dir = _validate_path_within_models_dir(model_dir)
+        if resolved_model_dir is None:
+            if not _allowed_models_dir:
+                self._send_json(500, {"error": "No allowed models directory configured"})
+            else:
+                self._send_json(403, {"error": "model_dir is outside the allowed models directory"})
+            return
+
+        # Validate output_dir is within allowed models directory
+        resolved_output_dir = _validate_path_within_models_dir(output_dir)
+        if resolved_output_dir is None:
+            if not _allowed_models_dir:
+                self._send_json(500, {"error": "No allowed models directory configured"})
+            else:
+                self._send_json(403, {"error": "output_dir is outside the allowed models directory"})
+            return
+
+        if not os.path.isdir(resolved_model_dir):
+            self._send_json(400, {"error": "model_dir does not exist"})
+            return
+        if not os.path.isfile(dataset_path):
+            self._send_json(400, {"error": "dataset_path does not exist"})
+            return
+        if post_dataset_path and not os.path.isfile(post_dataset_path):
+            self._send_json(400, {"error": "post_dataset_path does not exist"})
+            return
+
+        if not isinstance(epochs, int) or epochs < 1 or epochs > 100:
+            self._send_json(400, {"error": "epochs must be between 1 and 100"})
+            return
+        if not isinstance(batch_size, int) or batch_size < 1 or batch_size > 64:
+            self._send_json(400, {"error": "batch_size must be between 1 and 64"})
+            return
+
+        job_id = str(uuid.uuid4())
+        thread = threading.Thread(
+            target=_train_worker,
+            args=(job_id, resolved_model_dir, dataset_path, resolved_output_dir),
+            kwargs={
+                "post_dataset_path": post_dataset_path,
+                "epochs": epochs,
+                "learning_rate": float(learning_rate),
+                "batch_size": batch_size,
+            },
+            daemon=True,
+        )
+        thread.start()
+
+        self._send_json(202, {"job_id": job_id})
+
+    # --------------------------------------------------------------------- #
+    # GET /train-progress?id=<job_id>
+    # --------------------------------------------------------------------- #
+    def _handle_train_progress(self, parsed):
+        params = parse_qs(parsed.query)
+        job_id = (params.get("id") or [None])[0]
+        if not job_id:
+            self._send_json(400, {"error": "id query parameter is required"})
+            return
+
+        with _trainings_lock:
+            job = _active_trainings.get(job_id)
+            if not job:
+                self._send_json(404, {"error": "Unknown training job id"})
+                return
+            result = dict(job)
+
+        self._send_json(200, result)
+
+    # --------------------------------------------------------------------- #
+    # POST /train-cancel
+    # --------------------------------------------------------------------- #
+    def _handle_train_cancel(self):
+        data, err = self._read_json_body()
+        if err:
+            return
+
+        job_id = data.get("job_id", "")
+        if not job_id:
+            self._send_json(400, {"error": "job_id is required"})
+            return
+
+        with _trainings_lock:
+            job = _active_trainings.get(job_id)
+            if not job:
+                self._send_json(404, {"error": "Unknown training job id"})
+                return
+            if job["status"] in ("completed", "failed", "cancelled"):
+                self._send_json(400, {"error": f"Job already {job['status']}"})
+                return
+            job["status"] = "cancelled"
+            job["error"] = "Cancelled by user"
+
+        self._send_json(200, {"success": True})
 
     # --------------------------------------------------------------------- #
     # POST /download-dataset  (synchronous – returns rows)
