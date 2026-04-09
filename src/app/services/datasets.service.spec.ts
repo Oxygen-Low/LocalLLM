@@ -42,6 +42,7 @@ describe('DatasetsService', () => {
         provider: 'openai',
         model: 'gpt-4',
         numTokens: 1000,
+        retryOnFail: false,
       });
       req.flush(mockResponse);
       const result = await promise;
@@ -49,6 +50,26 @@ describe('DatasetsService', () => {
       expect(result.rows.length).toBe(1);
       expect(result.rows[0].instruction).toBe('Do X');
       expect(result.totalTokens).toBe(150);
+    });
+
+    it('should send retryOnFail flag when enabled', async () => {
+      const mockResponse: GenerateDatasetResponse = {
+        success: true,
+        rows: [{ instruction: 'Do X', input: 'data', output: 'result' }],
+        totalTokens: 150,
+      };
+      const promise = service.generate('Create Q&A pairs', 'openai', 'gpt-4', 1000, true);
+      const req = httpMock.expectOne('/api/datasets/generate');
+      expect(req.request.body).toEqual({
+        instructions: 'Create Q&A pairs',
+        provider: 'openai',
+        model: 'gpt-4',
+        numTokens: 1000,
+        retryOnFail: true,
+      });
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(true);
     });
 
     it('should return error response on failure', async () => {

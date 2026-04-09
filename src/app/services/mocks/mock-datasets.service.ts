@@ -9,7 +9,8 @@ export class MockDatasetsService {
     instructions: string,
     provider: string,
     model: string,
-    numTokens: number
+    numTokens: number,
+    retryOnFail: boolean = false
   ): Promise<GenerateDatasetResponse> {
     const estimatedRows = Math.max(1, Math.ceil(numTokens / 100));
     const rows: DatasetRow[] = [];

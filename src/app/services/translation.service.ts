@@ -491,6 +491,18 @@ const translations: TranslationDictionary = {
     ja: '生成するトークン数を指定してください。値が大きいほどデータが多くなり、時間がかかります。',
     ru: 'Укажите целевое количество токенов для генерации. Большие значения создают больше данных и занимают больше времени.',
   },
+  'datasets.retryOnFailLabel': {
+    en: 'Retry on fail',
+    ko: '실패 시 재시도',
+    ja: '失敗時にリトライ',
+    ru: 'Повторить при ошибке',
+  },
+  'datasets.retryOnFailHint': {
+    en: 'Automatically retry up to 3 times if generation fails (e.g. invalid JSON from LLM).',
+    ko: '생성 실패 시 최대 3회 자동 재시도합니다 (예: LLM의 잘못된 JSON).',
+    ja: '生成に失敗した場合、最大3回自動的にリトライします（例：LLMからの無効なJSON）。',
+    ru: 'Автоматически повторять до 3 раз при ошибке генерации (например, некорректный JSON от LLM).',
+  },
   'datasets.generateButton': {
     en: 'Generate Dataset',
     ko: '데이터셋 생성',

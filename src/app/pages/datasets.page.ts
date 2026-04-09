@@ -133,6 +133,22 @@ type DatasetMode = 'generate' | 'import';
                 <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numTokensHint') }}</p>
               </div>
 
+              <!-- Retry on fail -->
+              <div class="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="retryOnFail"
+                  [(ngModel)]="retryOnFail"
+                  class="mt-0.5 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-200"
+                />
+                <div>
+                  <label for="retryOnFail" class="text-sm font-semibold text-secondary-900 cursor-pointer">
+                    {{ t.translate('datasets.retryOnFailLabel') }}
+                  </label>
+                  <p class="text-xs text-muted mt-0.5">{{ t.translate('datasets.retryOnFailHint') }}</p>
+                </div>
+              </div>
+
               <!-- Generate button -->
               <button
                 (click)="generateDataset()"
@@ -390,6 +406,7 @@ export class DatasetsPageComponent implements OnInit {
   instructions = '';
   numTokens = 1000;
   selectedModel = '';
+  retryOnFail = false;
 
   // Providers
   isLoadingProviders = signal(false);
@@ -469,7 +486,8 @@ export class DatasetsPageComponent implements OnInit {
         this.instructions,
         provider.id,
         model,
-        this.numTokens
+        this.numTokens,
+        this.retryOnFail
       );
       if (res.success && res.rows) {
         this.generatedRows.set(res.rows);

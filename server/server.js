@@ -4374,6 +4374,7 @@ const BYTES_PER_TOKEN = 4; // standard approximation: 1 token ≈ 4 bytes
 const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
 const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
 const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
+const MAX_DATASET_RETRIES = 3; // maximum number of retries when retryOnFail is enabled
 
 // Helper to estimate token count from text
 function estimateTokenCount(text) {
@@ -4390,7 +4391,7 @@ function getMaxDatasetTokens() {
 // POST /api/datasets/generate – Generate dataset rows using an LLM (token-based)
 app.post('/api/datasets/generate', requireSession, async (req, res) => {
   try {
-    const { instructions, provider, model, numTokens } = req.body;
+    const { instructions, provider, model, numTokens, retryOnFail } = req.body;
 
     if (!instructions || typeof instructions !== 'string' || instructions.trim().length === 0) {
       return res.status(400).json({ success: false, error: 'Instructions are required' });
@@ -4462,77 +4463,93 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 ]`;
 
     const llmMaxTokens = tokenCount + LLM_TOKEN_BUFFER;
-    const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
-      provider,
-      model,
-      max_tokens: llmMaxTokens,
-      temperature: 0.8,
-    });
+    const maxAttempts = retryOnFail ? MAX_DATASET_RETRIES + 1 : 1;
+    let lastError = '';
 
-    // Parse the response
-    const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
-    let rows;
-    try {
-      rows = JSON.parse(cleaned);
-    } catch {
-      // LLM may return concatenated JSON objects instead of an array.
-      // Try to extract individual objects and wrap them in an array.
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const objects = [];
-        // Match top-level JSON objects by tracking brace depth (string-aware)
-        let depth = 0;
-        let start = -1;
-        let inString = false;
-        for (let i = 0; i < cleaned.length; i++) {
-          const char = cleaned[i];
-          if (inString) {
-            if (char === '\\' && i + 1 < cleaned.length) { i++; continue; } // skip escaped character
-            if (char === '"') inString = false;
-            continue;
-          }
-          if (char === '"') { inString = true; continue; }
-          if (char === '{') {
-            if (depth === 0) start = i;
-            depth++;
-          } else if (char === '}') {
-            depth--;
-            if (depth === 0 && start !== -1) {
-              const candidate = cleaned.slice(start, i + 1);
-              try { objects.push(JSON.parse(candidate)); } catch { /* skip malformed object */ }
-              start = -1;
+        const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
+          provider,
+          model,
+          max_tokens: llmMaxTokens,
+          temperature: 0.8,
+        });
+
+        // Parse the response
+        const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
+        let rows;
+        try {
+          rows = JSON.parse(cleaned);
+        } catch {
+          // LLM may return concatenated JSON objects instead of an array.
+          // Try to extract individual objects and wrap them in an array.
+          const objects = [];
+          // Match top-level JSON objects by tracking brace depth (string-aware)
+          let depth = 0;
+          let start = -1;
+          let inString = false;
+          for (let i = 0; i < cleaned.length; i++) {
+            const char = cleaned[i];
+            if (inString) {
+              if (char === '\\' && i + 1 < cleaned.length) { i++; continue; } // skip escaped character
+              if (char === '"') inString = false;
+              continue;
+            }
+            if (char === '"') { inString = true; continue; }
+            if (char === '{') {
+              if (depth === 0) start = i;
+              depth++;
+            } else if (char === '}') {
+              depth--;
+              if (depth === 0 && start !== -1) {
+                const candidate = cleaned.slice(start, i + 1);
+                try { objects.push(JSON.parse(candidate)); } catch { /* skip malformed object */ }
+                start = -1;
+              }
             }
           }
+          if (objects.length === 0) {
+            lastError = 'Failed to parse LLM response as valid JSON. Please try again.';
+            continue; // retry
+          }
+          rows = objects;
         }
-        if (objects.length === 0) throw new Error('No JSON objects found');
-        rows = objects;
-      } catch {
-        return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
+
+        if (!Array.isArray(rows)) {
+          rows = [rows];
+        }
+
+        // Validate and sanitize rows
+        const sanitizedRows = rows.map(r => ({
+          instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
+          input: typeof r.input === 'string' ? r.input.trim() : '',
+          output: typeof r.output === 'string' ? r.output.trim() : '',
+        }));
+
+        const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
+        if (hasEmptyRequiredFields) {
+          lastError = 'LLM returned rows with empty required fields. Please try again.';
+          continue; // retry
+        }
+
+        // Calculate total tokens generated
+        const totalTokens = sanitizedRows.reduce((sum, r) => {
+          return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
+        }, 0);
+
+        auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows (~${totalTokens} tokens)${attempt > 1 ? ` after ${attempt} attempts` : ''}`, username: req.sessionUser, req });
+        return res.json({ success: true, rows: sanitizedRows, totalTokens });
+      } catch (attemptErr) {
+        lastError = attemptErr.message || 'Internal server error';
+        if (!retryOnFail || attempt === maxAttempts) {
+          throw attemptErr;
+        }
+        // Otherwise continue to next attempt
       }
     }
 
-    if (!Array.isArray(rows)) {
-      rows = [rows];
-    }
-
-    // Validate and sanitize rows
-    const sanitizedRows = rows.map(r => ({
-      instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
-      input: typeof r.input === 'string' ? r.input.trim() : '',
-      output: typeof r.output === 'string' ? r.output.trim() : '',
-    }));
-
-    const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
-    if (hasEmptyRequiredFields) {
-      return res.status(502).json({ success: false, error: 'LLM returned rows with empty required fields. Please try again.' });
-    }
-
-    // Calculate total tokens generated
-    const totalTokens = sanitizedRows.reduce((sum, r) => {
-      return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
-    }, 0);
-
-    auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows (~${totalTokens} tokens)`, username: req.sessionUser, req });
-    res.json({ success: true, rows: sanitizedRows, totalTokens });
+    // All retries exhausted
+    return res.status(500).json({ success: false, error: lastError || 'Failed to generate dataset after multiple attempts.' });
   } catch (err) {
     console.error('Dataset generate error:', err);
     const message = err.message || 'Internal server error';
