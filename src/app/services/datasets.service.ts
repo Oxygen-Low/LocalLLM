@@ -59,6 +59,19 @@ export interface RefineDatasetResponse {
   error?: string;
 }
 
+export interface DatasetRowsResponse {
+  success: boolean;
+  rows: DatasetRow[];
+  error?: string;
+}
+
+export interface UpdateDatasetRowsResponse {
+  success: boolean;
+  rowCount?: number;
+  totalTokens?: number;
+  error?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -141,6 +154,25 @@ export class DatasetsService {
       )
     );
     return res.dataset;
+  }
+
+  async getDatasetRows(id: string): Promise<DatasetRowsResponse> {
+    const res = await firstValueFrom(
+      this.http.get<DatasetRowsResponse>(
+        `${environment.apiUrl}/api/datasets/${id}/rows`
+      )
+    );
+    return res;
+  }
+
+  async updateDatasetRows(id: string, rows: DatasetRow[]): Promise<UpdateDatasetRowsResponse> {
+    const res = await firstValueFrom(
+      this.http.put<UpdateDatasetRowsResponse>(
+        `${environment.apiUrl}/api/datasets/${id}/rows`,
+        { rows }
+      )
+    );
+    return res;
   }
 
   async deleteDataset(id: string): Promise<void> {

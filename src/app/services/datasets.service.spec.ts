@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { DatasetsService, DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, ImportDatasetResponse, RefineDatasetResponse, DatasetListResponse } from './datasets.service';
+import { DatasetsService, DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, ImportDatasetResponse, RefineDatasetResponse, DatasetListResponse, DatasetRowsResponse, UpdateDatasetRowsResponse } from './datasets.service';
 
 describe('DatasetsService', () => {
   let service: DatasetsService;
@@ -313,6 +313,75 @@ describe('DatasetsService', () => {
 
     it('should format MB', () => {
       expect(service.formatBytes(1048576)).toBe('1 MB');
+    });
+  });
+
+  describe('getDatasetRows', () => {
+    it('should send GET request to /api/datasets/:id/rows', async () => {
+      const mockResponse: DatasetRowsResponse = {
+        success: true,
+        rows: [
+          { instruction: 'Do X', input: 'data', output: 'result' },
+          { instruction: 'Do Y', input: '', output: 'answer' },
+        ],
+      };
+      const promise = service.getDatasetRows('ds-123');
+      const req = httpMock.expectOne('/api/datasets/ds-123/rows');
+      expect(req.request.method).toBe('GET');
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.rows.length).toBe(2);
+      expect(result.rows[0].instruction).toBe('Do X');
+    });
+
+    it('should return error response on failure', async () => {
+      const mockResponse: DatasetRowsResponse = {
+        success: false,
+        rows: [],
+        error: 'Active dataset not found',
+      };
+      const promise = service.getDatasetRows('bad-id');
+      const req = httpMock.expectOne('/api/datasets/bad-id/rows');
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Active dataset not found');
+    });
+  });
+
+  describe('updateDatasetRows', () => {
+    it('should send PUT request with rows', async () => {
+      const rows: DatasetRow[] = [
+        { instruction: 'Updated X', input: 'new data', output: 'new result' },
+      ];
+      const mockResponse: UpdateDatasetRowsResponse = {
+        success: true,
+        rowCount: 1,
+        totalTokens: 50,
+      };
+      const promise = service.updateDatasetRows('ds-123', rows);
+      const req = httpMock.expectOne('/api/datasets/ds-123/rows');
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ rows });
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.rowCount).toBe(1);
+      expect(result.totalTokens).toBe(50);
+    });
+
+    it('should return error response on failure', async () => {
+      const mockResponse: UpdateDatasetRowsResponse = {
+        success: false,
+        error: 'Row 1 has an empty or missing "instruction" field',
+      };
+      const promise = service.updateDatasetRows('ds-123', [{ instruction: '', input: '', output: 'x' }]);
+      const req = httpMock.expectOne('/api/datasets/ds-123/rows');
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Row 1 has an empty or missing "instruction" field');
     });
   });
 });
