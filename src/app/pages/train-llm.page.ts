@@ -79,6 +79,7 @@ type PageView = 'queue' | 'create';
                       <h3 class="text-lg font-semibold text-secondary-900">{{ job.name }}</h3>
                       <p class="text-sm text-muted mt-1">
                         {{ t.translate('trainLlm.job.baseModel') }}: {{ job.baseModelName }}
+                        · {{ t.translate('trainLlm.job.mode') }}: {{ job.trainingMode === 'from-scratch' ? t.translate('trainLlm.job.modeFromScratch') : t.translate('trainLlm.job.modeFineTune') }}
                       </p>
                       <p class="text-sm text-muted">
                         {{ t.translate('trainLlm.job.dataset') }}: {{ job.datasetName }}
@@ -172,6 +173,41 @@ type PageView = 'queue' | 'create';
             </div>
 
             <div class="card p-6 space-y-6">
+              <!-- Training Mode Toggle -->
+              <div>
+                <label class="block text-sm font-medium text-secondary-700 mb-2">
+                  {{ t.translate('trainLlm.create.trainingMode') }}
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                  <button
+                    (click)="formTrainingMode = 'fine-tune'"
+                    [class]="formTrainingMode === 'fine-tune'
+                      ? 'p-3 rounded-lg border-2 border-primary-500 bg-primary-50 text-left transition-all'
+                      : 'p-3 rounded-lg border-2 border-secondary-200 bg-white text-left transition-all hover:border-secondary-300'"
+                  >
+                    <div class="font-medium text-sm" [class]="formTrainingMode === 'fine-tune' ? 'text-primary-700' : 'text-secondary-700'">
+                      🔧 {{ t.translate('trainLlm.create.modeFineTune') }}
+                    </div>
+                    <p class="text-xs mt-1" [class]="formTrainingMode === 'fine-tune' ? 'text-primary-600' : 'text-muted'">
+                      {{ t.translate('trainLlm.create.modeFineTuneDesc') }}
+                    </p>
+                  </button>
+                  <button
+                    (click)="formTrainingMode = 'from-scratch'"
+                    [class]="formTrainingMode === 'from-scratch'
+                      ? 'p-3 rounded-lg border-2 border-primary-500 bg-primary-50 text-left transition-all'
+                      : 'p-3 rounded-lg border-2 border-secondary-200 bg-white text-left transition-all hover:border-secondary-300'"
+                  >
+                    <div class="font-medium text-sm" [class]="formTrainingMode === 'from-scratch' ? 'text-primary-700' : 'text-secondary-700'">
+                      🧪 {{ t.translate('trainLlm.create.modeFromScratch') }}
+                    </div>
+                    <p class="text-xs mt-1" [class]="formTrainingMode === 'from-scratch' ? 'text-primary-600' : 'text-muted'">
+                      {{ t.translate('trainLlm.create.modeFromScratchDesc') }}
+                    </p>
+                  </button>
+                </div>
+              </div>
+
               <!-- Job Name -->
               <div>
                 <label class="block text-sm font-medium text-secondary-700 mb-1.5">
@@ -186,27 +222,29 @@ type PageView = 'queue' | 'create';
                 />
               </div>
 
-              <!-- Base Model -->
-              <div>
-                <label class="block text-sm font-medium text-secondary-700 mb-1.5">
-                  {{ t.translate('trainLlm.create.baseModel') }}
-                </label>
-                @if (models().length === 0) {
-                  <p class="text-sm text-muted">
-                    {{ t.translate('trainLlm.create.noModels') }}
-                  </p>
-                } @else {
-                  <select
-                    [(ngModel)]="formBaseModelId"
-                    class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
-                  >
-                    <option value="">{{ t.translate('trainLlm.create.selectModel') }}</option>
-                    @for (model of models(); track model.id) {
-                      <option [value]="model.id">{{ model.name }}</option>
-                    }
-                  </select>
-                }
-              </div>
+              <!-- Base Model (only for fine-tuning) -->
+              @if (formTrainingMode === 'fine-tune') {
+                <div>
+                  <label class="block text-sm font-medium text-secondary-700 mb-1.5">
+                    {{ t.translate('trainLlm.create.baseModel') }}
+                  </label>
+                  @if (models().length === 0) {
+                    <p class="text-sm text-muted">
+                      {{ t.translate('trainLlm.create.noModels') }}
+                    </p>
+                  } @else {
+                    <select
+                      [(ngModel)]="formBaseModelId"
+                      class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                    >
+                      <option value="">{{ t.translate('trainLlm.create.selectModel') }}</option>
+                      @for (model of models(); track model.id) {
+                        <option [value]="model.id">{{ model.name }}</option>
+                      }
+                    </select>
+                  }
+                </div>
+              }
 
               <!-- Training Dataset -->
               <div>
@@ -263,6 +301,7 @@ type PageView = 'queue' | 'create';
                       max="100"
                       class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     />
+                    <p class="text-xs text-muted mt-1">{{ t.translate('trainLlm.create.epochsDesc') }}</p>
                   </div>
                   <div>
                     <label class="block text-xs text-muted mb-1">
@@ -276,6 +315,7 @@ type PageView = 'queue' | 'create';
                       max="0.01"
                       class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     />
+                    <p class="text-xs text-muted mt-1">{{ t.translate('trainLlm.create.learningRateDesc') }}</p>
                   </div>
                   <div>
                     <label class="block text-xs text-muted mb-1">
@@ -288,6 +328,7 @@ type PageView = 'queue' | 'create';
                       max="64"
                       class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     />
+                    <p class="text-xs text-muted mt-1">{{ t.translate('trainLlm.create.batchSizeDesc') }}</p>
                   </div>
                 </div>
               </div>
@@ -342,6 +383,7 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
 
   // Create form
   formName = '';
+  formTrainingMode: 'fine-tune' | 'from-scratch' = 'fine-tune';
   formBaseModelId = '';
   formDatasetId = '';
   formPostDatasetId = '';
@@ -413,7 +455,7 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
       this.createError.set('Please enter a name for the training job');
       return;
     }
-    if (!this.formBaseModelId) {
+    if (this.formTrainingMode === 'fine-tune' && !this.formBaseModelId) {
       this.createError.set('Please select a base model');
       return;
     }
@@ -426,7 +468,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
     try {
       const res = await this.trainLlmService.createJob({
         name: this.formName.trim(),
-        baseModelId: this.formBaseModelId,
+        trainingMode: this.formTrainingMode,
+        baseModelId: this.formTrainingMode === 'fine-tune' ? this.formBaseModelId : undefined,
         datasetId: this.formDatasetId,
         postDatasetId: this.formPostDatasetId || undefined,
         epochs: this.formEpochs,
@@ -517,6 +560,7 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
 
   private resetForm(): void {
     this.formName = '';
+    this.formTrainingMode = 'fine-tune';
     this.formBaseModelId = '';
     this.formDatasetId = '';
     this.formPostDatasetId = '';

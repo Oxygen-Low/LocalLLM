@@ -297,8 +297,8 @@ def _download_worker(download_id, repo_id, target_dir, hf_token=None):
 
 
 def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path=None,
-                  epochs=3, learning_rate=2e-5, batch_size=4):
-    """Background thread that fine-tunes a model on a dataset and tracks progress."""
+                  training_mode="fine-tune", epochs=3, learning_rate=2e-5, batch_size=4):
+    """Background thread that trains a model on a dataset and tracks progress."""
     try:
         with _trainings_lock:
             _active_trainings[job_id] = {
@@ -313,6 +313,7 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         from transformers import (  # noqa: E402
             AutoModelForCausalLM,
             AutoTokenizer,
+            AutoConfig,
             TrainingArguments,
             Trainer,
             TrainerCallback,
@@ -348,28 +349,46 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         with _trainings_lock:
             _active_trainings[job_id]["status"] = "loading_model"
 
-        # Load model and tokenizer
-        gguf_filename = _find_gguf_file(model_dir)
+        if training_mode == "from-scratch":
+            # Train from scratch: create a new model with random weights
+            # Use GPT-2 small architecture as the default for from-scratch training
+            from transformers import GPT2Config, GPT2LMHeadModel, GPT2Tokenizer  # noqa: E402
 
-        load_kwargs = {
-            "torch_dtype": torch.float32,
-            "low_cpu_mem_usage": True,
-            # Training requires a single device; disable device_map to avoid
-            # issues with model parallelism during backpropagation.
-            "device_map": None,
-        }
-
-        if gguf_filename:
-            tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_dir, gguf_file=gguf_filename, **load_kwargs
+            config = GPT2Config(
+                vocab_size=50257,
+                n_positions=512,
+                n_embd=768,
+                n_layer=6,
+                n_head=12,
             )
-        else:
-            tokenizer = AutoTokenizer.from_pretrained(model_dir)
-            model = AutoModelForCausalLM.from_pretrained(model_dir, **load_kwargs)
+            model = GPT2LMHeadModel(config)
+            tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+        else:
+            # Fine-tune: load existing model and tokenizer
+            gguf_filename = _find_gguf_file(model_dir)
+
+            load_kwargs = {
+                "torch_dtype": torch.float32,
+                "low_cpu_mem_usage": True,
+                # Training requires a single device; disable device_map to avoid
+                # issues with model parallelism during backpropagation.
+                "device_map": None,
+            }
+
+            if gguf_filename:
+                tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_dir, gguf_file=gguf_filename, **load_kwargs
+                )
+            else:
+                tokenizer = AutoTokenizer.from_pretrained(model_dir)
+                model = AutoModelForCausalLM.from_pretrained(model_dir, **load_kwargs)
+
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
 
         if torch.cuda.is_available():
             model = model.cuda()
@@ -696,12 +715,16 @@ class _Handler(BaseHTTPRequestHandler):
         dataset_path = data.get("dataset_path", "")
         output_dir = data.get("output_dir", "")
         post_dataset_path = data.get("post_dataset_path", None)
+        training_mode = data.get("training_mode", "fine-tune")
         epochs = data.get("epochs", 3)
         learning_rate = data.get("learning_rate", 2e-5)
         batch_size = data.get("batch_size", 4)
 
-        if not model_dir or not isinstance(model_dir, str):
-            self._send_json(400, {"error": "model_dir is required"})
+        if training_mode not in ("fine-tune", "from-scratch"):
+            training_mode = "fine-tune"
+
+        if training_mode == "fine-tune" and (not model_dir or not isinstance(model_dir, str)):
+            self._send_json(400, {"error": "model_dir is required for fine-tuning"})
             return
         if not dataset_path or not isinstance(dataset_path, str):
             self._send_json(400, {"error": "dataset_path is required"})
@@ -710,13 +733,21 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "output_dir is required"})
             return
 
-        # Validate model_dir is within allowed directory
-        resolved_model_dir = _validate_path_within_models_dir(model_dir)
-        if resolved_model_dir is None:
-            if not _allowed_models_dir:
-                self._send_json(500, {"error": "No allowed models directory configured"})
-            else:
-                self._send_json(403, {"error": "model_dir is outside the allowed models directory"})
+        # Validate model_dir is within allowed directory (required for fine-tune)
+        resolved_model_dir = None
+        if model_dir:
+            resolved_model_dir = _validate_path_within_models_dir(model_dir)
+            if resolved_model_dir is None:
+                if not _allowed_models_dir:
+                    self._send_json(500, {"error": "No allowed models directory configured"})
+                else:
+                    self._send_json(403, {"error": "model_dir is outside the allowed models directory"})
+                return
+            if training_mode == "fine-tune" and not os.path.isdir(resolved_model_dir):
+                self._send_json(400, {"error": "model_dir does not exist"})
+                return
+        elif training_mode == "fine-tune":
+            self._send_json(400, {"error": "model_dir is required for fine-tuning"})
             return
 
         # Validate output_dir is within allowed models directory
@@ -726,10 +757,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "No allowed models directory configured"})
             else:
                 self._send_json(403, {"error": "output_dir is outside the allowed models directory"})
-            return
-
-        if not os.path.isdir(resolved_model_dir):
-            self._send_json(400, {"error": "model_dir does not exist"})
             return
 
         # Validate dataset paths – they must be absolute and must not contain
@@ -768,6 +795,7 @@ class _Handler(BaseHTTPRequestHandler):
             args=(job_id, resolved_model_dir, resolved_dataset_path, resolved_output_dir),
             kwargs={
                 "post_dataset_path": resolved_post_dataset_path,
+                "training_mode": training_mode,
                 "epochs": epochs,
                 "learning_rate": float(learning_rate),
                 "batch_size": batch_size,
