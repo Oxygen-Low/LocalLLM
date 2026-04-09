@@ -42,6 +42,7 @@ describe('TrainLlmService', () => {
   it('should create a training job', async () => {
     const promise = service.createJob({
       name: 'Test Training',
+      trainingMode: 'fine-tune',
       baseModelId: 'model-1',
       datasetId: 'ds-1',
       epochs: 3,

@@ -5242,23 +5242,32 @@ function writeUserTrainings(username, trainings) {
 // POST /api/train-llm/jobs – Create a new training job
 app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
   try {
-    const { name, baseModelId, datasetId, postDatasetId, epochs, learningRate, batchSize } = req.body;
+    const { name, trainingMode, baseModelId, datasetId, postDatasetId, epochs, learningRate, batchSize } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100) {
       return res.status(400).json({ success: false, error: 'Name is required (max 100 characters)' });
     }
-    if (!baseModelId || typeof baseModelId !== 'string') {
-      return res.status(400).json({ success: false, error: 'Base model is required' });
+
+    const mode = trainingMode === 'from-scratch' ? 'from-scratch' : 'fine-tune';
+
+    if (mode === 'fine-tune' && (!baseModelId || typeof baseModelId !== 'string')) {
+      return res.status(400).json({ success: false, error: 'Base model is required for fine-tuning' });
     }
     if (!datasetId || typeof datasetId !== 'string') {
       return res.status(400).json({ success: false, error: 'Training dataset is required' });
     }
 
-    // Validate base model exists
+    // Validate base model exists (required for fine-tune, optional for from-scratch)
     const models = readLocalModels();
-    const baseModel = models.find(m => m.id === baseModelId);
-    if (!baseModel) {
-      return res.status(400).json({ success: false, error: 'Base model not found' });
+    let baseModel = null;
+    if (mode === 'fine-tune') {
+      baseModel = models.find(m => m.id === baseModelId);
+      if (!baseModel) {
+        return res.status(400).json({ success: false, error: 'Base model not found' });
+      }
+    } else if (baseModelId) {
+      // from-scratch can optionally reference a model for architecture
+      baseModel = models.find(m => m.id === baseModelId);
     }
 
     // Validate training dataset
@@ -5306,8 +5315,8 @@ app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
     const outputDir = path.join(path.resolve(MODELS_DIR), outputModelId);
     ensureWithinDir(MODELS_DIR, outputDir);
 
-    // Resolve model directory
-    const modelDir = getModelDirPath(baseModel);
+    // Resolve model directory (only needed for fine-tuning)
+    const modelDir = baseModel ? getModelDirPath(baseModel) : null;
 
     // Start training via Python service
     const trainPayload = {
@@ -5315,6 +5324,7 @@ app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
       dataset_path: datasetPath,
       output_dir: outputDir,
       post_dataset_path: postDatasetPath,
+      training_mode: mode,
       epochs: epochs && Number.isInteger(epochs) && epochs >= 1 && epochs <= 100 ? epochs : 3,
       learning_rate: learningRate && typeof learningRate === 'number' && learningRate > 0 ? learningRate : 2e-5,
       batch_size: batchSize && Number.isInteger(batchSize) && batchSize >= 1 && batchSize <= 64 ? batchSize : 4,
@@ -5342,8 +5352,9 @@ app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
     const trainingJob = {
       id: jobId,
       name: name.trim(),
-      baseModelId,
-      baseModelName: baseModel.name,
+      trainingMode: mode,
+      baseModelId: baseModelId || null,
+      baseModelName: baseModel ? baseModel.name : 'New Model (from scratch)',
       datasetId,
       datasetName: trainDataset.name,
       postDatasetId: postDatasetId || null,
@@ -5363,7 +5374,7 @@ app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
     userJobs.push(trainingJob);
     writeUserTrainings(req.sessionUser, userJobs);
 
-    auditLog({ event: 'TRAINING_STARTED', message: `Training "${name}" started (base: ${baseModel.name})`, username: req.sessionUser, req });
+    auditLog({ event: 'TRAINING_STARTED', message: `Training "${name}" started (mode: ${mode}${baseModel ? ', base: ' + baseModel.name : ''})`, username: req.sessionUser, req });
     res.status(202).json({ success: true, job: trainingJob });
   } catch (err) {
     console.error('Create training job error:', err);

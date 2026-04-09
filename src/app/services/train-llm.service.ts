@@ -6,6 +6,7 @@ import { environment } from '../../environments/environment';
 export interface TrainingJob {
   id: string;
   name: string;
+  trainingMode: 'fine-tune' | 'from-scratch';
   baseModelId: string;
   baseModelName: string;
   datasetId: string;
@@ -68,7 +69,8 @@ export class TrainLlmService {
 
   async createJob(params: {
     name: string;
-    baseModelId: string;
+    trainingMode: 'fine-tune' | 'from-scratch';
+    baseModelId?: string;
     datasetId: string;
     postDatasetId?: string;
     epochs?: number;
