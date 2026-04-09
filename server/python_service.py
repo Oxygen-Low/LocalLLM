@@ -740,7 +740,10 @@ class _Handler(BaseHTTPRequestHandler):
             if dp is None:
                 continue
             real = os.path.realpath(dp)
-            if ".." in dp.split(os.sep):
+            # Reject if the normalised path differs from the real path
+            # (indicates traversal via .., symlinks, or encoded components).
+            normed = os.path.normpath(dp)
+            if normed != dp or os.path.isabs(dp) is False:
                 self._send_json(400, {"error": f"{label} contains invalid path components"})
                 return
             if not os.path.isfile(real):
