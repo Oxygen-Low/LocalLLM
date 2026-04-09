@@ -350,22 +350,68 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
             _active_trainings[job_id]["status"] = "loading_model"
 
         if training_mode == "from-scratch":
-            # Train from scratch: create a new model with random weights
-            # Use GPT-2 small architecture as the default for from-scratch training
-            from transformers import GPT2Config, GPT2LMHeadModel, GPT2Tokenizer  # noqa: E402
+            # Train completely from scratch: build a tokenizer from the
+            # training data and initialise a model with random weights.
+            # No pretrained models or tokenizers are downloaded.
+            from transformers import GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast  # noqa: E402
+            from tokenizers import Tokenizer as HFTokenizer, models as tok_models, trainers as tok_trainers, pre_tokenizers as tok_pre  # noqa: E402
+
+            with _trainings_lock:
+                _active_trainings[job_id]["status"] = "loading_dataset"
+
+            # Read dataset text to train the tokenizer on
+            raw_lines: list[str] = []
+            with open(dataset_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        row = json.loads(line)
+                        parts = []
+                        for key in ("instruction", "input", "output"):
+                            if row.get(key):
+                                parts.append(str(row[key]))
+                        if parts:
+                            raw_lines.append(" ".join(parts))
+
+            if not raw_lines:
+                raise ValueError("Dataset is empty – cannot build tokenizer")
+
+            # Train a BPE tokenizer from the dataset text
+            bpe_tokenizer = HFTokenizer(tok_models.BPE(unk_token="<unk>"))
+            bpe_tokenizer.pre_tokenizer = tok_pre.ByteLevel(add_prefix_space=False)
+
+            special_tokens = ["<pad>", "<unk>", "<bos>", "<eos>"]
+            trainer = tok_trainers.BpeTrainer(
+                vocab_size=8000,
+                special_tokens=special_tokens,
+                min_frequency=2,
+            )
+            bpe_tokenizer.train_from_iterator(raw_lines, trainer=trainer)
+
+            # Wrap into a PreTrainedTokenizerFast for HuggingFace compatibility
+            tokenizer = PreTrainedTokenizerFast(
+                tokenizer_object=bpe_tokenizer,
+                bos_token="<bos>",
+                eos_token="<eos>",
+                unk_token="<unk>",
+                pad_token="<pad>",
+            )
+
+            actual_vocab_size = len(tokenizer)
+
+            with _trainings_lock:
+                _active_trainings[job_id]["status"] = "loading_model"
 
             config = GPT2Config(
-                vocab_size=50257,
+                vocab_size=actual_vocab_size,
                 n_positions=512,
                 n_embd=768,
                 n_layer=6,
                 n_head=12,
+                bos_token_id=tokenizer.bos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
             )
             model = GPT2LMHeadModel(config)
-            tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
         else:
             # Fine-tune: load existing model and tokenizer
             gguf_filename = _find_gguf_file(model_dir)

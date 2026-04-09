@@ -1320,10 +1320,10 @@ const translations: TranslationDictionary = {
     ru: 'Продолжите обучение существующей модели на вашем наборе данных для адаптации к новым задачам.',
   },
   'trainLlm.create.modeFromScratchDesc': {
-    en: 'Initialize a new model with random weights and train it entirely on your dataset.',
-    ko: '랜덤 가중치로 새 모델을 초기화하고 데이터셋으로 완전히 훈련합니다.',
-    ja: 'ランダムな重みで新しいモデルを初期化し、データセットで完全にトレーニングします。',
-    ru: 'Инициализируйте новую модель со случайными весами и полностью обучите её на вашем наборе данных.',
+    en: 'Build a new tokenizer and model entirely from your dataset — no pretrained models used.',
+    ko: '데이터셋에서 토크나이저와 모델을 완전히 새로 구축합니다 — 사전 훈련된 모델을 사용하지 않습니다.',
+    ja: 'データセットからトークナイザーとモデルを完全に新しく構築します — 事前学習済みモデルは使用しません。',
+    ru: 'Создайте новый токенизатор и модель полностью из вашего набора данных — без предобученных моделей.',
   },
   'trainLlm.create.epochsDesc': {
     en: 'Number of complete passes through the entire training dataset. More epochs can improve learning but may cause overfitting.',
