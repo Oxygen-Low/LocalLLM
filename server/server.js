@@ -4,6 +4,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const http = require('http');
 const https = require('https');
 const os = require('os');
@@ -7892,19 +7893,42 @@ async function createHttpServer() {
 
   const tlsCert = ensureSelfSignedCert();
   if (tlsCert) {
-    console.log('[https] Starting HTTPS server with self-signed certificate.');
-    return https.createServer({ key: tlsCert.key, cert: tlsCert.cert }, app);
+    console.log('[server] Starting dual-protocol server (HTTP + HTTPS) for LAN compatibility.');
+    const httpHandler = http.createServer(app);
+    const httpsHandler = https.createServer({ key: tlsCert.key, cert: tlsCert.cert }, app);
+
+    // Create a net.Server that inspects the first byte of each connection
+    // to determine whether the client is speaking TLS (0x16 = ClientHello)
+    // or plain HTTP, then delegates to the appropriate handler.
+    const dualServer = net.createServer((socket) => {
+      socket.once('error', () => { socket.destroy(); });
+
+      socket.once('data', (data) => {
+        // TLS record layer starts with ContentType 0x16 (Handshake)
+        const target = data[0] === 0x16 ? httpsHandler : httpHandler;
+        socket.unshift(data);
+        target.emit('connection', socket);
+      });
+    });
+
+    // Tag so callers know TLS is available
+    dualServer._hasTLS = true;
+    return dualServer;
   }
 
-  console.warn('[https] Falling back to plain HTTP.');
+  console.warn('[server] Falling back to plain HTTP (no TLS certificate available).');
   return http.createServer(app);
 }
 
 if (require.main === module) {
   createHttpServer().then((server) => {
-    const protocol = server instanceof https.Server ? 'https' : 'http';
+    const hasTLS = server._hasTLS || server instanceof https.Server;
     server.listen(PORT, HOST, () => {
-      console.log(`Server running on ${protocol}://${HOST}:${PORT}`);
+      if (hasTLS) {
+        console.log(`Server running on http://${HOST}:${PORT} and https://${HOST}:${PORT}`);
+      } else {
+        console.log(`Server running on http://${HOST}:${PORT}`);
+      }
       startPythonProcess();
 
       // Auto-sync on startup: pull remote data if newer
