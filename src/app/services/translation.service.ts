@@ -498,10 +498,10 @@ const translations: TranslationDictionary = {
     ru: 'Повторить при ошибке',
   },
   'datasets.retryOnFailHint': {
-    en: 'Automatically retry up to 3 times if generation fails (e.g. invalid JSON from LLM).',
-    ko: '생성 실패 시 최대 3회 자동 재시도합니다 (예: LLM의 잘못된 JSON).',
-    ja: '生成に失敗した場合、最大3回自動的にリトライします（例：LLMからの無効なJSON）。',
-    ru: 'Автоматически повторять до 3 раз при ошибке генерации (например, некорректный JSON от LLM).',
+    en: 'Automatically retry up to 3 times if the LLM fails or generates insufficient output.',
+    ko: 'LLM이 실패하거나 출력이 부족한 경우 최대 3회 자동 재시도합니다.',
+    ja: 'LLMが失敗するか出力が不十分な場合、最大3回自動的にリトライします。',
+    ru: 'Автоматически повторять до 3 раз при сбое LLM или недостаточном объёме вывода.',
   },
   'datasets.generateButton': {
     en: 'Generate Dataset',

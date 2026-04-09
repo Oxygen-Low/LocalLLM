@@ -4467,22 +4467,31 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
     let lastError = '';
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let response;
       try {
-        const response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
+        response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
           provider,
           model,
           max_tokens: llmMaxTokens,
           temperature: 0.8,
         });
+      } catch (llmErr) {
+        lastError = llmErr.message || 'LLM generation failed';
+        if (!retryOnFail || attempt === maxAttempts) {
+          throw llmErr;
+        }
+        continue; // retry on LLM call failure
+      }
 
-        // Parse the response
-        const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
-        let rows;
+      // Parse the response
+      const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
+      let rows;
+      try {
+        rows = JSON.parse(cleaned);
+      } catch {
+        // LLM may return concatenated JSON objects instead of an array.
+        // Try to extract individual objects and wrap them in an array.
         try {
-          rows = JSON.parse(cleaned);
-        } catch {
-          // LLM may return concatenated JSON objects instead of an array.
-          // Try to extract individual objects and wrap them in an array.
           const objects = [];
           // Match top-level JSON objects by tracking brace depth (string-aware)
           let depth = 0;
@@ -4508,47 +4517,45 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
               }
             }
           }
-          if (objects.length === 0) {
-            lastError = 'Failed to parse LLM response as valid JSON.';
-            continue; // retry
-          }
+          if (objects.length === 0) throw new Error('No JSON objects found');
           rows = objects;
+        } catch {
+          return res.status(500).json({ success: false, error: 'Failed to parse LLM response as valid JSON. Please try again.' });
         }
-
-        if (!Array.isArray(rows)) {
-          rows = [rows];
-        }
-
-        // Validate and sanitize rows
-        const sanitizedRows = rows.map(r => ({
-          instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
-          input: typeof r.input === 'string' ? r.input.trim() : '',
-          output: typeof r.output === 'string' ? r.output.trim() : '',
-        }));
-
-        const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
-        if (hasEmptyRequiredFields) {
-          lastError = 'LLM returned rows with empty required fields.';
-          continue; // retry
-        }
-
-        // Calculate total tokens generated
-        const totalTokens = sanitizedRows.reduce((sum, r) => {
-          return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
-        }, 0);
-
-        auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows (~${totalTokens} tokens)${attempt > 1 ? ` after ${attempt} attempts` : ''}`, username: req.sessionUser, req });
-        return res.json({ success: true, rows: sanitizedRows, totalTokens });
-      } catch (attemptErr) {
-        lastError = attemptErr.message || 'Internal server error';
-        if (!retryOnFail || attempt === maxAttempts) {
-          throw attemptErr;
-        }
-        // Otherwise continue to next attempt
       }
+
+      if (!Array.isArray(rows)) {
+        rows = [rows];
+      }
+
+      // Validate and sanitize rows
+      const sanitizedRows = rows.map(r => ({
+        instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
+        input: typeof r.input === 'string' ? r.input.trim() : '',
+        output: typeof r.output === 'string' ? r.output.trim() : '',
+      }));
+
+      const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
+      if (hasEmptyRequiredFields) {
+        return res.status(502).json({ success: false, error: 'LLM returned rows with empty required fields. Please try again.' });
+      }
+
+      // Calculate total tokens generated
+      const totalTokens = sanitizedRows.reduce((sum, r) => {
+        return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
+      }, 0);
+
+      // If retry is enabled and the LLM did not produce enough tokens, retry
+      if (retryOnFail && totalTokens < tokenCount * 0.5 && attempt < maxAttempts) {
+        lastError = `LLM only generated ~${totalTokens} tokens (requested ${tokenCount}). Retrying.`;
+        continue;
+      }
+
+      auditLog({ event: 'DATASET_GENERATED', message: `Generated ${sanitizedRows.length} dataset rows (~${totalTokens} tokens)${attempt > 1 ? ` after ${attempt} attempts` : ''}`, username: req.sessionUser, req });
+      return res.json({ success: true, rows: sanitizedRows, totalTokens });
     }
 
-    // All retries exhausted
+    // All retries exhausted — return last partial result or error
     return res.status(500).json({ success: false, error: lastError || 'Failed to generate dataset after multiple attempts.' });
   } catch (err) {
     console.error('Dataset generate error:', err);
