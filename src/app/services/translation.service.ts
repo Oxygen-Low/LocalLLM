@@ -1055,12 +1055,6 @@ const translations: TranslationDictionary = {
     ja: '{count}行',
     ru: '{count} строк',
   },
-  'datasets.confirmDeleteRow': {
-    en: 'Delete this row?',
-    ko: '이 행을 삭제하시겠습니까?',
-    ja: 'この行を削除しますか？',
-    ru: 'Удалить эту строку?',
-  },
   'apps.category.data': {
     en: 'Data',
     ko: '데이터',
