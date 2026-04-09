@@ -51,6 +51,14 @@ export interface ImportDatasetResponse {
   error?: string;
 }
 
+export interface RefineDatasetResponse {
+  success: boolean;
+  rows: DatasetRow[];
+  totalTokens?: number;
+  originalName?: string;
+  error?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -97,6 +105,21 @@ export class DatasetsService {
       this.http.post<ImportDatasetResponse>(
         `${environment.apiUrl}/api/datasets/import-huggingface`,
         { datasetId, name, split, maxRows }
+      )
+    );
+    return res;
+  }
+
+  async refine(
+    datasetId: string,
+    provider: string,
+    model: string,
+    instructions: string = ''
+  ): Promise<RefineDatasetResponse> {
+    const res = await firstValueFrom(
+      this.http.post<RefineDatasetResponse>(
+        `${environment.apiUrl}/api/datasets/${datasetId}/refine`,
+        { provider, model, instructions }
       )
     );
     return res;

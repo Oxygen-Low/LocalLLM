@@ -7,9 +7,9 @@ import { LlmService, ProviderInfo } from '../services/llm.service';
 import { DatasetsService, DatasetRow, DatasetEntry } from '../services/datasets.service';
 
 type WizardStep = 'configure' | 'generating' | 'results';
-type DatasetMode = 'generate' | 'import' | 'queue';
+type DatasetMode = 'generate' | 'import' | 'queue' | 'refine';
 type PageView = 'list' | 'create';
-type QueueItemStatus = 'pending' | 'generating' | 'saving' | 'done' | 'failed';
+type QueueItemStatus = 'pending' | 'generating' | 'refining' | 'saving' | 'done' | 'failed';
 
 const GENERATING_PROGRESS_PERCENT = 60;
 const SAVING_PROGRESS_PERCENT = 90;
@@ -27,6 +27,8 @@ interface QueueItem {
   status: QueueItemStatus;
   error?: string;
   rowCount?: number;
+  type?: 'generate' | 'refine';
+  datasetId?: string;
 }
 
 @Component({
@@ -151,6 +153,11 @@ interface QueueItem {
                           title="Download">
                           ↓
                         </a>
+                        <button (click)="startRefine(ds)"
+                          class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm transition-colors"
+                          [disabled]="actionInProgress()">
+                          {{ t.translate('datasets.refine') }}
+                        </button>
                         <button (click)="archiveDataset(ds)"
                           class="px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm transition-colors"
                           [disabled]="actionInProgress()">
@@ -237,6 +244,13 @@ interface QueueItem {
                 [ngClass]="datasetMode() === 'queue' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
                 {{ t.translate('datasets.queueTab') }}
+              </button>
+              <button
+                (click)="datasetMode.set('refine')"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [ngClass]="datasetMode() === 'refine' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
+              >
+                {{ t.translate('datasets.refineTab') }}
               </button>
             </div>
           </div>
@@ -572,7 +586,7 @@ interface QueueItem {
                     <div class="rounded-lg border p-4 transition-colors"
                       [ngClass]="{
                         'border-secondary-200 bg-white': item.status === 'pending',
-                        'border-primary-300 bg-primary-50': item.status === 'generating' || item.status === 'saving',
+                        'border-primary-300 bg-primary-50': item.status === 'generating' || item.status === 'saving' || item.status === 'refining',
                         'border-green-300 bg-green-50': item.status === 'done',
                         'border-red-300 bg-red-50': item.status === 'failed'
                       }">
@@ -580,10 +594,13 @@ interface QueueItem {
                         <div class="min-w-0 flex-1">
                           <div class="flex items-center gap-2">
                             <span class="font-semibold text-sm text-secondary-900 truncate">{{ item.name }}</span>
+                            @if (item.type === 'refine') {
+                              <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">{{ t.translate('datasets.refine') }}</span>
+                            }
                             <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
                               [ngClass]="{
                                 'bg-secondary-100 text-secondary-600': item.status === 'pending',
-                                'bg-primary-100 text-primary-700': item.status === 'generating' || item.status === 'saving',
+                                'bg-primary-100 text-primary-700': item.status === 'generating' || item.status === 'saving' || item.status === 'refining',
                                 'bg-green-100 text-green-700': item.status === 'done',
                                 'bg-red-100 text-red-700': item.status === 'failed'
                               }">
@@ -591,7 +608,7 @@ interface QueueItem {
                             </span>
                           </div>
                           <p class="text-xs text-muted mt-1 truncate">{{ item.instructions }}</p>
-                          <p class="text-xs text-muted mt-0.5">{{ item.providerName }} · {{ item.model }} · {{ item.numTokens }} tokens</p>
+                          <p class="text-xs text-muted mt-0.5">{{ item.providerName }} · {{ item.model }}{{ item.type !== 'refine' ? ' · ' + item.numTokens + ' tokens' : '' }}</p>
                         </div>
                         <div class="flex items-center gap-2 flex-shrink-0">
                           @if (item.status === 'done' && item.rowCount) {
@@ -607,7 +624,7 @@ interface QueueItem {
                       </div>
 
                       <!-- Per-item progress bar -->
-                      @if (item.status === 'generating' || item.status === 'saving') {
+                      @if (item.status === 'generating' || item.status === 'saving' || item.status === 'refining') {
                         <div class="w-full bg-primary-100 rounded-full h-1.5 mt-2">
                           <div class="h-1.5 rounded-full bg-primary-500 transition-all duration-700 animate-pulse"
                             [style.width.%]="getQueueItemProgress(item.status)"
@@ -663,7 +680,228 @@ interface QueueItem {
           </div>
         }
 
-        <!-- STEP 2: Generating -->
+        <!-- REFINE MODE -->
+        @if (currentStep() === 'configure' && datasetMode() === 'refine') {
+          <div class="max-w-3xl mx-auto space-y-6">
+
+            <!-- Refine description -->
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-5">
+              <h2 class="text-lg font-bold text-secondary-900 mb-1">{{ t.translate('datasets.refineTitle') }}</h2>
+              <p class="text-sm text-muted">{{ t.translate('datasets.refineSubtitle') }}</p>
+            </div>
+
+            <!-- Add refine job form -->
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-4">
+
+              <!-- Select dataset to refine -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.refineSelectDataset') }}</label>
+                @if (activeDatasets().length === 0) {
+                  <div class="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    {{ t.translate('datasets.refineNoDatasets') }}
+                  </div>
+                } @else {
+                  <select
+                    [(ngModel)]="refineDatasetId"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  >
+                    <option value="">{{ t.translate('datasets.refineSelectPlaceholder') }}</option>
+                    @for (ds of activeDatasets(); track ds.id) {
+                      <option [value]="ds.id">{{ ds.name }} ({{ ds.rowCount }} rows)</option>
+                    }
+                  </select>
+                }
+              </div>
+
+              <!-- Refinement instructions (optional) -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.refineInstructions') }}</label>
+                <textarea
+                  [(ngModel)]="refineInstructions"
+                  rows="3"
+                  [placeholder]="t.translate('datasets.refineInstructionsPlaceholder')"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-none transition-colors"
+                ></textarea>
+                <p class="text-xs text-muted mt-1">{{ t.translate('datasets.refineInstructionsHint') }}</p>
+              </div>
+
+              <!-- Provider Selection -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.providerLabel') }}</label>
+                @if (isLoadingProviders()) {
+                  <div class="text-sm text-muted">{{ t.translate('datasets.loadingProviders') }}</div>
+                } @else if (availableProviders().length === 0) {
+                  <div class="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    {{ t.translate('datasets.noProviders') }}
+                  </div>
+                } @else {
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @for (p of availableProviders(); track p.id) {
+                      <button
+                        (click)="selectRefineProvider(p)"
+                        class="text-left p-3 rounded-lg border transition-all"
+                        [ngClass]="refineSelectedProvider()?.id === p.id
+                          ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
+                          : 'border-secondary-200 hover:border-primary-300 bg-white'"
+                      >
+                        <div class="font-medium text-secondary-900 text-sm">{{ p.name }}</div>
+                        <div class="text-xs text-muted mt-0.5">{{ p.model }}</div>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+
+              <!-- Model override for refine -->
+              @if (refineSelectedProvider() && refineSelectedProvider()!.models && refineSelectedProvider()!.models!.length > 1) {
+                <div>
+                  <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.modelLabel') }}</label>
+                  <select
+                    [(ngModel)]="refineSelectedModel"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  >
+                    @for (m of refineSelectedProvider()!.models!; track m) {
+                      <option [value]="getModelId(m)">{{ getModelLabel(m) }}</option>
+                    }
+                  </select>
+                </div>
+              }
+
+              <!-- Save as name -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.refineSaveName') }}</label>
+                <input
+                  type="text"
+                  [(ngModel)]="refineSaveName"
+                  [placeholder]="t.translate('datasets.refineSaveNamePlaceholder')"
+                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
+                />
+                <p class="text-xs text-muted mt-1">{{ t.translate('datasets.refineSaveNameHint') }}</p>
+              </div>
+
+              <!-- Add to queue button -->
+              <button
+                (click)="addRefineToQueue()"
+                [disabled]="!canAddRefineToQueue()"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {{ t.translate('datasets.addRefineToQueue') }}
+              </button>
+            </div>
+
+            <!-- Queue list (shared with generate queue) -->
+            @if (queueItems().length > 0) {
+              <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-4">
+                <!-- Overall progress -->
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="text-lg font-bold text-secondary-900">{{ t.translate('datasets.queueTab') }} ({{ queueItems().length }})</h3>
+                  <div class="text-sm text-muted">
+                    {{ t.translate('datasets.queueProgress').replace('{completed}', queueCompletedCount().toString()).replace('{total}', queueItems().length.toString()) }}
+                  </div>
+                </div>
+
+                <!-- Overall progress bar -->
+                <div class="w-full bg-secondary-100 rounded-full h-2.5">
+                  <div
+                    class="h-2.5 rounded-full transition-all duration-500"
+                    [ngClass]="queueHasErrors() ? 'bg-amber-500' : 'bg-primary-600'"
+                    [style.width.%]="queueOverallProgress()"
+                  ></div>
+                </div>
+
+                <!-- Queue items -->
+                <div class="space-y-3">
+                  @for (item of queueItems(); track item.id) {
+                    <div class="rounded-lg border p-4 transition-colors"
+                      [ngClass]="{
+                        'border-secondary-200 bg-white': item.status === 'pending',
+                        'border-primary-300 bg-primary-50': item.status === 'generating' || item.status === 'saving' || item.status === 'refining',
+                        'border-green-300 bg-green-50': item.status === 'done',
+                        'border-red-300 bg-red-50': item.status === 'failed'
+                      }">
+                      <div class="flex items-center justify-between gap-3 mb-2">
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-2">
+                            <span class="font-semibold text-sm text-secondary-900 truncate">{{ item.name }}</span>
+                            @if (item.type === 'refine') {
+                              <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">{{ t.translate('datasets.refine') }}</span>
+                            }
+                            <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
+                              [ngClass]="{
+                                'bg-secondary-100 text-secondary-600': item.status === 'pending',
+                                'bg-primary-100 text-primary-700': item.status === 'generating' || item.status === 'saving' || item.status === 'refining',
+                                'bg-green-100 text-green-700': item.status === 'done',
+                                'bg-red-100 text-red-700': item.status === 'failed'
+                              }">
+                              {{ t.translate('datasets.queueItem' + capitalize(item.status)) }}
+                            </span>
+                          </div>
+                          <p class="text-xs text-muted mt-1 truncate">{{ item.instructions || 'Default refinement' }}</p>
+                          <p class="text-xs text-muted mt-0.5">{{ item.providerName }} · {{ item.model }}</p>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                          @if (item.status === 'done' && item.rowCount) {
+                            <span class="text-xs text-green-700 font-medium">{{ item.rowCount }} rows</span>
+                          }
+                          @if (item.status === 'pending' && !isQueueRunning()) {
+                            <button (click)="removeFromQueue(item.id)"
+                              class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors">
+                              {{ t.translate('datasets.removeFromQueue') }}
+                            </button>
+                          }
+                        </div>
+                      </div>
+
+                      <!-- Per-item progress bar -->
+                      @if (item.status === 'generating' || item.status === 'saving' || item.status === 'refining') {
+                        <div class="w-full bg-primary-100 rounded-full h-1.5 mt-2">
+                          <div class="h-1.5 rounded-full bg-primary-500 transition-all duration-700 animate-pulse"
+                            [style.width.%]="getQueueItemProgress(item.status)"
+                          ></div>
+                        </div>
+                      }
+
+                      @if (item.status === 'failed' && item.error) {
+                        <p class="text-xs text-red-600 mt-2">{{ item.error }}</p>
+                      }
+                    </div>
+                  }
+                </div>
+
+                <!-- Queue action buttons -->
+                <div class="flex gap-3 pt-2">
+                  @if (!isQueueRunning()) {
+                    @if (queueHasPending()) {
+                      <button (click)="startQueue()"
+                        class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors">
+                        {{ t.translate('datasets.startQueue') }}
+                      </button>
+                    }
+                    <button (click)="clearQueue()"
+                      class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+                      {{ t.translate('datasets.clearQueue') }}
+                    </button>
+                  } @else {
+                    <button (click)="stopQueue()"
+                      class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors">
+                      {{ t.translate('datasets.stopQueue') }}
+                    </button>
+                    <span class="flex items-center gap-2 text-sm text-muted">
+                      <span class="animate-spin w-4 h-4 border-2 border-primary-200 border-t-primary-600 rounded-full"></span>
+                      {{ t.translate('datasets.queueRunning') }}
+                    </span>
+                  }
+                </div>
+
+                @if (queueCompletedCount() === queueItems().length && queueItems().length > 0 && !isQueueRunning()) {
+                  <div class="p-3 rounded-lg bg-green-100 border border-green-300 text-green-800 text-sm text-center">
+                    {{ t.translate('datasets.queueAllDone') }}
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
         @if (currentStep() === 'generating') {
           <div class="max-w-md mx-auto text-center py-16">
             <div class="animate-spin w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full mx-auto mb-4"></div>
@@ -880,6 +1118,13 @@ export class DatasetsPageComponent implements OnInit {
   queueSelectedModel = '';
   queueItemTokens = 1000;
   queueItemRetryOnFail = false;
+
+  // Refine
+  refineDatasetId = '';
+  refineInstructions = '';
+  refineSelectedProvider = signal<ProviderInfo | null>(null);
+  refineSelectedModel = '';
+  refineSaveName = '';
 
   async ngOnInit(): Promise<void> {
     await this.loadDatasets();
@@ -1135,6 +1380,60 @@ export class DatasetsPageComponent implements OnInit {
     }
   }
 
+  // --- Refine methods ---
+
+  activeDatasets(): DatasetEntry[] {
+    return this.datasets().filter(d => d.status === 'active');
+  }
+
+  startRefine(ds: DatasetEntry): void {
+    this.pageView.set('create');
+    this.currentStep.set('configure');
+    this.datasetMode.set('refine');
+    this.refineDatasetId = ds.id;
+    this.refineSaveName = `${ds.name}-refined`;
+    this.loadProviders();
+  }
+
+  selectRefineProvider(provider: ProviderInfo): void {
+    this.refineSelectedProvider.set(provider);
+    const firstModel = provider.models?.[0];
+    this.refineSelectedModel = provider.model || (typeof firstModel === 'string' ? firstModel : firstModel?.id ?? '');
+  }
+
+  canAddRefineToQueue(): boolean {
+    const hasModel = !!(this.refineSelectedModel || this.refineSelectedProvider()?.model);
+    return (
+      this.refineDatasetId.length > 0 &&
+      this.refineSaveName.trim().length > 0 &&
+      this.refineSelectedProvider() !== null &&
+      hasModel
+    );
+  }
+
+  addRefineToQueue(): void {
+    if (!this.canAddRefineToQueue()) return;
+    const provider = this.refineSelectedProvider()!;
+    const model = this.refineSelectedModel || provider.model || '';
+    const item: QueueItem = {
+      id: crypto.randomUUID(),
+      name: this.refineSaveName.trim(),
+      instructions: this.refineInstructions.trim(),
+      providerId: provider.id,
+      providerName: provider.name,
+      model,
+      numTokens: 0,
+      retryOnFail: false,
+      status: 'pending',
+      type: 'refine',
+      datasetId: this.refineDatasetId,
+    };
+    this.queueItems.update(items => [...items, item]);
+    this.refineDatasetId = '';
+    this.refineInstructions = '';
+    this.refineSaveName = '';
+  }
+
   // --- Queue methods ---
 
   selectQueueProvider(provider: ProviderInfo): void {
@@ -1169,6 +1468,7 @@ export class DatasetsPageComponent implements OnInit {
       numTokens: this.queueItemTokens,
       retryOnFail: this.queueItemRetryOnFail,
       status: 'pending',
+      type: 'generate',
     };
     this.queueItems.update(items => [...items, item]);
     this.queueItemName = '';
@@ -1191,7 +1491,7 @@ export class DatasetsPageComponent implements OnInit {
     const items = this.queueItems();
     if (items.length === 0) return 0;
     const completed = items.filter(i => i.status === 'done' || i.status === 'failed').length;
-    const inProgress = items.filter(i => i.status === 'generating' || i.status === 'saving').length;
+    const inProgress = items.filter(i => i.status === 'generating' || i.status === 'saving' || i.status === 'refining').length;
     return ((completed + inProgress * 0.5) / items.length) * 100;
   }
 
@@ -1208,6 +1508,7 @@ export class DatasetsPageComponent implements OnInit {
   }
 
   getQueueItemProgress(status: string): number {
+    if (status === 'refining') return GENERATING_PROGRESS_PERCENT;
     return status === 'generating' ? GENERATING_PROGRESS_PERCENT : SAVING_PROGRESS_PERCENT;
   }
 
@@ -1221,64 +1522,126 @@ export class DatasetsPageComponent implements OnInit {
       if (this.queueStopRequested) break;
       if (item.status !== 'pending') continue;
 
-      // Generate
-      this.updateQueueItem(item.id, { status: 'generating' });
-      try {
-        const res = await this.datasetsService.generate(
-          item.instructions,
-          item.providerId,
-          item.model,
-          item.numTokens,
-          item.retryOnFail
-        );
-
-        if (this.queueStopRequested) {
-          this.updateQueueItem(item.id, { status: 'pending' });
-          break;
-        }
-
-        if (!res.success || !res.rows || res.rows.length === 0) {
-          this.updateQueueItem(item.id, {
-            status: 'failed',
-            error: res.error || 'Dataset generation completed but produced no data rows',
-          });
-          continue;
-        }
-
-        // Save
-        this.updateQueueItem(item.id, { status: 'saving' });
+      if (item.type === 'refine' && item.datasetId) {
+        // Refine existing dataset
+        this.updateQueueItem(item.id, { status: 'refining' });
         try {
-          const saveRes = await this.datasetsService.save(
-            item.name,
-            `Auto-generated via queue: ${item.instructions.substring(0, MAX_QUEUE_DESCRIPTION_LENGTH)}`,
-            res.rows
+          const res = await this.datasetsService.refine(
+            item.datasetId,
+            item.providerId,
+            item.model,
+            item.instructions
           );
-          if (saveRes.success) {
-            this.updateQueueItem(item.id, {
-              status: 'done',
-              rowCount: res.rows.length,
-            });
-          } else {
+
+          if (this.queueStopRequested) {
+            this.updateQueueItem(item.id, { status: 'pending' });
+            break;
+          }
+
+          if (!res.success || !res.rows || res.rows.length === 0) {
             this.updateQueueItem(item.id, {
               status: 'failed',
-              error: saveRes.error || 'Failed to save dataset',
+              error: res.error || 'Refinement completed but produced no data rows',
+            });
+            continue;
+          }
+
+          // Save refined dataset
+          this.updateQueueItem(item.id, { status: 'saving' });
+          try {
+            const saveRes = await this.datasetsService.save(
+              item.name,
+              `Refined dataset: ${item.instructions ? item.instructions.substring(0, MAX_QUEUE_DESCRIPTION_LENGTH) : 'Default refinement'}`,
+              res.rows
+            );
+            if (saveRes.success) {
+              this.updateQueueItem(item.id, {
+                status: 'done',
+                rowCount: res.rows.length,
+              });
+            } else {
+              this.updateQueueItem(item.id, {
+                status: 'failed',
+                error: saveRes.error || 'Failed to save refined dataset',
+              });
+            }
+          } catch (saveErr: any) {
+            this.updateQueueItem(item.id, {
+              status: 'failed',
+              error: saveErr?.error?.error || saveErr?.message || 'Failed to save refined dataset',
             });
           }
-        } catch (saveErr: any) {
-          this.updateQueueItem(item.id, {
-            status: 'failed',
-            error: saveErr?.error?.error || saveErr?.message || 'Failed to save dataset',
-          });
+        } catch (err: any) {
+          if (!this.queueStopRequested) {
+            this.updateQueueItem(item.id, {
+              status: 'failed',
+              error: err?.error?.error || err?.message || 'Refinement failed',
+            });
+          } else {
+            this.updateQueueItem(item.id, { status: 'pending' });
+            break;
+          }
         }
-      } catch (err: any) {
-        if (!this.queueStopRequested) {
-          this.updateQueueItem(item.id, {
-            status: 'failed',
-            error: err?.error?.error || err?.message || 'Generation failed',
-          });
-        } else {
-          this.updateQueueItem(item.id, { status: 'pending' });
-          break;
+      } else {
+        // Generate new dataset
+        this.updateQueueItem(item.id, { status: 'generating' });
+        try {
+          const res = await this.datasetsService.generate(
+            item.instructions,
+            item.providerId,
+            item.model,
+            item.numTokens,
+            item.retryOnFail
+          );
+
+          if (this.queueStopRequested) {
+            this.updateQueueItem(item.id, { status: 'pending' });
+            break;
+          }
+
+          if (!res.success || !res.rows || res.rows.length === 0) {
+            this.updateQueueItem(item.id, {
+              status: 'failed',
+              error: res.error || 'Dataset generation completed but produced no data rows',
+            });
+            continue;
+          }
+
+          // Save
+          this.updateQueueItem(item.id, { status: 'saving' });
+          try {
+            const saveRes = await this.datasetsService.save(
+              item.name,
+              `Auto-generated via queue: ${item.instructions.substring(0, MAX_QUEUE_DESCRIPTION_LENGTH)}`,
+              res.rows
+            );
+            if (saveRes.success) {
+              this.updateQueueItem(item.id, {
+                status: 'done',
+                rowCount: res.rows.length,
+              });
+            } else {
+              this.updateQueueItem(item.id, {
+                status: 'failed',
+                error: saveRes.error || 'Failed to save dataset',
+              });
+            }
+          } catch (saveErr: any) {
+            this.updateQueueItem(item.id, {
+              status: 'failed',
+              error: saveErr?.error?.error || saveErr?.message || 'Failed to save dataset',
+            });
+          }
+        } catch (err: any) {
+          if (!this.queueStopRequested) {
+            this.updateQueueItem(item.id, {
+              status: 'failed',
+              error: err?.error?.error || err?.message || 'Generation failed',
+            });
+          } else {
+            this.updateQueueItem(item.id, { status: 'pending' });
+            break;
+          }
         }
       }
     }
