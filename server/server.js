@@ -1786,6 +1786,9 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
     // Clean up all Local.LLM repositories owned by this user
     deleteAllUserRepos(normalizedUsername);
 
+    // Clean up all datasets owned by this user
+    deleteAllUserDatasets(normalizedUsername);
+
     // Clean up personas file
     const personaFile = getPersonasFile(normalizedUsername);
     if (fs.existsSync(personaFile)) {
@@ -3764,11 +3767,6 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         return res.status(404).json({ success: false, error: 'Local repository not found or not active' });
       }
 
-      // Dataset repositories cannot be edited in coding agent
-      if (localRepo.type === 'dataset') {
-        return res.status(403).json({ success: false, error: 'Dataset repositories cannot be edited in the coding agent' });
-      }
-
       if (!isDockerAvailable()) {
         return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
       }
@@ -4369,6 +4367,84 @@ app.delete('/api/coding-agent/memories/:id', requireSession, (req, res) => {
 // Datasets App – Generate AI training datasets using LLM
 // ---------------------------------------------------------------------------
 
+const DATASETS_DIR = path.join(DATA_DIR, 'datasets');
+if (!fs.existsSync(DATASETS_DIR)) fs.mkdirSync(DATASETS_DIR, { recursive: true });
+
+function getUserDatasetsDir(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  const dir = path.join(DATASETS_DIR, safe);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return ensureWithinDir(DATASETS_DIR, dir);
+}
+
+function getUserDatasetsMetaFile(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  return ensureWithinDir(DATASETS_DIR, path.join(DATASETS_DIR, `${safe}.json`));
+}
+
+function readUserDatasets(username) {
+  const file = getUserDatasetsMetaFile(username);
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch { return []; }
+}
+
+function writeUserDatasets(username, datasets) {
+  const file = getUserDatasetsMetaFile(username);
+  fs.writeFileSync(file, JSON.stringify(datasets, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+function getUserDatasetDir(username, datasetId) {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(datasetId)) {
+    throw new Error('Invalid dataset ID');
+  }
+  const userDir = getUserDatasetsDir(username);
+  return ensureWithinDir(userDir, path.join(userDir, datasetId));
+}
+
+function getUserDatasetArchivePath(username, datasetId) {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(datasetId)) {
+    throw new Error('Invalid dataset ID');
+  }
+  const userDir = getUserDatasetsDir(username);
+  return ensureWithinDir(userDir, path.join(userDir, `${datasetId}.tar.gz`));
+}
+
+function getDatasetBytesOnDisk(username, datasetId) {
+  try {
+    const { execFileSync } = require('child_process');
+    let target;
+    try { target = getUserDatasetDir(username, datasetId); } catch { return 0; }
+    if (!fs.existsSync(target)) {
+      try { target = getUserDatasetArchivePath(username, datasetId); } catch { return 0; }
+    }
+    if (!fs.existsSync(target)) return 0;
+    const out = execFileSync('du', ['-sb', target], { encoding: 'utf-8', timeout: 10000 });
+    return parseInt(out.split('\t')[0], 10) || 0;
+  } catch { return 0; }
+}
+
+function getUserDatasetStorageBytes(username) {
+  try {
+    const { execFileSync } = require('child_process');
+    const userDir = path.join(DATASETS_DIR, path.basename(sanitizeUsernameForPath(username)));
+    if (!fs.existsSync(userDir)) return 0;
+    const out = execFileSync('du', ['-sb', userDir], { encoding: 'utf-8', timeout: 15000 });
+    return parseInt(out.split('\t')[0], 10) || 0;
+  } catch { return 0; }
+}
+
+function deleteAllUserDatasets(username) {
+  try {
+    const userDir = path.join(DATASETS_DIR, path.basename(sanitizeUsernameForPath(username)));
+    if (fs.existsSync(userDir)) fs.rmSync(userDir, { recursive: true, force: true });
+    const metaFile = getUserDatasetsMetaFile(username);
+    if (fs.existsSync(metaFile)) fs.unlinkSync(metaFile);
+  } catch (err) {
+    console.error(`deleteAllUserDatasets error for ${username}:`, err.message);
+  }
+}
+
 const MAX_DATASET_INSTRUCTIONS_LENGTH = 5000;
 const BYTES_PER_TOKEN = 4; // standard approximation: 1 token ≈ 4 bytes
 const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
@@ -4572,7 +4648,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
   }
 });
 
-// POST /api/datasets/save – Save generated dataset to a new Dataset repository
+// POST /api/datasets/save – Save generated dataset as a standalone dataset (not a repository)
 app.post('/api/datasets/save', requireSession, async (req, res) => {
   try {
     const { name, description, rows } = req.body;
@@ -4596,27 +4672,11 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
       const settings = readSettings();
       return res.status(400).json({ success: false, error: `Dataset exceeds the maximum token limit of ${maxTokens} tokens (${settings.maxDatasetTokensGB} GB)` });
     }
-    if (!isGitAvailable()) {
-      return res.status(503).json({ success: false, error: 'Git is not available on this server' });
+
+    const datasets = readUserDatasets(req.sessionUser);
+    if (datasets.some(d => d.name === name && d.status !== 'archived')) {
+      return res.status(409).json({ success: false, error: 'A dataset with this name already exists' });
     }
-
-    const currentStorage = getUserStorageBytes(req.sessionUser);
-    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
-      return res.status(409).json({ success: false, error: `Storage quota exceeded` });
-    }
-
-    const repos = readUserRepos(req.sessionUser);
-    if (repos.some(r => r.name === name && r.status !== 'archived')) {
-      return res.status(409).json({ success: false, error: 'A repository with this name already exists' });
-    }
-
-    // Create the dataset repository (type: 'dataset')
-    const repoId = crypto.randomUUID();
-    const authKey = crypto.randomBytes(32).toString('base64url');
-
-    const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
-    fs.mkdirSync(bareDir, { recursive: true });
-    execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
 
     // Validate row schema: instruction and output are required non-empty strings
     for (let i = 0; i < rows.length; i++) {
@@ -4639,35 +4699,23 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
       output: r.output.trim(),
     })).join('\n');
 
-    // Clone, add file, commit, push
-    const os = require('os');
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localllm-dataset-'));
-    try {
-      execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
-      fs.writeFileSync(path.join(tmpDir, 'dataset.jsonl'), jsonlContent + '\n');
-      fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description || 'AI-generated dataset'}\n\nThis is a Dataset repository containing ${rows.length} training data rows (~${totalTokens} tokens).\n`);
-      execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
-      execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
-      execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
-      execFileSync('git', ['-C', tmpDir, 'commit', '-m', 'Initial dataset commit'], { timeout: 10000 });
-      execFileSync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
-    } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    }
+    // Create dataset directory and write files
+    const datasetId = crypto.randomUUID();
+    const datasetDir = getUserDatasetDir(req.sessionUser, datasetId);
+    fs.mkdirSync(datasetDir, { recursive: true });
+    fs.writeFileSync(path.join(datasetDir, 'dataset.jsonl'), jsonlContent + '\n', { mode: 0o600 });
+    fs.writeFileSync(path.join(datasetDir, 'README.md'), `# ${name}\n\n${description || 'AI-generated dataset'}\n\nDataset containing ${rows.length} training data rows (~${totalTokens} tokens).\n`, { mode: 0o600 });
 
-    const repoEntry = {
-      id: repoId, name, description: description || '', status: 'active',
-      type: 'dataset',
-      authKey, username: req.sessionUser, defaultBranch: 'main',
-      createdAt: new Date().toISOString(), lastActivity: Date.now(),
-      archivedAt: null, containerId: null, containerName: null,
+    const datasetEntry = {
+      id: datasetId, name, description: description || '', status: 'active',
+      username: req.sessionUser, rowCount: rows.length, totalTokens,
+      createdAt: new Date().toISOString(), archivedAt: null,
     };
-    repos.push(repoEntry);
-    writeUserRepos(req.sessionUser, repos);
-    registerRepoInMemory(req.sessionUser, repoId);
+    datasets.push(datasetEntry);
+    writeUserDatasets(req.sessionUser, datasets);
 
-    auditLog({ event: 'DATASET_REPO_CREATED', message: `Dataset repository "${name}" created with ${rows.length} rows (~${totalTokens} tokens)`, username: req.sessionUser, req });
-    res.json({ success: true, repoId, repoName: name });
+    auditLog({ event: 'DATASET_CREATED', message: `Dataset "${name}" created with ${rows.length} rows (~${totalTokens} tokens)`, username: req.sessionUser, req });
+    res.json({ success: true, datasetId, datasetName: name });
   } catch (err) {
     console.error('Dataset save error:', err);
     res.status(500).json({ success: false, error: 'Failed to save dataset' });
@@ -4696,18 +4744,9 @@ app.post('/api/datasets/import-huggingface', requireSession, async (req, res) =>
     const safeSplit = (split && typeof split === 'string') ? split.trim().substring(0, 100) : 'train';
     const safeMaxRows = (typeof maxRows === 'number' && Number.isInteger(maxRows) && maxRows > 0) ? Math.min(maxRows, 50000) : 1000;
 
-    if (!isGitAvailable()) {
-      return res.status(503).json({ success: false, error: 'Git is not available on this server' });
-    }
-
-    const currentStorage = getUserStorageBytes(req.sessionUser);
-    if (currentStorage >= USER_MAX_STORAGE_BYTES) {
-      return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
-    }
-
-    const repos = readUserRepos(req.sessionUser);
-    if (repos.some(r => r.name === datasetName && r.status !== 'archived')) {
-      return res.status(409).json({ success: false, error: 'A repository with this name already exists' });
+    const datasets = readUserDatasets(req.sessionUser);
+    if (datasets.some(d => d.name === datasetName && d.status !== 'archived')) {
+      return res.status(409).json({ success: false, error: 'A dataset with this name already exists' });
     }
 
     // Check Python service is healthy
@@ -4766,12 +4805,10 @@ app.post('/api/datasets/import-huggingface', requireSession, async (req, res) =>
         return res.status(400).json({ success: false, error: `Dataset exceeds the maximum token limit of ${maxTokens} tokens (${settings.maxDatasetTokensGB} GB)` });
       }
 
-      // Create the dataset repository
-      const repoId = crypto.randomUUID();
-      const authKey = crypto.randomBytes(32).toString('base64url');
-      const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
-      fs.mkdirSync(bareDir, { recursive: true });
-      execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
+      // Create the dataset directory and store files
+      const dsId = crypto.randomUUID();
+      const datasetDir = getUserDatasetDir(req.sessionUser, dsId);
+      fs.mkdirSync(datasetDir, { recursive: true });
 
       // Build JSONL content
       const jsonlContent = rows.map(r => JSON.stringify({
@@ -4782,34 +4819,19 @@ app.post('/api/datasets/import-huggingface', requireSession, async (req, res) =>
 
       const description = `Imported from HuggingFace: ${trimmedDatasetId} (split: ${safeSplit})`;
 
-      const os = require('os');
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localllm-hfds-'));
-      try {
-        execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
-        fs.writeFileSync(path.join(tmpDir, 'dataset.jsonl'), jsonlContent + '\n');
-        fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${datasetName}\n\n${description}\n\nThis is a Dataset repository containing ${rows.length} imported rows (~${totalTokens} tokens).\n\nSource: [${trimmedDatasetId}](https://huggingface.co/datasets/${trimmedDatasetId})\n`);
-        execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
-        execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
-        execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
-        execFileSync('git', ['-C', tmpDir, 'commit', '-m', `Import dataset from HuggingFace: ${trimmedDatasetId}`], { timeout: 10000 });
-        execFileSync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
-      } finally {
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-      }
+      fs.writeFileSync(path.join(datasetDir, 'dataset.jsonl'), jsonlContent + '\n', { mode: 0o600 });
+      fs.writeFileSync(path.join(datasetDir, 'README.md'), `# ${datasetName}\n\n${description}\n\nDataset containing ${rows.length} imported rows (~${totalTokens} tokens).\n\nSource: [${trimmedDatasetId}](https://huggingface.co/datasets/${trimmedDatasetId})\n`, { mode: 0o600 });
 
-      const repoEntry = {
-        id: repoId, name: datasetName, description, status: 'active',
-        type: 'dataset',
-        authKey, username: req.sessionUser, defaultBranch: 'main',
-        createdAt: new Date().toISOString(), lastActivity: Date.now(),
-        archivedAt: null, containerId: null, containerName: null,
+      const datasetEntry = {
+        id: dsId, name: datasetName, description, status: 'active',
+        username: req.sessionUser, rowCount: rows.length, totalTokens,
+        createdAt: new Date().toISOString(), archivedAt: null,
       };
-      repos.push(repoEntry);
-      writeUserRepos(req.sessionUser, repos);
-      registerRepoInMemory(req.sessionUser, repoId);
+      datasets.push(datasetEntry);
+      writeUserDatasets(req.sessionUser, datasets);
 
       auditLog({ event: 'DATASET_IMPORTED', message: `Dataset "${datasetName}" imported from HuggingFace (${trimmedDatasetId}, ${rows.length} rows, ~${totalTokens} tokens)`, username: req.sessionUser, req });
-      res.json({ success: true, repoId, repoName: datasetName, rowCount: rows.length, totalTokens });
+      res.json({ success: true, datasetId: dsId, datasetName, rowCount: rows.length, totalTokens });
     } catch (downloadErr) {
       if (downloadErr.name === 'AbortError') {
         return res.status(504).json({ success: false, error: 'Dataset download timed out. Try a smaller dataset or fewer rows.' });
@@ -4818,6 +4840,124 @@ app.post('/api/datasets/import-huggingface', requireSession, async (req, res) =>
     }
   } catch (err) {
     console.error('Dataset import error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/datasets – List all datasets for the current user
+app.get('/api/datasets', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const storageUsed = getUserDatasetStorageBytes(req.sessionUser);
+    res.json({ success: true, datasets, storageUsed });
+  } catch (err) {
+    console.error('List datasets error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/datasets/:id – Get single dataset details
+app.get('/api/datasets/:id', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const dataset = datasets.find(d => d.id === req.params.id);
+    if (!dataset) return res.status(404).json({ success: false, error: 'Dataset not found' });
+    const size = getDatasetBytesOnDisk(req.sessionUser, dataset.id);
+    res.json({ success: true, dataset: { ...dataset, size } });
+  } catch (err) {
+    console.error('Get dataset error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/datasets/:id – Delete a dataset
+app.delete('/api/datasets/:id', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const dsIdx = datasets.findIndex(d => d.id === req.params.id);
+    if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Dataset not found' });
+    const ds = datasets[dsIdx];
+
+    if (ds.status === 'active') {
+      try { const dd = getUserDatasetDir(req.sessionUser, ds.id); if (fs.existsSync(dd)) fs.rmSync(dd, { recursive: true, force: true }); } catch (rmErr) { console.error('Delete dataset files error:', rmErr.message); }
+    } else {
+      try { const ap = getUserDatasetArchivePath(req.sessionUser, ds.id); if (fs.existsSync(ap)) fs.unlinkSync(ap); } catch (rmErr) { console.error('Delete dataset archive error:', rmErr.message); }
+    }
+
+    datasets.splice(dsIdx, 1);
+    writeUserDatasets(req.sessionUser, datasets);
+    auditLog({ event: 'DATASET_DELETED', message: `Dataset "${ds.name}" deleted`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete dataset error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/datasets/:id/archive – Archive a dataset
+app.post('/api/datasets/:id/archive', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
+    if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Active dataset not found' });
+    const ds = datasets[dsIdx];
+
+    const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
+    const archivePath = getUserDatasetArchivePath(req.sessionUser, ds.id);
+    if (fs.existsSync(datasetDir)) {
+      const userDir = getUserDatasetsDir(req.sessionUser);
+      execFileSync('tar', ['-czf', archivePath, '-C', userDir, ds.id], { timeout: 180000 });
+      fs.rmSync(datasetDir, { recursive: true, force: true });
+    }
+
+    datasets[dsIdx] = { ...ds, status: 'archived', archivedAt: new Date().toISOString() };
+    writeUserDatasets(req.sessionUser, datasets);
+    auditLog({ event: 'DATASET_ARCHIVED', message: `Dataset "${ds.name}" archived`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Archive dataset error:', err);
+    res.status(500).json({ success: false, error: 'Failed to archive dataset' });
+  }
+});
+
+// POST /api/datasets/:id/unarchive – Unarchive a dataset
+app.post('/api/datasets/:id/unarchive', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'archived');
+    if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Archived dataset not found' });
+    const ds = datasets[dsIdx];
+
+    const archivePath = getUserDatasetArchivePath(req.sessionUser, ds.id);
+    if (!fs.existsSync(archivePath)) return res.status(404).json({ success: false, error: 'Archive file not found' });
+    const userDir = getUserDatasetsDir(req.sessionUser);
+    execFileSync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
+    fs.unlinkSync(archivePath);
+
+    datasets[dsIdx] = { ...ds, status: 'active', archivedAt: null };
+    writeUserDatasets(req.sessionUser, datasets);
+    auditLog({ event: 'DATASET_UNARCHIVED', message: `Dataset "${ds.name}" unarchived`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Unarchive dataset error:', err);
+    res.status(500).json({ success: false, error: 'Failed to unarchive dataset' });
+  }
+});
+
+// GET /api/datasets/:id/download – Download the dataset.jsonl file
+app.get('/api/datasets/:id/download', requireSession, (req, res) => {
+  try {
+    const datasets = readUserDatasets(req.sessionUser);
+    const ds = datasets.find(d => d.id === req.params.id && d.status === 'active');
+    if (!ds) return res.status(404).json({ success: false, error: 'Active dataset not found' });
+    const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
+    const filePath = path.join(datasetDir, 'dataset.jsonl');
+    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Dataset file not found' });
+    res.setHeader('Content-Disposition', `attachment; filename="${ds.name}.jsonl"`);
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    console.error('Download dataset error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -6043,8 +6183,7 @@ app.post('/api/repositories/:id/export-github', requireSession, async (req, res)
 app.get('/api/local-repositories', requireSession, (req, res) => {
   try {
     const repos = readUserRepos(req.sessionUser);
-    // Exclude dataset repositories – they cannot be edited in coding agent
-    const activeRepos = repos.filter(r => r.status === 'active' && r.type !== 'dataset').map(({ authKey, ...r }) => r);
+    const activeRepos = repos.filter(r => r.status === 'active').map(({ authKey, ...r }) => r);
     res.json({ success: true, repos: activeRepos });
   } catch (err) {
     console.error('List local repos error:', err);
@@ -7985,4 +8124,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets };
