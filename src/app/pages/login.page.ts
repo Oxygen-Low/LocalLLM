@@ -51,7 +51,8 @@ import { environment } from '../../environments/environment';
                 required
                 autocomplete="username"
                 class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
-                placeholder="Enter your username"
+                [placeholder]="usernamePlaceholder()"
+                (input)="onUsernameInput()"
               />
             </div>
 
@@ -68,7 +69,8 @@ import { environment } from '../../environments/environment';
                   required
                   autocomplete="current-password"
                   class="w-full px-4 py-3 pr-12 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
-                  placeholder="Enter your password"
+                  [placeholder]="passwordPlaceholder()"
+                  (input)="onPasswordInput()"
                 />
                 <button
                   type="button"
@@ -126,6 +128,9 @@ export class LoginPageComponent {
   showPassword = signal(false);
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
+  usernamePlaceholder = signal('Enter username');
+  passwordPlaceholder = signal('Enter password');
+  private passwordEasterEggStep = 0;
 
   constructor(
     private authService: AuthService,
@@ -133,6 +138,36 @@ export class LoginPageComponent {
   ) {
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
+    }
+  }
+
+  onUsernameInput(): void {
+    if (this.username.trim() === 'username') {
+      this.usernamePlaceholder.set('ok very funny');
+      this.username = '';
+    }
+  }
+
+  onPasswordInput(): void {
+    const val = this.password;
+    const step = this.passwordEasterEggStep;
+
+    if (step === 0 && val === 'password') {
+      this.passwordPlaceholder.set('Password is incorrect.');
+      this.password = '';
+      this.passwordEasterEggStep = 1;
+    } else if (step === 1 && val === 'incorrect') {
+      this.passwordPlaceholder.set('Try again.');
+      this.password = '';
+      this.passwordEasterEggStep = 2;
+    } else if (step === 2 && val === 'again') {
+      this.passwordPlaceholder.set('Try again later');
+      this.password = '';
+      this.passwordEasterEggStep = 3;
+    } else if (step === 3 && val === 'again later') {
+      this.passwordPlaceholder.set('ok then');
+      this.password = '';
+      this.passwordEasterEggStep = 4;
     }
   }
 
