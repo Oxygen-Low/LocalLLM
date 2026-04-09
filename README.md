@@ -6,7 +6,7 @@ If you would like to see the current state of the ui, and apps currently availab
 ## Setup
 Just clone the repository and enter the directory ("git clone https://github.com/Oxygen-Low/LocalLLM.git", "cd LocalLLM"), then run "npm install", then test with "npm test" (optional), then start it with "npm start".
 
-By default, the server listens on all network interfaces so you can access it from other devices on your local network (e.g. a phone or tablet on the same Wi-Fi). Open `https://<your-ip>:3000` from the other device, where `<your-ip>` is the local IP address of the machine running the server (e.g. `192.168.1.100`).
+By default, the server listens on all network interfaces, so you can access it from other devices on your local network (e.g. a phone or tablet on the same Wi-Fi). Open `https://<your-ip>:3000` from the other device, where `<your-ip>` is the local IP address of the machine running the server (e.g. `192.168.1.100`).
 
 To restrict the server to localhost only (no LAN access), run:
 
@@ -15,28 +15,24 @@ npm run start:no-lan
 ```
 
 ## Admin Account
-Once you start for the first time, you will gain your admin credentials, and you can log in via it to gain access to the admin panel.
+Once you start for the first time, you will gain your admin credentials, and you can log in via them to gain access to the admin panel/settings.
 
 If you lose the password to the admin account, just stop the server and run "npm run resetadmin" to receive a new password for the account.
 
 ## Characters
-If you want the ai to act like one of your favourite characters, just go create a universe and that character in the admin panel.
+If you want the LLM to act like one of your favourite characters, just go create a universe and that character in the admin panel.
 
 ## Local Models
 Local Models are supported via HuggingFace transformers. Download models directly from the HuggingFace Hub through the admin panel — no C/C++ build tools required.
 
-Additionally, certain external apps will be automatically detected if installed on the server:
+Additionally, certain external apps will be automatically detected if installed on the server (note: You need to enable them in the admin settings):
 
 - [Kobold.cpp](https://github.com/LostRuins/koboldcpp)
 - [Ollama](https://ollama.com)
 
-## Updating
-You can update with "git pull" (it will fail if you make changes to the code).
+## Saving data to other devices.
 
-I recommend updating every time you're about to start the server, as I release updates almost daily to fix security vulnerabilities, fix bugs, and add new features. 
-
-## Datastored
-This also supports [Datastored](https://github.com/Oxygen-Low/Datastored) if you want to store data on your mobile device.
+You can either manually copy the data folder to the device or you can copy data to a directory on the host machine via the admin panel/settings (you can also set it up automatically to save/load on start/stop, which is perfect for saving and loading from and to the cloud).
 
 ## Support
 
