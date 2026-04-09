@@ -118,6 +118,14 @@ export class DashboardPageComponent implements OnInit {
       category: 'apps.category.creative',
       color: 'pink',
     },
+    {
+      id: 'train-llm',
+      name: 'apps.train-llm.name',
+      description: 'apps.train-llm.description',
+      icon: '🎓',
+      category: 'apps.category.training',
+      color: 'purple',
+    },
   ];
 
   sortedApps = signal<AIApp[]>([]);

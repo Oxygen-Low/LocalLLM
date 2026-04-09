@@ -82,6 +82,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/roleplay.page').then(m => m.RoleplayPageComponent),
         canActivate: [authGuard],
       },
+      {
+        path: 'app/train-llm',
+        loadComponent: () => import('./pages/train-llm.page').then(m => m.TrainLlmPageComponent),
+        canActivate: [authGuard],
+      },
     ],
   },
   {

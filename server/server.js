@@ -5216,6 +5216,340 @@ app.get('/api/datasets/:id/download', requireSession, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Train LLM Management
+// ---------------------------------------------------------------------------
+
+const TRAININGS_DIR = path.join(DATA_DIR, 'trainings');
+if (!fs.existsSync(TRAININGS_DIR)) fs.mkdirSync(TRAININGS_DIR, { recursive: true });
+
+function getUserTrainingsMetaFile(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  return ensureWithinDir(TRAININGS_DIR, path.join(TRAININGS_DIR, `${safe}.json`));
+}
+
+function readUserTrainings(username) {
+  const file = getUserTrainingsMetaFile(username);
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch { return []; }
+}
+
+function writeUserTrainings(username, trainings) {
+  const file = getUserTrainingsMetaFile(username);
+  fs.writeFileSync(file, JSON.stringify(trainings, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+// POST /api/train-llm/jobs – Create a new training job
+app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
+  try {
+    const { name, baseModelId, datasetId, postDatasetId, epochs, learningRate, batchSize } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100) {
+      return res.status(400).json({ success: false, error: 'Name is required (max 100 characters)' });
+    }
+    if (!baseModelId || typeof baseModelId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Base model is required' });
+    }
+    if (!datasetId || typeof datasetId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Training dataset is required' });
+    }
+
+    // Validate base model exists
+    const models = readLocalModels();
+    const baseModel = models.find(m => m.id === baseModelId);
+    if (!baseModel) {
+      return res.status(400).json({ success: false, error: 'Base model not found' });
+    }
+
+    // Validate training dataset
+    const datasets = readUserDatasets(req.sessionUser);
+    const trainDataset = datasets.find(d => d.id === datasetId && d.status === 'active');
+    if (!trainDataset) {
+      return res.status(400).json({ success: false, error: 'Training dataset not found' });
+    }
+
+    const datasetDir = getUserDatasetDir(req.sessionUser, datasetId);
+    const datasetPath = path.join(datasetDir, 'dataset.jsonl');
+    if (!fs.existsSync(datasetPath)) {
+      return res.status(400).json({ success: false, error: 'Training dataset file not found' });
+    }
+
+    // Validate post-training dataset (optional)
+    let postDatasetPath = null;
+    if (postDatasetId) {
+      const postDs = datasets.find(d => d.id === postDatasetId && d.status === 'active');
+      if (!postDs) {
+        return res.status(400).json({ success: false, error: 'Post-training dataset not found' });
+      }
+      const postDsDir = getUserDatasetDir(req.sessionUser, postDatasetId);
+      postDatasetPath = path.join(postDsDir, 'dataset.jsonl');
+      if (!fs.existsSync(postDatasetPath)) {
+        return res.status(400).json({ success: false, error: 'Post-training dataset file not found' });
+      }
+    }
+
+    // Check python service is up
+    const healthy = await checkPythonServiceHealth();
+    if (!healthy) {
+      return res.status(503).json({ success: false, error: 'Python service is not available. Please try again later.' });
+    }
+
+    // Check no more than 3 active jobs
+    const userJobs = readUserTrainings(req.sessionUser);
+    const activeJobs = userJobs.filter(j => !['completed', 'failed', 'cancelled'].includes(j.status));
+    if (activeJobs.length >= 3) {
+      return res.status(429).json({ success: false, error: 'Maximum 3 concurrent training jobs allowed. Please wait for a job to complete.' });
+    }
+
+    // Create output directory for the trained model
+    const outputModelId = crypto.randomUUID();
+    const outputDir = path.join(path.resolve(MODELS_DIR), outputModelId);
+    ensureWithinDir(MODELS_DIR, outputDir);
+
+    // Resolve model directory
+    const modelDir = getModelDirPath(baseModel);
+
+    // Start training via Python service
+    const trainPayload = {
+      model_dir: modelDir,
+      dataset_path: datasetPath,
+      output_dir: outputDir,
+      post_dataset_path: postDatasetPath,
+      epochs: epochs && Number.isInteger(epochs) && epochs >= 1 && epochs <= 100 ? epochs : 3,
+      learning_rate: learningRate && typeof learningRate === 'number' && learningRate > 0 ? learningRate : 2e-5,
+      batch_size: batchSize && Number.isInteger(batchSize) && batchSize >= 1 && batchSize <= 64 ? batchSize : 4,
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const pyRes = await fetch(`${PYTHON_SERVICE_URL}/train`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(trainPayload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!pyRes.ok) {
+      const errBody = await pyRes.json().catch(() => ({}));
+      return res.status(500).json({ success: false, error: errBody.error || 'Failed to start training' });
+    }
+
+    const pyData = await pyRes.json();
+    const jobId = pyData.job_id;
+
+    // Record in user's trainings
+    const trainingJob = {
+      id: jobId,
+      name: name.trim(),
+      baseModelId,
+      baseModelName: baseModel.name,
+      datasetId,
+      datasetName: trainDataset.name,
+      postDatasetId: postDatasetId || null,
+      postDatasetName: postDatasetId ? (datasets.find(d => d.id === postDatasetId)?.name || '') : null,
+      outputModelId,
+      status: 'queued',
+      progress: 0,
+      phase: 'training',
+      epochs: trainPayload.epochs,
+      learningRate: trainPayload.learning_rate,
+      batchSize: trainPayload.batch_size,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      error: null,
+    };
+
+    userJobs.push(trainingJob);
+    writeUserTrainings(req.sessionUser, userJobs);
+
+    auditLog({ event: 'TRAINING_STARTED', message: `Training "${name}" started (base: ${baseModel.name})`, username: req.sessionUser, req });
+    res.status(202).json({ success: true, job: trainingJob });
+  } catch (err) {
+    console.error('Create training job error:', err);
+    res.status(500).json({ success: false, error: 'Failed to create training job' });
+  }
+});
+
+// GET /api/train-llm/jobs – List all training jobs for the user
+app.get('/api/train-llm/jobs', requireSession, async (req, res) => {
+  try {
+    const jobs = readUserTrainings(req.sessionUser);
+
+    // Update status from Python service for active jobs
+    for (const job of jobs) {
+      if (['queued', 'starting', 'loading_model', 'loading_dataset', 'training', 'post_training', 'saving'].includes(job.status)) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3000);
+          const pyRes = await fetch(`${PYTHON_SERVICE_URL}/train-progress?id=${encodeURIComponent(job.id)}`, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (pyRes.ok) {
+            const progress = await pyRes.json();
+            job.status = progress.status;
+            job.progress = progress.progress || 0;
+            job.phase = progress.phase || job.phase;
+            job.error = progress.error || null;
+
+            if (progress.status === 'completed') {
+              job.completedAt = new Date().toISOString();
+              // Register the output model
+              await withModelsLock(async () => {
+                const models = readLocalModels();
+                if (!models.some(m => m.id === job.outputModelId)) {
+                  models.push({
+                    id: job.outputModelId,
+                    name: job.name,
+                    huggingFaceId: `trained-from-${job.baseModelName}`,
+                    directory: job.outputModelId,
+                    type: 'transformers',
+                    size: progress.size || 0,
+                    downloadedAt: new Date().toISOString(),
+                  });
+                  writeLocalModels(models);
+                }
+              });
+            } else if (progress.status === 'failed' || progress.status === 'cancelled') {
+              job.completedAt = new Date().toISOString();
+            }
+          }
+        } catch {
+          // Python service unreachable – keep existing status
+        }
+      }
+    }
+
+    writeUserTrainings(req.sessionUser, jobs);
+    res.json({ success: true, jobs });
+  } catch (err) {
+    console.error('List training jobs error:', err);
+    res.status(500).json({ success: false, error: 'Failed to list training jobs' });
+  }
+});
+
+// GET /api/train-llm/jobs/:id – Get a single training job status
+app.get('/api/train-llm/jobs/:id', requireSession, async (req, res) => {
+  try {
+    const jobs = readUserTrainings(req.sessionUser);
+    const job = jobs.find(j => j.id === req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: 'Training job not found' });
+
+    // Update from Python service if active
+    if (['queued', 'starting', 'loading_model', 'loading_dataset', 'training', 'post_training', 'saving'].includes(job.status)) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const pyRes = await fetch(`${PYTHON_SERVICE_URL}/train-progress?id=${encodeURIComponent(job.id)}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (pyRes.ok) {
+          const progress = await pyRes.json();
+          job.status = progress.status;
+          job.progress = progress.progress || 0;
+          job.phase = progress.phase || job.phase;
+          job.error = progress.error || null;
+
+          if (progress.status === 'completed') {
+            job.completedAt = new Date().toISOString();
+            await withModelsLock(async () => {
+              const models = readLocalModels();
+              if (!models.some(m => m.id === job.outputModelId)) {
+                models.push({
+                  id: job.outputModelId,
+                  name: job.name,
+                  huggingFaceId: `trained-from-${job.baseModelName}`,
+                  directory: job.outputModelId,
+                  type: 'transformers',
+                  size: progress.size || 0,
+                  downloadedAt: new Date().toISOString(),
+                });
+                writeLocalModels(models);
+              }
+            });
+          } else if (progress.status === 'failed' || progress.status === 'cancelled') {
+            job.completedAt = new Date().toISOString();
+          }
+          writeUserTrainings(req.sessionUser, jobs);
+        }
+      } catch {
+        // Python service unreachable
+      }
+    }
+
+    res.json({ success: true, job });
+  } catch (err) {
+    console.error('Get training job error:', err);
+    res.status(500).json({ success: false, error: 'Failed to get training job' });
+  }
+});
+
+// POST /api/train-llm/jobs/:id/cancel – Cancel a training job
+app.post('/api/train-llm/jobs/:id/cancel', requireSession, async (req, res) => {
+  try {
+    const jobs = readUserTrainings(req.sessionUser);
+    const job = jobs.find(j => j.id === req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: 'Training job not found' });
+
+    if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+      return res.status(400).json({ success: false, error: `Job is already ${job.status}` });
+    }
+
+    // Cancel in Python service
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      await fetch(`${PYTHON_SERVICE_URL}/train-cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: job.id }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+    } catch {
+      // Even if Python cancel fails, mark job as cancelled locally
+    }
+
+    job.status = 'cancelled';
+    job.error = 'Cancelled by user';
+    job.completedAt = new Date().toISOString();
+    writeUserTrainings(req.sessionUser, jobs);
+
+    auditLog({ event: 'TRAINING_CANCELLED', message: `Training "${job.name}" cancelled`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Cancel training job error:', err);
+    res.status(500).json({ success: false, error: 'Failed to cancel training job' });
+  }
+});
+
+// DELETE /api/train-llm/jobs/:id – Delete a training job record
+app.delete('/api/train-llm/jobs/:id', requireSession, async (req, res) => {
+  try {
+    const jobs = readUserTrainings(req.sessionUser);
+    const jobIdx = jobs.findIndex(j => j.id === req.params.id);
+    if (jobIdx === -1) return res.status(404).json({ success: false, error: 'Training job not found' });
+
+    const job = jobs[jobIdx];
+
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      return res.status(400).json({ success: false, error: 'Can only delete completed, failed, or cancelled jobs' });
+    }
+
+    jobs.splice(jobIdx, 1);
+    writeUserTrainings(req.sessionUser, jobs);
+
+    auditLog({ event: 'TRAINING_DELETED', message: `Training record "${job.name}" deleted`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete training job error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete training job' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Local.LLM Repository Management
 // ---------------------------------------------------------------------------
 
@@ -8377,4 +8711,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, readUserTrainings, writeUserTrainings };
