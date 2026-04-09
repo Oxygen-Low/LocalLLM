@@ -513,11 +513,19 @@ export class AuthService {
       this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
       return { success: false, error: 'Invalid username or password' };
     } catch (error) {
-      this.recordFailedAttempt(normalizedUsername);
-
       if (error instanceof HttpErrorResponse && error.status > 0) {
-        this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
-        return { success: false, error: 'Invalid username or password' };
+        const serverMessage = error.error?.error;
+
+        // Only count actual authentication failures (401) toward lockout
+        if (error.status === 401) {
+          this.recordFailedAttempt(normalizedUsername);
+          this.securityLogger.log('LOGIN_FAILURE', 'Invalid credentials', normalizedUsername);
+          return { success: false, error: serverMessage || 'Invalid username or password' };
+        }
+
+        // For rate limiting (429), lockout, or server errors – show the real message
+        this.securityLogger.log('LOGIN_FAILURE', serverMessage || `Server error (${error.status})`, normalizedUsername);
+        return { success: false, error: serverMessage || 'An error occurred. Please try again.' };
       }
 
       this.securityLogger.log('LOGIN_FAILURE', 'Connection failed to server', normalizedUsername);

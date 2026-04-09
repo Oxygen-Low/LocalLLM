@@ -267,7 +267,7 @@ describe('AuthService', () => {
       expect(result.error).toBe('Connection failed to server');
     });
 
-    it('should still record failed attempt on connection error', async () => {
+    it('should not record failed attempt on connection error', async () => {
       expect(service.getRemainingAttempts('conntest')).toBe(5);
 
       const loginPromise = service.login('conntest', 'Password1!');
@@ -277,7 +277,53 @@ describe('AuthService', () => {
       req.error(new ProgressEvent('error'));
 
       await loginPromise;
-      expect(service.getRemainingAttempts('conntest')).toBe(4);
+      expect(service.getRemainingAttempts('conntest')).toBe(5);
+    });
+
+    it('should show server error message for rate limiting (429)', async () => {
+      const loginPromise = service.login('ratelimited', 'Password1!');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/login');
+      req.flush(
+        { success: false, error: 'Too many authentication attempts, please try again later.' },
+        { status: 429, statusText: 'Too Many Requests' }
+      );
+
+      const result = await loginPromise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Too many authentication attempts, please try again later.');
+    });
+
+    it('should not record failed attempt for rate limiting (429)', async () => {
+      expect(service.getRemainingAttempts('ratelimited2')).toBe(5);
+
+      const loginPromise = service.login('ratelimited2', 'Password1!');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/login');
+      req.flush(
+        { success: false, error: 'Account temporarily locked due to too many failed attempts. Please try again later.' },
+        { status: 429, statusText: 'Too Many Requests' }
+      );
+
+      await loginPromise;
+      expect(service.getRemainingAttempts('ratelimited2')).toBe(5);
+    });
+
+    it('should show server error message for server errors (500)', async () => {
+      const loginPromise = service.login('serverr', 'Password1!');
+      await flushAsync();
+
+      const req = httpMock.expectOne('/api/auth/login');
+      req.flush(
+        { success: false, error: 'Internal server error' },
+        { status: 500, statusText: 'Internal Server Error' }
+      );
+
+      const result = await loginPromise;
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Internal server error');
     });
   });
 
