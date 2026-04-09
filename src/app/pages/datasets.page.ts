@@ -4,10 +4,11 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslationService } from '../services/translation.service';
 import { LlmService, ProviderInfo } from '../services/llm.service';
-import { DatasetsService, DatasetRow } from '../services/datasets.service';
+import { DatasetsService, DatasetRow, DatasetEntry } from '../services/datasets.service';
 
 type WizardStep = 'configure' | 'generating' | 'results';
 type DatasetMode = 'generate' | 'import';
+type PageView = 'list' | 'create';
 
 @Component({
   selector: 'app-datasets',
@@ -19,16 +20,179 @@ type DatasetMode = 'generate' | 'import';
       <div class="container-custom py-8 sm:py-12">
 
         <!-- Header -->
-        <div class="flex items-center gap-4 mb-8">
-          <a routerLink="/dashboard"
-             class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
-            {{ t.translate('datasets.back') }}
-          </a>
-          <div>
-            <h1 class="text-3xl font-bold text-secondary-900">{{ t.translate('datasets.title') }}</h1>
-            <p class="text-muted text-sm mt-1">{{ t.translate('datasets.subtitle') }}</p>
+        <div class="flex items-center justify-between mb-8 flex-wrap gap-4">
+          <div class="flex items-center gap-4">
+            <a routerLink="/dashboard"
+               class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+              {{ t.translate('datasets.back') }}
+            </a>
+            <div>
+              <h1 class="text-3xl font-bold text-secondary-900">{{ t.translate('datasets.title') }}</h1>
+              <p class="text-muted text-sm mt-1">{{ t.translate('datasets.subtitle') }}</p>
+            </div>
           </div>
+          @if (pageView() === 'list') {
+            <button (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+              + {{ t.translate('datasets.newDataset') }}
+            </button>
+          }
         </div>
+
+        <!-- Error banner -->
+        @if (errorMessage()) {
+          <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            {{ errorMessage() }}
+            <button (click)="errorMessage.set('')" class="ml-2 text-red-500 hover:text-red-700" aria-label="Dismiss error">✕</button>
+          </div>
+        }
+
+        <!-- Success banner -->
+        @if (successMessage()) {
+          <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+            {{ successMessage() }}
+            <button (click)="successMessage.set('')" class="ml-2 text-green-500 hover:text-green-700" aria-label="Dismiss success">✕</button>
+          </div>
+        }
+
+        <!-- ============================================================ -->
+        <!-- LIST VIEW                                                     -->
+        <!-- ============================================================ -->
+        @if (pageView() === 'list') {
+
+          <!-- Storage usage -->
+          @if (storageUsed() > 0) {
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-5 mb-6">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-secondary-700">{{ t.translate('datasets.storageUsed') }}</span>
+                <span class="text-sm text-muted">{{ datasetsService.formatBytes(storageUsed()) }}</span>
+              </div>
+            </div>
+          }
+
+          @if (isLoadingDatasets()) {
+            <div class="text-center py-16">
+              <div class="animate-spin w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full mx-auto mb-4"></div>
+              <p class="text-muted">{{ t.translate('datasets.loadingDatasets') }}</p>
+            </div>
+          } @else if (datasets().length === 0) {
+            <div class="text-center py-16 bg-white rounded-xl border border-secondary-200 shadow-sm">
+              <div class="text-5xl mb-4">📊</div>
+              <h3 class="text-lg font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.noDatasets') }}</h3>
+              <p class="text-muted text-sm mb-6">{{ t.translate('datasets.noDatasetsHint') }}</p>
+              <button (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+                + {{ t.translate('datasets.newDataset') }}
+              </button>
+            </div>
+          } @else {
+            <!-- Filter tabs -->
+            <div class="flex gap-2 mb-4">
+              <button (click)="listFilter.set('all')"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                [ngClass]="listFilter() === 'all' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
+                {{ t.translate('datasets.filterAll') }} ({{ datasets().length }})
+              </button>
+              <button (click)="listFilter.set('active')"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                [ngClass]="listFilter() === 'active' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
+                {{ t.translate('datasets.filterActive') }} ({{ datasets().filter(d => d.status === 'active').length }})
+              </button>
+              <button (click)="listFilter.set('archived')"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                [ngClass]="listFilter() === 'archived' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
+                {{ t.translate('datasets.filterArchived') }} ({{ datasets().filter(d => d.status === 'archived').length }})
+              </button>
+            </div>
+
+            <!-- Dataset cards -->
+            <div class="space-y-3">
+              @for (ds of filteredDatasets(); track ds.id) {
+                <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-5 hover:shadow-md transition-shadow">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2 mb-1">
+                        <h3 class="text-lg font-semibold text-secondary-900 truncate">{{ ds.name }}</h3>
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                          [ngClass]="ds.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-secondary-100 text-secondary-600'">
+                          {{ ds.status === 'active' ? t.translate('datasets.statusActive') : t.translate('datasets.statusArchived') }}
+                        </span>
+                      </div>
+                      @if (ds.description) {
+                        <p class="text-sm text-muted truncate mb-2">{{ ds.description }}</p>
+                      }
+                      <div class="flex items-center gap-4 text-xs text-muted">
+                        <span>{{ ds.rowCount }} {{ t.translate('datasets.rows') }}</span>
+                        <span>~{{ ds.totalTokens }} {{ t.translate('datasets.tokens') }}</span>
+                        <span>{{ ds.createdAt | date:'medium' }}</span>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                      @if (ds.status === 'active') {
+                        <a [href]="datasetsService.getDownloadUrl(ds.id)"
+                          class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors"
+                          title="Download">
+                          ↓
+                        </a>
+                        <button (click)="archiveDataset(ds)"
+                          class="px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm transition-colors"
+                          [disabled]="actionInProgress()">
+                          {{ t.translate('datasets.archive') }}
+                        </button>
+                      } @else {
+                        <button (click)="unarchiveDataset(ds)"
+                          class="px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-sm transition-colors"
+                          [disabled]="actionInProgress()">
+                          {{ t.translate('datasets.unarchive') }}
+                        </button>
+                      }
+                      <button (click)="confirmDelete(ds)"
+                        class="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm transition-colors"
+                        [disabled]="actionInProgress()">
+                        {{ t.translate('datasets.delete') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          <!-- Delete confirmation modal -->
+          @if (datasetToDelete()) {
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" (click)="datasetToDelete.set(null)">
+              <div class="bg-white rounded-xl p-6 max-w-md mx-4 shadow-xl" (click)="$event.stopPropagation()">
+                <h3 class="text-lg font-bold text-secondary-900 mb-2">{{ t.translate('datasets.confirmDeleteTitle') }}</h3>
+                <p class="text-sm text-muted mb-4">
+                  {{ t.translate('datasets.confirmDeleteMessage').replace('{name}', datasetToDelete()!.name) }}
+                </p>
+                <div class="flex gap-3 justify-end">
+                  <button (click)="datasetToDelete.set(null)"
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 text-sm font-medium hover:bg-secondary-50 transition-colors">
+                    {{ t.translate('datasets.cancel') }}
+                  </button>
+                  <button (click)="deleteDataset(datasetToDelete()!)"
+                    class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors">
+                    {{ t.translate('datasets.delete') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        }
+
+        <!-- ============================================================ -->
+        <!-- CREATE VIEW (Generate / Import wizard)                        -->
+        <!-- ============================================================ -->
+        @if (pageView() === 'create') {
+
+        <!-- Back to list button -->
+        @if (currentStep() === 'configure') {
+          <div class="mb-4">
+            <button (click)="backToList()"
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+              ← {{ t.translate('datasets.backToList') }}
+            </button>
+          </div>
+        }
 
         <!-- Mode selector -->
         @if (currentStep() === 'configure') {
@@ -183,7 +347,7 @@ type DatasetMode = 'generate' | 'import';
               <!-- Dataset Name -->
               <div>
                 <label class="block text-sm font-semibold text-secondary-900 mb-2">
-                  Repository Name
+                  {{ t.translate('datasets.datasetNameLabel') }}
                 </label>
                 <input
                   type="text"
@@ -191,7 +355,7 @@ type DatasetMode = 'generate' | 'import';
                   placeholder="e.g. alpaca-dataset"
                   class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm transition-colors"
                 />
-                <p class="text-xs text-muted mt-1">Name for the local dataset repository. If empty, the dataset name will be used.</p>
+                <p class="text-xs text-muted mt-1">{{ t.translate('datasets.datasetNameHint') }}</p>
               </div>
 
               <!-- Split -->
@@ -334,7 +498,7 @@ type DatasetMode = 'generate' | 'import';
                   {{ t.translate('datasets.downloadJsonl') }}
                 </button>
 
-                <!-- Save to Repo -->
+                <!-- Save -->
                 <div class="space-y-3">
                   @if (!showSaveForm()) {
                     <button
@@ -344,26 +508,26 @@ type DatasetMode = 'generate' | 'import';
                       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                       </svg>
-                      {{ t.translate('datasets.saveToRepo') }}
+                      {{ t.translate('datasets.saveDataset') }}
                     </button>
                   } @else {
                     <div class="p-4 rounded-lg border border-green-200 bg-green-50 space-y-3">
                       <input
                         type="text"
-                        [(ngModel)]="saveRepoName"
-                        [placeholder]="t.translate('datasets.repoNamePlaceholder')"
+                        [(ngModel)]="saveDatasetName"
+                        [placeholder]="t.translate('datasets.datasetNamePlaceholder')"
                         class="w-full px-3 py-2 rounded-lg border border-secondary-200 text-sm"
                       />
                       <input
                         type="text"
-                        [(ngModel)]="saveRepoDescription"
+                        [(ngModel)]="saveDatasetDescription"
                         [placeholder]="t.translate('datasets.descriptionPlaceholder')"
                         class="w-full px-3 py-2 rounded-lg border border-secondary-200 text-sm"
                       />
                       <div class="flex gap-2">
                         <button
-                          (click)="saveToRepo()"
-                          [disabled]="isSaving() || !saveRepoName.trim()"
+                          (click)="saveDataset()"
+                          [disabled]="isSaving() || !saveDatasetName.trim()"
                           class="flex-1 px-3 py-2 rounded-lg bg-green-600 text-white font-medium text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"
                         >
                           @if (isSaving()) { {{ t.translate('datasets.saving') }} } @else { {{ t.translate('datasets.save') }} }
@@ -380,7 +544,7 @@ type DatasetMode = 'generate' | 'import';
 
                   @if (saveSuccess()) {
                     <div class="p-3 rounded-lg bg-green-100 border border-green-300 text-green-800 text-sm">
-                      {{ t.translate('datasets.savedSuccess').replace('{name}', savedRepoName()) }}
+                      {{ t.translate('datasets.savedSuccess').replace('{name}', savedDatasetName()) }}
                     </div>
                   }
                 </div>
@@ -389,6 +553,8 @@ type DatasetMode = 'generate' | 'import';
             }
           </div>
         }
+
+        } <!-- end create view -->
       </div>
     </div>
   `,
@@ -396,7 +562,20 @@ type DatasetMode = 'generate' | 'import';
 export class DatasetsPageComponent implements OnInit {
   protected t = inject(TranslationService);
   private llmService = inject(LlmService);
-  private datasetsService = inject(DatasetsService);
+  datasetsService = inject(DatasetsService);
+
+  // Page view
+  pageView = signal<PageView>('list');
+
+  // Dataset list
+  datasets = signal<DatasetEntry[]>([]);
+  isLoadingDatasets = signal(false);
+  storageUsed = signal(0);
+  listFilter = signal<'all' | 'active' | 'archived'>('all');
+  errorMessage = signal('');
+  successMessage = signal('');
+  actionInProgress = signal(false);
+  datasetToDelete = signal<DatasetEntry | null>(null);
 
   // Wizard state
   currentStep = signal<WizardStep>('configure');
@@ -419,11 +598,11 @@ export class DatasetsPageComponent implements OnInit {
 
   // Save
   showSaveForm = signal(false);
-  saveRepoName = '';
-  saveRepoDescription = '';
+  saveDatasetName = '';
+  saveDatasetDescription = '';
   isSaving = signal(false);
   saveSuccess = signal(false);
-  savedRepoName = signal('');
+  savedDatasetName = signal('');
   saveErrorMessage = signal('');
 
   // Import from HuggingFace
@@ -435,6 +614,44 @@ export class DatasetsPageComponent implements OnInit {
   importError = signal('');
 
   async ngOnInit(): Promise<void> {
+    await this.loadDatasets();
+  }
+
+  async loadDatasets(): Promise<void> {
+    this.isLoadingDatasets.set(true);
+    try {
+      const res = await this.datasetsService.listDatasets();
+      if (res.success) {
+        this.datasets.set(res.datasets || []);
+        this.storageUsed.set(res.storageUsed || 0);
+      }
+    } catch {
+      this.errorMessage.set('Failed to load datasets');
+    } finally {
+      this.isLoadingDatasets.set(false);
+    }
+  }
+
+  filteredDatasets(): DatasetEntry[] {
+    const filter = this.listFilter();
+    if (filter === 'all') return this.datasets();
+    return this.datasets().filter(d => d.status === filter);
+  }
+
+  showCreate(): void {
+    this.pageView.set('create');
+    this.currentStep.set('configure');
+    this.loadProviders();
+  }
+
+  backToList(): void {
+    this.pageView.set('list');
+    this.resetWizard();
+    this.loadDatasets();
+  }
+
+  async loadProviders(): Promise<void> {
+    if (this.availableProviders().length > 0) return;
     this.isLoadingProviders.set(true);
     try {
       const providers = await this.llmService.getProviders();
@@ -523,15 +740,15 @@ export class DatasetsPageComponent implements OnInit {
     this.saveErrorMessage.set('');
     this.showSaveForm.set(false);
     this.saveSuccess.set(false);
-    this.savedRepoName.set('');
-    this.saveRepoName = '';
-    this.saveRepoDescription = '';
+    this.savedDatasetName.set('');
+    this.saveDatasetName = '';
+    this.saveDatasetDescription = '';
     this.generatedRows.set([]);
     this.currentStep.set('configure');
   }
 
-  async saveToRepo(): Promise<void> {
-    if (!this.saveRepoName.trim() || this.isSaving()) return;
+  async saveDataset(): Promise<void> {
+    if (!this.saveDatasetName.trim() || this.isSaving()) return;
 
     this.isSaving.set(true);
     this.saveSuccess.set(false);
@@ -539,13 +756,13 @@ export class DatasetsPageComponent implements OnInit {
 
     try {
       const res = await this.datasetsService.save(
-        this.saveRepoName.trim(),
-        this.saveRepoDescription.trim(),
+        this.saveDatasetName.trim(),
+        this.saveDatasetDescription.trim(),
         this.generatedRows()
       );
       if (res.success) {
         this.saveSuccess.set(true);
-        this.savedRepoName.set(res.repoName || this.saveRepoName);
+        this.savedDatasetName.set(res.datasetName || this.saveDatasetName);
         this.showSaveForm.set(false);
       } else {
         this.saveErrorMessage.set(res.error || this.t.translate('datasets.saveError'));
@@ -585,7 +802,7 @@ export class DatasetsPageComponent implements OnInit {
         this.generatedRows.set([]);
         this.generationError.set('');
         this.saveSuccess.set(true);
-        this.savedRepoName.set(res.repoName || this.importDatasetId);
+        this.savedDatasetName.set(res.datasetName || this.importDatasetId);
         this.saveErrorMessage.set('');
         this.currentStep.set('results');
       } else {
@@ -598,6 +815,55 @@ export class DatasetsPageComponent implements OnInit {
       this.currentStep.set('configure');
     } finally {
       this.isImporting.set(false);
+    }
+  }
+
+  // --- Dataset management ---
+
+  confirmDelete(ds: DatasetEntry): void {
+    this.datasetToDelete.set(ds);
+  }
+
+  async deleteDataset(ds: DatasetEntry): Promise<void> {
+    this.datasetToDelete.set(null);
+    this.actionInProgress.set(true);
+    this.errorMessage.set('');
+    try {
+      await this.datasetsService.deleteDataset(ds.id);
+      this.successMessage.set(`Dataset "${ds.name}" deleted`);
+      await this.loadDatasets();
+    } catch (err: any) {
+      this.errorMessage.set(err?.error?.error || err?.message || 'Failed to delete dataset');
+    } finally {
+      this.actionInProgress.set(false);
+    }
+  }
+
+  async archiveDataset(ds: DatasetEntry): Promise<void> {
+    this.actionInProgress.set(true);
+    this.errorMessage.set('');
+    try {
+      await this.datasetsService.archiveDataset(ds.id);
+      this.successMessage.set(`Dataset "${ds.name}" archived`);
+      await this.loadDatasets();
+    } catch (err: any) {
+      this.errorMessage.set(err?.error?.error || err?.message || 'Failed to archive dataset');
+    } finally {
+      this.actionInProgress.set(false);
+    }
+  }
+
+  async unarchiveDataset(ds: DatasetEntry): Promise<void> {
+    this.actionInProgress.set(true);
+    this.errorMessage.set('');
+    try {
+      await this.datasetsService.unarchiveDataset(ds.id);
+      this.successMessage.set(`Dataset "${ds.name}" unarchived`);
+      await this.loadDatasets();
+    } catch (err: any) {
+      this.errorMessage.set(err?.error?.error || err?.message || 'Failed to unarchive dataset');
+    } finally {
+      this.actionInProgress.set(false);
     }
   }
 }

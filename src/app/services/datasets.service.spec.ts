@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { DatasetsService, DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, ImportDatasetResponse } from './datasets.service';
+import { DatasetsService, DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, ImportDatasetResponse, DatasetListResponse } from './datasets.service';
 
 describe('DatasetsService', () => {
   let service: DatasetsService;
@@ -108,8 +108,8 @@ describe('DatasetsService', () => {
       ];
       const mockResponse: SaveDatasetResponse = {
         success: true,
-        repoId: 'repo-123',
-        repoName: 'my-dataset',
+        datasetId: 'ds-123',
+        datasetName: 'my-dataset',
       };
       const promise = service.save('my-dataset', 'A test dataset', rows);
       const req = httpMock.expectOne('/api/datasets/save');
@@ -122,8 +122,8 @@ describe('DatasetsService', () => {
       req.flush(mockResponse);
       const result = await promise;
       expect(result.success).toBe(true);
-      expect(result.repoId).toBe('repo-123');
-      expect(result.repoName).toBe('my-dataset');
+      expect(result.datasetId).toBe('ds-123');
+      expect(result.datasetName).toBe('my-dataset');
     });
 
     it('should return error response on failure', async () => {
@@ -144,8 +144,8 @@ describe('DatasetsService', () => {
     it('should send POST request with import parameters', async () => {
       const mockResponse: ImportDatasetResponse = {
         success: true,
-        repoId: 'repo-456',
-        repoName: 'imported-ds',
+        datasetId: 'ds-456',
+        datasetName: 'imported-ds',
         rowCount: 100,
         totalTokens: 5000,
       };
@@ -161,7 +161,7 @@ describe('DatasetsService', () => {
       req.flush(mockResponse);
       const result = await promise;
       expect(result.success).toBe(true);
-      expect(result.repoId).toBe('repo-456');
+      expect(result.datasetId).toBe('ds-456');
       expect(result.rowCount).toBe(100);
       expect(result.totalTokens).toBe(5000);
     });
@@ -177,6 +177,67 @@ describe('DatasetsService', () => {
       const result = await promise;
       expect(result.success).toBe(false);
       expect(result.error).toBe('Dataset not found');
+    });
+  });
+
+  describe('listDatasets', () => {
+    it('should send GET request to /api/datasets', async () => {
+      const mockResponse: DatasetListResponse = {
+        success: true,
+        datasets: [],
+        storageUsed: 0,
+      };
+      const promise = service.listDatasets();
+      const req = httpMock.expectOne('/api/datasets');
+      expect(req.request.method).toBe('GET');
+      req.flush(mockResponse);
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.datasets).toEqual([]);
+    });
+  });
+
+  describe('deleteDataset', () => {
+    it('should send DELETE request', async () => {
+      const promise = service.deleteDataset('ds-123');
+      const req = httpMock.expectOne('/api/datasets/ds-123');
+      expect(req.request.method).toBe('DELETE');
+      req.flush({ success: true });
+      await promise;
+    });
+  });
+
+  describe('archiveDataset', () => {
+    it('should send POST request to archive endpoint', async () => {
+      const promise = service.archiveDataset('ds-123');
+      const req = httpMock.expectOne('/api/datasets/ds-123/archive');
+      expect(req.request.method).toBe('POST');
+      req.flush({ success: true });
+      await promise;
+    });
+  });
+
+  describe('unarchiveDataset', () => {
+    it('should send POST request to unarchive endpoint', async () => {
+      const promise = service.unarchiveDataset('ds-123');
+      const req = httpMock.expectOne('/api/datasets/ds-123/unarchive');
+      expect(req.request.method).toBe('POST');
+      req.flush({ success: true });
+      await promise;
+    });
+  });
+
+  describe('formatBytes', () => {
+    it('should format 0 bytes', () => {
+      expect(service.formatBytes(0)).toBe('0 B');
+    });
+
+    it('should format KB', () => {
+      expect(service.formatBytes(1024)).toBe('1 KB');
+    });
+
+    it('should format MB', () => {
+      expect(service.formatBytes(1048576)).toBe('1 MB');
     });
   });
 });

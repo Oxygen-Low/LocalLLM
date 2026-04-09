@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { DatasetRow, GenerateDatasetResponse, SaveDatasetResponse } from '../datasets.service';
+import { DatasetRow, GenerateDatasetResponse, SaveDatasetResponse, DatasetListResponse, DatasetEntry } from '../datasets.service';
 
 @Injectable({
   providedIn: 'root',
@@ -31,8 +31,34 @@ export class MockDatasetsService {
   ): Promise<SaveDatasetResponse> {
     return {
       success: true,
-      repoId: 'mock-dataset-repo-id',
-      repoName: name,
+      datasetId: 'mock-dataset-id',
+      datasetName: name,
     };
   }
+
+  async listDatasets(): Promise<DatasetListResponse> {
+    return {
+      success: true,
+      datasets: [],
+      storageUsed: 0,
+    };
+  }
+
+  async getDataset(id: string): Promise<DatasetEntry> {
+    return {
+      id,
+      name: 'mock-dataset',
+      description: 'Mock dataset',
+      status: 'active',
+      username: 'mock-user',
+      rowCount: 10,
+      totalTokens: 100,
+      createdAt: new Date().toISOString(),
+      archivedAt: null,
+    };
+  }
+
+  async deleteDataset(_id: string): Promise<void> {}
+  async archiveDataset(_id: string): Promise<void> {}
+  async unarchiveDataset(_id: string): Promise<void> {}
 }
