@@ -6,7 +6,7 @@ import { RouterLink, ActivatedRoute } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { marked } from 'marked';
 import { environment } from '../../environments/environment';
-import { LlmService, type ProviderInfo, type UniverseSummary, type UniverseCharacterSummary, type SearchEvent, type SendMessageOptions, type StreamResult, type ChatMessage as LlmChatMessage } from '../services/llm.service';
+import { LlmService, type ProviderInfo, type UniverseSummary, type UniverseCharacterSummary, type SearchEvent, type SendMessageOptions, type StreamResult, type ChatMessage as LlmChatMessage, type McpServerInfo } from '../services/llm.service';
 import { CodingAgentService, type GitHubRepo, type LocalRepoInfo, type ContainerInfo, type FileEntry, type AgentMemory } from '../services/coding-agent.service';
 import { VoiceService } from '../services/voice.service';
 
@@ -872,7 +872,7 @@ interface ToolCall {
                       <button
                         (click)="toggleMcpDropdown($event)"
                         class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
-                        [ngClass]="webSearchEnabled()
+                        [ngClass]="webSearchEnabled() || enabledMcpServerIds().length > 0
                           ? 'border-primary-300 bg-primary-50 text-primary-700'
                           : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
                         aria-label="Toggle MCPs"
@@ -885,13 +885,16 @@ interface ToolCall {
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                         MCPs
+                        @if (enabledMcpServerIds().length > 0) {
+                          <span class="bg-primary-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">{{ enabledMcpServerIds().length }}</span>
+                        }
                         <svg class="w-3 h-3 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                         </svg>
                       </button>
 
                       @if (showMcpDropdown()) {
-                        <div class="absolute bottom-full left-0 mb-1 w-48 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
+                        <div class="absolute bottom-full left-0 mb-1 w-56 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
                           <button
                             (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
                             class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
@@ -909,6 +912,31 @@ interface ToolCall {
                               </svg>
                             }
                           </button>
+                          @for (mcp of availableMcpServers(); track mcp.id) {
+                            <button
+                              (click)="toggleMcpServer(mcp)"
+                              class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                              [ngClass]="isMcpServerEnabled(mcp.id) ? 'text-primary-700 font-medium' : 'text-secondary-700'"
+                            >
+                              <div class="flex items-center gap-2 min-w-0">
+                                <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+                                </svg>
+                                <span class="truncate">{{ mcp.name }}</span>
+                                @if (mcp.authRequired && !mcp.authenticated) {
+                                  <span class="text-xs text-amber-600 flex-shrink-0">🔒</span>
+                                }
+                              </div>
+                              @if (isMcpServerEnabled(mcp.id)) {
+                                <svg class="w-3.5 h-3.5 text-primary-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                </svg>
+                              }
+                            </button>
+                          }
+                          @if (availableMcpServers().length === 0) {
+                            <div class="px-3 py-1.5 text-xs text-secondary-400">No MCP servers configured.</div>
+                          }
                         </div>
                       }
                     </div>
@@ -1330,6 +1358,8 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   // MCP selection
   showMcpDropdown = signal(false);
   webSearchEnabled = signal(false);
+  availableMcpServers = signal<McpServerInfo[]>([]);
+  enabledMcpServerIds = signal<string[]>([]);
 
   // Character selection
   universes = signal<UniverseSummary[]>([]);
@@ -1387,6 +1417,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
       this.checkSetup(),
       this.loadProvidersWithRetry(),
       this.loadUniverses(),
+      this.loadMcpServers(),
     ]);
 
     this.startProviderPollingIfNeeded();
@@ -1550,6 +1581,33 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
   toggleMcpDropdown(event: Event): void {
     event.stopPropagation();
     this.showMcpDropdown.set(!this.showMcpDropdown());
+  }
+
+  async loadMcpServers(): Promise<void> {
+    try {
+      const servers = await this.llmService.getMcpServers();
+      this.availableMcpServers.set(servers);
+    } catch {
+      // Silent failure
+    }
+  }
+
+  toggleMcpServer(mcp: McpServerInfo): void {
+    if (mcp.authRequired && !mcp.authenticated) {
+      this.errorMessage.set(`"${mcp.name}" requires authentication. Please configure your token in Settings > Integrations.`);
+      this.showMcpDropdown.set(false);
+      return;
+    }
+    const current = this.enabledMcpServerIds();
+    if (current.includes(mcp.id)) {
+      this.enabledMcpServerIds.set(current.filter(id => id !== mcp.id));
+    } else {
+      this.enabledMcpServerIds.set([...current, mcp.id]);
+    }
+  }
+
+  isMcpServerEnabled(serverId: string): boolean {
+    return this.enabledMcpServerIds().includes(serverId);
   }
 
   selectCharacter(character: UniverseCharacterSummary | null): void {

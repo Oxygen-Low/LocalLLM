@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { LlmService, type ProviderKeyStatus, type Persona } from '../services/llm.service';
+import { LlmService, type ProviderKeyStatus, type Persona, type McpServerInfo } from '../services/llm.service';
 import { CodingAgentService } from '../services/coding-agent.service';
 
 interface ProviderConfig {
@@ -442,6 +442,72 @@ interface ProviderConfig {
             </div>
           </div>
 
+          <!-- MCP Server Authentication -->
+          @if (mcpServersRequiringAuth().length > 0) {
+            <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
+              <h2 class="text-xl font-semibold text-secondary-900 mb-2">MCP Server Authentication</h2>
+              <p class="text-sm text-muted mb-6">Some MCP servers require personal authentication tokens. Configure your tokens below to use these integrations.</p>
+
+              <div class="space-y-4">
+                @for (mcp of mcpServersRequiringAuth(); track mcp.id) {
+                  <div class="p-4 rounded-lg border border-secondary-200 bg-secondary-50 space-y-3">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <div class="font-medium text-secondary-900">{{ mcp.name }}</div>
+                        @if (mcp.authDescription) {
+                          <p class="text-xs text-muted mt-0.5">{{ mcp.authDescription }}</p>
+                        }
+                      </div>
+                      <div class="flex items-center gap-2">
+                        @if (mcp.authenticated) {
+                          <span class="text-xs text-green-600 font-medium">✓ Configured</span>
+                          <button
+                            (click)="removeMcpAuth(mcp.id)"
+                            class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors"
+                          >
+                            Remove
+                          </button>
+                        } @else {
+                          <span class="text-xs text-amber-600">Not configured</span>
+                        }
+                      </div>
+                    </div>
+                    @if (!mcp.authenticated || editingMcpAuth() === mcp.id) {
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="password"
+                          [ngModel]="mcpAuthTokens[mcp.id] || ''"
+                          (ngModelChange)="mcpAuthTokens[mcp.id] = $event"
+                          [placeholder]="mcp.authDescription || 'Enter token'"
+                          class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                        />
+                        <button
+                          (click)="saveMcpAuth(mcp.id)"
+                          [disabled]="isSavingMcpAuth()"
+                          class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                        >
+                          {{ isSavingMcpAuth() ? 'Saving...' : 'Save' }}
+                        </button>
+                      </div>
+                    } @else {
+                      <button
+                        (click)="editingMcpAuth.set(mcp.id)"
+                        class="text-xs text-primary-600 hover:text-primary-700"
+                      >
+                        Update token
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+              @if (mcpAuthMessage()) {
+                <div class="mt-4 text-sm" [ngClass]="mcpAuthMessageType() === 'success' ? 'text-green-600' : 'text-red-600'">
+                  {{ mcpAuthMessage() }}
+                </div>
+              }
+            </div>
+          }
+
           <!-- Change Password -->
           <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 sm:p-8">
             <h2 class="text-xl font-semibold text-secondary-900 mb-2">Change Password</h2>
@@ -701,6 +767,14 @@ export class SettingsPageComponent implements OnInit {
   hfSuccessMessage = signal<string | null>(null);
   hfErrorMessage = signal<string | null>(null);
 
+  // MCP Server Auth fields
+  mcpServersRequiringAuth = signal<McpServerInfo[]>([]);
+  editingMcpAuth = signal<string | null>(null);
+  mcpAuthTokens: Record<string, string> = {};
+  isSavingMcpAuth = signal(false);
+  mcpAuthMessage = signal<string | null>(null);
+  mcpAuthMessageType = signal<'success' | 'error'>('success');
+
   private llmService = inject(LlmService);
   private codingAgentService = inject(CodingAgentService);
 
@@ -714,7 +788,8 @@ export class SettingsPageComponent implements OnInit {
       this.loadApiKeyStatus(),
       this.loadGitHubStatus(),
       this.loadHuggingFaceStatus(),
-      this.loadPersonaData()
+      this.loadPersonaData(),
+      this.loadMcpServers()
     ]);
   }
 
@@ -1062,6 +1137,55 @@ export class SettingsPageComponent implements OnInit {
       this.deleteErrorMessage.set('An unexpected error occurred. Please try again.');
     } finally {
       this.isDeletingAccount.set(false);
+    }
+  }
+
+  // --- MCP Server Auth ---
+
+  async loadMcpServers(): Promise<void> {
+    try {
+      const servers = await this.llmService.getMcpServers();
+      this.mcpServersRequiringAuth.set(servers.filter(s => s.authRequired));
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async saveMcpAuth(serverId: string): Promise<void> {
+    const token = this.mcpAuthTokens[serverId]?.trim();
+    if (!token) {
+      this.mcpAuthMessage.set('Please enter a token');
+      this.mcpAuthMessageType.set('error');
+      return;
+    }
+
+    this.isSavingMcpAuth.set(true);
+    this.mcpAuthMessage.set(null);
+
+    try {
+      await this.llmService.setMcpAuth(serverId, token);
+      this.mcpAuthMessage.set('Token saved successfully');
+      this.mcpAuthMessageType.set('success');
+      this.mcpAuthTokens[serverId] = '';
+      this.editingMcpAuth.set(null);
+      await this.loadMcpServers();
+    } catch {
+      this.mcpAuthMessage.set('Failed to save token');
+      this.mcpAuthMessageType.set('error');
+    } finally {
+      this.isSavingMcpAuth.set(false);
+    }
+  }
+
+  async removeMcpAuth(serverId: string): Promise<void> {
+    try {
+      await this.llmService.removeMcpAuth(serverId);
+      this.mcpAuthMessage.set('Token removed');
+      this.mcpAuthMessageType.set('success');
+      await this.loadMcpServers();
+    } catch {
+      this.mcpAuthMessage.set('Failed to remove token');
+      this.mcpAuthMessageType.set('error');
     }
   }
 }

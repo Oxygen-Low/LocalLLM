@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { AdminService, AdminUserSummary, Universe, Character, LocalModel } from '../services/admin.service';
+import { AdminService, AdminUserSummary, Universe, Character, LocalModel, McpServer } from '../services/admin.service';
 import { LlmService } from '../services/llm.service';
 
 @Component({
@@ -684,6 +684,146 @@ import { LlmService } from '../services/llm.service';
           }
 
           @if (isUnlocked()) {
+            <!-- MCP Servers Management -->
+            <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
+              <div class="space-y-1">
+                <h2 class="text-xl font-semibold text-secondary-900">MCP Servers</h2>
+                <p class="text-sm text-muted">
+                  Add Docker MCP (Model Context Protocol) servers to extend the general assistant and coding agent with external tools. Users can toggle these in the MCPs dropdown when chatting.
+                </p>
+              </div>
+
+              <!-- Add New MCP Server Form -->
+              <div class="p-4 rounded-lg border border-secondary-200 bg-secondary-50 space-y-3">
+                <div class="font-medium text-secondary-900 text-sm">Add new MCP server</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-secondary-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      [(ngModel)]="newMcpName"
+                      placeholder="e.g. GitHub"
+                      maxlength="100"
+                      class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-secondary-700 mb-1">Docker Image</label>
+                    <input
+                      type="text"
+                      [(ngModel)]="newMcpImage"
+                      placeholder="e.g. mcp/github"
+                      maxlength="200"
+                      class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-secondary-700 mb-1">Description (optional)</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="newMcpDescription"
+                    placeholder="Brief description of what this MCP server provides"
+                    maxlength="500"
+                    class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                  />
+                </div>
+                <div class="flex items-center gap-3">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" [(ngModel)]="newMcpAuthRequired" class="w-4 h-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500" />
+                    <span class="text-sm text-secondary-800">Requires user authentication</span>
+                  </label>
+                </div>
+                @if (newMcpAuthRequired) {
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs font-medium text-secondary-700 mb-1">Auth Env Variable</label>
+                      <input
+                        type="text"
+                        [(ngModel)]="newMcpAuthEnvVar"
+                        placeholder="e.g. GITHUB_TOKEN"
+                        class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-medium text-secondary-700 mb-1">Auth Description (shown to users)</label>
+                      <input
+                        type="text"
+                        [(ngModel)]="newMcpAuthDescription"
+                        placeholder="e.g. GitHub Personal Access Token"
+                        maxlength="200"
+                        class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                      />
+                    </div>
+                  </div>
+                }
+                <div class="flex items-center gap-2">
+                  <button
+                    (click)="onAddMcpServer()"
+                    [disabled]="isAddingMcpServer()"
+                    class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {{ isAddingMcpServer() ? 'Adding...' : 'Add MCP Server' }}
+                  </button>
+                  @if (mcpMessage()) {
+                    <span class="text-sm" [ngClass]="mcpMessageType() === 'success' ? 'text-green-600' : 'text-red-600'">
+                      {{ mcpMessage() }}
+                    </span>
+                  }
+                </div>
+              </div>
+
+              <!-- Existing MCP Servers List -->
+              @if (mcpServers().length > 0) {
+                <div class="space-y-2">
+                  @for (server of mcpServers(); track server.id) {
+                    <div class="p-4 rounded-lg border border-secondary-200 bg-white space-y-2">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-secondary-900">{{ server.name }}</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full font-mono" [ngClass]="server.enabled ? 'bg-green-100 text-green-700' : 'bg-secondary-100 text-secondary-500'">
+                              {{ server.enabled ? 'Enabled' : 'Disabled' }}
+                            </span>
+                            @if (server.authRequired) {
+                              <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Auth required</span>
+                            }
+                          </div>
+                          <p class="text-xs text-muted font-mono mt-0.5">{{ server.image }}</p>
+                          @if (server.description) {
+                            <p class="text-xs text-muted mt-0.5">{{ server.description }}</p>
+                          }
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <button
+                            (click)="onToggleMcpServer(server)"
+                            [disabled]="actionInProgress() !== null"
+                            class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
+                            [ngClass]="server.enabled
+                              ? 'border-red-200 text-red-700 hover:bg-red-50'
+                              : 'border-green-200 text-green-700 hover:bg-green-50'"
+                          >
+                            {{ server.enabled ? 'Disable' : 'Enable' }}
+                          </button>
+                          <button
+                            (click)="onDeleteMcpServer(server)"
+                            [disabled]="actionInProgress() !== null"
+                            class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-xs font-medium transition-colors disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <p class="text-sm text-muted text-center py-4">No MCP servers configured yet. Add one above to get started.</p>
+              }
+            </div>
+          }
+
+          @if (isUnlocked()) {
             <!-- Auto-Sync Settings -->
             <div class="bg-white border border-secondary-200 rounded-xl shadow-sm p-6 space-y-4">
               <div class="space-y-1">
@@ -905,6 +1045,18 @@ export class AdminPageComponent implements OnDestroy {
   adminHfMessage = signal<string | null>(null);
   adminHfMessageType = signal<'success' | 'error'>('success');
 
+  // MCP Servers state
+  mcpServers = signal<McpServer[]>([]);
+  isAddingMcpServer = signal(false);
+  newMcpName = '';
+  newMcpImage = '';
+  newMcpDescription = '';
+  newMcpAuthRequired = false;
+  newMcpAuthEnvVar = '';
+  newMcpAuthDescription = '';
+  mcpMessage = signal<string | null>(null);
+  mcpMessageType = signal<'success' | 'error'>('success');
+
   private llmService = inject(LlmService);
 
   constructor(
@@ -931,6 +1083,7 @@ export class AdminPageComponent implements OnDestroy {
       this.adminPassword = '';
       await this.loadUsers(hashed);
       await this.loadAppSettings();
+      await this.loadMcpServers();
       this.isUnlocked.set(true);
       this.statusMessage.set('Admin verified. Account controls unlocked.');
     } catch {
@@ -1535,6 +1688,112 @@ export class AdminPageComponent implements OnDestroy {
     } catch {
       this.adminHfMessage.set('Failed to remove HuggingFace token');
       this.adminHfMessageType.set('error');
+    }
+  }
+
+  // --- MCP Servers ---
+
+  private async loadMcpServers(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    try {
+      const response = await this.adminService.listMcpServers(this.adminPasswordHash);
+      if (response.success && response.servers) {
+        this.mcpServers.set(response.servers);
+      }
+    } catch {
+      // Silent failure
+    }
+  }
+
+  async onAddMcpServer(): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    if (!this.newMcpName.trim() || !this.newMcpImage.trim()) {
+      this.mcpMessage.set('Name and Docker image are required');
+      this.mcpMessageType.set('error');
+      return;
+    }
+    if (this.newMcpAuthRequired && !this.newMcpAuthEnvVar.trim()) {
+      this.mcpMessage.set('Auth environment variable is required when auth is enabled');
+      this.mcpMessageType.set('error');
+      return;
+    }
+
+    this.isAddingMcpServer.set(true);
+    this.mcpMessage.set(null);
+
+    try {
+      const response = await this.adminService.addMcpServer({
+        name: this.newMcpName.trim(),
+        image: this.newMcpImage.trim(),
+        description: this.newMcpDescription.trim(),
+        authRequired: this.newMcpAuthRequired,
+        authEnvVar: this.newMcpAuthEnvVar.trim(),
+        authDescription: this.newMcpAuthDescription.trim(),
+      }, this.adminPasswordHash);
+
+      if (response.success) {
+        this.mcpMessage.set(`MCP server "${this.newMcpName.trim()}" added successfully`);
+        this.mcpMessageType.set('success');
+        this.newMcpName = '';
+        this.newMcpImage = '';
+        this.newMcpDescription = '';
+        this.newMcpAuthRequired = false;
+        this.newMcpAuthEnvVar = '';
+        this.newMcpAuthDescription = '';
+        await this.loadMcpServers();
+      } else {
+        this.mcpMessage.set(response.error || 'Failed to add MCP server');
+        this.mcpMessageType.set('error');
+      }
+    } catch {
+      this.mcpMessage.set('Failed to add MCP server');
+      this.mcpMessageType.set('error');
+    } finally {
+      this.isAddingMcpServer.set(false);
+    }
+  }
+
+  async onToggleMcpServer(server: McpServer): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.actionInProgress.set(`mcp-toggle-${server.id}`);
+    try {
+      const response = await this.adminService.updateMcpServer(
+        server.id,
+        { enabled: !server.enabled },
+        this.adminPasswordHash
+      );
+      if (response.success) {
+        await this.loadMcpServers();
+      } else {
+        this.mcpMessage.set(response.error || 'Failed to update MCP server');
+        this.mcpMessageType.set('error');
+      }
+    } catch {
+      this.mcpMessage.set('Failed to update MCP server');
+      this.mcpMessageType.set('error');
+    } finally {
+      this.actionInProgress.set(null);
+    }
+  }
+
+  async onDeleteMcpServer(server: McpServer): Promise<void> {
+    if (!this.adminPasswordHash) return;
+    this.actionInProgress.set(`mcp-delete-${server.id}`);
+    try {
+      const response = await this.adminService.deleteMcpServer(server.id, this.adminPasswordHash);
+      if (response.success) {
+        this.mcpMessage.set(`MCP server "${server.name}" deleted`);
+        this.mcpMessageType.set('success');
+        await this.loadMcpServers();
+      } else {
+        this.mcpMessage.set(response.error || 'Failed to delete MCP server');
+        this.mcpMessageType.set('error');
+      }
+    } catch {
+      this.mcpMessage.set('Failed to delete MCP server');
+      this.mcpMessageType.set('error');
+    } finally {
+      this.actionInProgress.set(null);
     }
   }
 }
