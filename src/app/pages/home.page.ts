@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { HeroComponent } from '../components/hero.component';
 import { LanguageSelectorComponent } from '../components/language-selector.component';
@@ -8,6 +8,8 @@ import { TranslationService } from '../services/translation.service';
   selector: 'app-home',
   standalone: true,
   imports: [HeroComponent, RouterLink, LanguageSelectorComponent],
+  // ⚡ Bolt: Added ChangeDetectionStrategy.OnPush to prevent unnecessary re-renders in this presentational component
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div>
       <!-- Language selector bar -->
