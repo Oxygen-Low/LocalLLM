@@ -953,7 +953,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
   toggleMcpServer(mcp: McpServerInfo): void {
     if (mcp.authRequired && !mcp.authenticated) {
       // Can't enable without auth - direct user to settings
-      this.errorMessage.set(`"${mcp.name}" requires authentication. Please configure your token in Settings > Integrations.`);
+      this.errorMessage.set(`"${mcp.name}" requires authentication. Please configure your token in Settings.`);
       this.showMcpDropdown.set(false);
       return;
     }
@@ -1609,7 +1609,6 @@ Guidelines for tool use:
     if (this.thinkEnabled()) options.think = true;
     if (this.selectedCharacter()) options.characterId = this.selectedCharacter()?.id;
     if (this.selectedPersona()) options.personaId = this.selectedPersona()?.id;
-    if (this.webSearchEnabled()) options.webSearch = true;
     const mcpIds = this.enabledMcpServerIds();
     if (mcpIds.length > 0) options.mcpServerIds = mcpIds;
 

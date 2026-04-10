@@ -1594,7 +1594,7 @@ export class CodingAgentPageComponent implements OnInit, OnDestroy {
 
   toggleMcpServer(mcp: McpServerInfo): void {
     if (mcp.authRequired && !mcp.authenticated) {
-      this.errorMessage.set(`"${mcp.name}" requires authentication. Please configure your token in Settings > Integrations.`);
+      this.errorMessage.set(`"${mcp.name}" requires authentication. Please configure your token in Settings.`);
       this.showMcpDropdown.set(false);
       return;
     }

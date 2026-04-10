@@ -2673,7 +2673,7 @@ app.post('/api/mcp-servers/:id/tools', requireSession, async (req, res) => {
 
       return res.json({ success: true, tools });
     } catch (execErr) {
-      console.error(`MCP tools list error for ${server.name}:`, execErr.message);
+      console.error('MCP tools list error for %s: %s', server.name, execErr.message);
       return res.status(502).json({ success: false, error: `Failed to list tools from MCP server: ${execErr.message?.substring(0, 200)}` });
     }
   } catch (err) {
@@ -2768,8 +2768,8 @@ app.post('/api/mcp-servers/:id/call', requireSession, async (req, res) => {
 
       return res.json({ success: true, result });
     } catch (execErr) {
-      console.error(`MCP tool call error for ${server.name}/${toolName}:`, execErr.message);
-      return res.status(502).json({ success: false, error: `Failed to call tool: ${execErr.message?.substring(0, 200)}` });
+      console.error('MCP tool call error for %s/%s: %s', server.name, toolName, execErr.message);
+      return res.status(502).json({ success: false, error: `Failed to call tool: ${String(execErr.message || '').substring(0, 200)}` });
     }
   } catch (err) {
     console.error('MCP tool call error:', err);
