@@ -613,7 +613,7 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || (HOST === '0.0.0.0' || HOST === '::' ? true : 'http://localhost:4200'),
+  origin: process.env.CORS_ORIGIN || 'http://localhost:4200',
   exposedHeaders: ['X-Server-Instance-ID']
 }));
 app.use((req, res, next) => {
