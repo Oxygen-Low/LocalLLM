@@ -5223,6 +5223,7 @@ const LOCAL_FIX_DIR = path.join(DATA_DIR, 'local_fix');
 if (!fs.existsSync(LOCAL_FIX_DIR)) fs.mkdirSync(LOCAL_FIX_DIR, { recursive: true });
 
 const LOCAL_FIX_SESSION_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours max session
+const MAX_LOCAL_FIX_COMMAND_LENGTH = 500;
 
 function getUserLocalFixFile(username) {
   const safe = path.basename(sanitizeUsernameForPath(username));
@@ -5232,7 +5233,26 @@ function getUserLocalFixFile(username) {
 function readUserLocalFixSessions(username) {
   const file = getUserLocalFixFile(username);
   if (!fs.existsSync(file)) return [];
-  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  try {
+    const sessions = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    // Auto-expire sessions that exceed max age
+    const now = Date.now();
+    let changed = false;
+    for (const s of sessions) {
+      if (s.status === 'active' && (now - new Date(s.createdAt).getTime()) > LOCAL_FIX_SESSION_MAX_AGE_MS) {
+        s.status = 'removed';
+        s.logs.push({ id: crypto.randomUUID(), type: 'info', content: 'Session expired (exceeded max duration)', timestamp: new Date().toISOString() });
+        changed = true;
+      }
+    }
+    if (changed) {
+      const active = sessions.filter(s => s.status !== 'removed');
+      const safePath = getUserLocalFixFile(username);
+      fs.writeFileSync(safePath, JSON.stringify(active, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      return active;
+    }
+    return sessions;
+  }
   catch { return []; }
 }
 
@@ -5428,7 +5448,7 @@ echo ""
 
 # Verify connectivity
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${instanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" 2>/dev/null)
-if [ "$?" -ne 0 ]; then
+if [ "$?" -ne 0 ] || [ "$HTTP_CODE" != "200" ]; then
     echo "ERROR: Cannot connect to Local.LLM instance."
     echo "Please verify the URL and try again."
     exit 1
@@ -5651,7 +5671,7 @@ app.post('/api/local-fix/sessions/:id/chat', requireSession, async (req, res) =>
       let match;
       while ((match = commandRegex.exec(aiContent)) !== null) {
         const suggestedCmd = match[1].trim();
-        if (suggestedCmd.length > 0 && suggestedCmd.length <= 500) {
+        if (suggestedCmd.length > 0 && suggestedCmd.length <= MAX_LOCAL_FIX_COMMAND_LENGTH) {
           session.commands = session.commands || [];
           session.commands.push({
             id: crypto.randomUUID(),

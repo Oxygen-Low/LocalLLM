@@ -2,7 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, signal, OnInit, OnDestroy, 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { LocalFixService, type LocalFixSession, type LocalFixLog, type LocalFixCommand } from '../services/local-fix.service';
+import { LocalFixService, type LocalFixSession, type LocalFixLog, type LocalFixCommand, type ScriptInfo } from '../services/local-fix.service';
 import { TranslationService } from '../services/translation.service';
 
 type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 'completed';
@@ -481,7 +481,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
 
     // Add user message to logs optimistically
     const userLog: LocalFixLog = {
-      id: `local-${Date.now()}`,
+      id: crypto.randomUUID(),
       type: 'info',
       content: `User: ${message}`,
       timestamp: new Date().toISOString(),
@@ -493,7 +493,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
     try {
       const result = await this.localFixService.sendMessage(sessionId, message);
       const aiLog: LocalFixLog = {
-        id: `local-ai-${Date.now()}`,
+        id: crypto.randomUUID(),
         type: 'llm',
         content: result.response,
         timestamp: new Date().toISOString(),
@@ -506,7 +506,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Failed to send message';
       const errorLog: LocalFixLog = {
-        id: `local-err-${Date.now()}`,
+        id: crypto.randomUUID(),
         type: 'error',
         content: errMsg,
         timestamp: new Date().toISOString(),
@@ -529,8 +529,8 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
       if (cmd) {
         this.sessionLogs.update(logs => [
           ...logs,
-          { id: `cmd-${Date.now()}`, type: 'command', content: cmd.command, timestamp: new Date().toISOString() },
-          { id: `out-${Date.now()}`, type: 'output', content: result.output, timestamp: new Date().toISOString() },
+          { id: crypto.randomUUID(), type: 'command', content: cmd.command, timestamp: new Date().toISOString() },
+          { id: crypto.randomUUID(), type: 'output', content: result.output, timestamp: new Date().toISOString() },
         ]);
       }
 
@@ -541,7 +541,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
       const errMsg = err instanceof Error ? err.message : 'Failed to execute command';
       this.sessionLogs.update(logs => [
         ...logs,
-        { id: `err-${Date.now()}`, type: 'error', content: errMsg, timestamp: new Date().toISOString() },
+        { id: crypto.randomUUID(), type: 'error', content: errMsg, timestamp: new Date().toISOString() },
       ]);
     }
   }
@@ -556,7 +556,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
 
       this.sessionLogs.update(logs => [
         ...logs,
-        { id: `rej-${Date.now()}`, type: 'info', content: 'Command rejected by user', timestamp: new Date().toISOString() },
+        { id: crypto.randomUUID(), type: 'info', content: 'Command rejected by user', timestamp: new Date().toISOString() },
       ]);
     } catch {
       // Silently handle
@@ -576,7 +576,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
       const errMsg = err instanceof Error ? err.message : 'Failed to end session';
       this.sessionLogs.update(logs => [
         ...logs,
-        { id: `err-${Date.now()}`, type: 'error', content: errMsg, timestamp: new Date().toISOString() },
+        { id: crypto.randomUUID(), type: 'error', content: errMsg, timestamp: new Date().toISOString() },
       ]);
     } finally {
       this.isLoading.set(false);
