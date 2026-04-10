@@ -468,17 +468,23 @@ function isPrivateIP(ip) {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(addr)) return true;    // 172.16.0.0/12 private
   if (/^192\.168\./.test(addr)) return true;                    // 192.168.0.0/16 private
   if (/^169\.254\./.test(addr)) return true;                    // 169.254.0.0/16 link-local / cloud metadata
-  if (addr === '0.0.0.0') return true;                          // unspecified
+  if (addr === '0.0.0.0' || addr === '0') return true;          // unspecified
   if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) return true; // 100.64.0.0/10 CGN
 
   // IPv6 ranges
-  if (addr === '::1') return true;                              // loopback
-  if (addr === '::') return true;                               // unspecified
+  // Loopback (::1, 0:0:0:0:0:0:0:1, etc.)
+  if (/^([0:]+):0*1$/i.test(addr) && !/[2-9a-f]/i.test(addr)) return true;
+  // Unspecified (::, 0:0:0:0:0:0:0:0, etc.)
+  if (/^[0:]+$/i.test(addr) && addr.includes(':') && !/[1-9a-f]/i.test(addr)) return true;
+
   if (/^fe80:/i.test(addr)) return true;                        // link-local
   if (/^f[cd]/i.test(addr)) return true;                      // unique-local (fc00::/7)
   if (/^::ffff:/i.test(addr)) {                                 // IPv4-mapped IPv6
     const v4 = addr.replace(/^::ffff:/i, '');
-    return isPrivateIP(v4);
+    if (v4.includes('.')) return isPrivateIP(v4);
+    // Handle hex-based IPv4-mapped loopback/unspecified (::ffff:0:0:1, ::ffff:0, etc.)
+    if (/^[0:]*0*1$/i.test(v4) && !/[2-9a-f]/i.test(v4)) return true;
+    if (/^[0:]+$/i.test(v4) && !/[1-9a-f]/i.test(v4)) return true;
   }
 
   return false;
@@ -572,7 +578,7 @@ async function ssrfSafeUrlValidation(urlString) {
 // General API rate limiter: 100 requests per 15 minutes per IP
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: (process.env.NODE_ENV === 'test' ? 10000 : 100),
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many requests, please try again later.' },
@@ -581,7 +587,7 @@ const apiLimiter = rateLimit({
 // Stricter rate limiter for auth endpoints: 10 requests per 15 minutes per IP
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: (process.env.NODE_ENV === 'test' ? 1000 : 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many authentication attempts, please try again later.' },
