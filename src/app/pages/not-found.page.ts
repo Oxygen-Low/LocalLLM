@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { TranslationService } from '../services/translation.service';
 
@@ -6,6 +6,8 @@ import { TranslationService } from '../services/translation.service';
   selector: 'app-not-found',
   standalone: true,
   imports: [RouterLink],
+  // ⚡ Bolt: Added ChangeDetectionStrategy.OnPush to prevent unnecessary re-renders in this presentational component
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="min-h-screen bg-gradient-to-b from-white to-secondary-50 flex items-center justify-center">
       <div class="container-custom text-center py-12 sm:py-20">
