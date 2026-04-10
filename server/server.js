@@ -612,8 +612,22 @@ app.use((req, res, next) => {
   next();
 });
 
+const allowedCorsOrigins = new Set(
+  (process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+    : ['http://localhost:4200'])
+);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || (HOST === '0.0.0.0' || HOST === '::' ? true : 'http://localhost:4200'),
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (allowedCorsOrigins.has(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   exposedHeaders: ['X-Server-Instance-ID']
 }));
 app.use((req, res, next) => {
