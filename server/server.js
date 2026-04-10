@@ -7240,7 +7240,7 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
         cloneEnv.GIT_TOKEN = gitToken;
       }
       try {
-        await runCommandAsync('git', ['clone', '--bare', cloneUrl, bareDir], { timeout: 300000, env: cloneEnv });
+        await runCommandAsync('git', ['clone', '--bare', '--', cloneUrl, bareDir], { timeout: 300000, env: cloneEnv });
       } finally {
         if (tmpAskPass) { try { fs.unlinkSync(tmpAskPass); } catch {} }
       }
