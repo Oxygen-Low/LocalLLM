@@ -9,3 +9,7 @@
 ## 2024-04-09 - [Added missing aria-label to close buttons in datasets list]
 **Learning:** Icon-only close buttons (like the `✕` character used in the datasets page to delete a row) often miss an `aria-label` which causes screen readers to either read them as 'multiplication sign' or nothing at all, breaking accessibility.
 **Action:** Always ensure that icon-only buttons (`<button>` tags with no text content, including those that just use SVG or a single character like `✕`) have an explicit `[attr.aria-label]` attribute to make their function clear to assistive technologies.
+
+## 2026-04-10 - [Accessibility] ARIA pressed states for list filters and tabs
+**Learning:** Custom tabs and list filters that visually update (using `ngClass` to change backgrounds or text colors when selected) but aren't native `<input type="radio">` or `<button role="tab">` do not inherently announce their active state to screen readers. This makes it impossible for visually impaired users to know which filter or tab is currently applied.
+**Action:** Always ensure that custom button controls acting as toggles or segmented tabs have an `[attr.aria-pressed]="currentState === 'value'"` attribute alongside their `ngClass` visual updates so screen readers correctly announce them as pressed/selected.

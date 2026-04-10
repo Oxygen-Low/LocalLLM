@@ -109,16 +109,19 @@ interface QueueItem {
             <div class="flex gap-2 mb-4">
               <button (click)="listFilter.set('all')"
                 class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                [attr.aria-pressed]="listFilter() === 'all'"
                 [ngClass]="listFilter() === 'all' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterAll') }} ({{ datasets().length }})
               </button>
               <button (click)="listFilter.set('active')"
                 class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                [attr.aria-pressed]="listFilter() === 'active'"
                 [ngClass]="listFilter() === 'active' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterActive') }} ({{ datasets().filter(d => d.status === 'active').length }})
               </button>
               <button (click)="listFilter.set('archived')"
                 class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                [attr.aria-pressed]="listFilter() === 'archived'"
                 [ngClass]="listFilter() === 'archived' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterArchived') }} ({{ datasets().filter(d => d.status === 'archived').length }})
               </button>
@@ -376,6 +379,7 @@ interface QueueItem {
               <button
                 (click)="datasetMode.set('generate')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [attr.aria-pressed]="datasetMode() === 'generate'"
                 [ngClass]="datasetMode() === 'generate' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
                 Generate with AI
@@ -383,6 +387,7 @@ interface QueueItem {
               <button
                 (click)="datasetMode.set('import')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [attr.aria-pressed]="datasetMode() === 'import'"
                 [ngClass]="datasetMode() === 'import' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
                 Import from HuggingFace
@@ -390,6 +395,7 @@ interface QueueItem {
               <button
                 (click)="datasetMode.set('queue')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [attr.aria-pressed]="datasetMode() === 'queue'"
                 [ngClass]="datasetMode() === 'queue' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
                 {{ t.translate('datasets.queueTab') }}
@@ -397,6 +403,7 @@ interface QueueItem {
               <button
                 (click)="datasetMode.set('refine')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                [attr.aria-pressed]="datasetMode() === 'refine'"
                 [ngClass]="datasetMode() === 'refine' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
                 {{ t.translate('datasets.refineTab') }}
