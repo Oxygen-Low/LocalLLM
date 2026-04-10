@@ -31,20 +31,20 @@ If you discover a security vulnerability, please report it responsibly by openin
 
 | Criteria | Description | Implementation |
 | -------- | ----------- | -------------- |
-| CC8.1 | Authorized changes | Server-side input validation on all endpoints; username format/length validation; password hash format validation; request body size limits (10 KB) to prevent DoS |
+| CC8.1 | Authorized changes | Server-side input validation on all endpoints; username format/length validation; password hash format validation; request body size limits (1 MB) to prevent DoS |
 
 ### A1 – Availability
 
 | Criteria | Description | Implementation |
 | -------- | ----------- | -------------- |
-| A1.1 | Processing capacity | `GET /api/health` endpoint for monitoring; rate limiting prevents resource exhaustion (100 general / 10 auth requests per 15 minutes); request body size limit (10 KB); graceful shutdown with data persistence on SIGTERM/SIGINT |
+| A1.1 | Processing capacity | `GET /api/health` endpoint for monitoring; rate limiting prevents resource exhaustion (100 general / 10 auth requests per 15 minutes); request body size limit (1 MB); graceful shutdown with data persistence on SIGTERM/SIGINT |
 | A1.2 | Environmental protections | SSRF protection with IP-range blocking, DNS validation, and hostname allowlist; Helmet security headers |
 
 ### PI1 – Processing Integrity
 
 | Criteria | Description | Implementation |
 | -------- | ----------- | -------------- |
-| PI1.1 | Input validation | Server-side username validation (3–30 chars, alphanumeric/hyphen/underscore); password hash format validation (64-char hex); JSON body size limit (10 KB); supported language code whitelist |
+| PI1.1 | Input validation | Server-side username validation (3–30 chars, alphanumeric/hyphen/underscore); password hash format validation (64-char hex); JSON body size limit (1 MB); supported language code whitelist |
 
 ### C1 – Confidentiality
 
@@ -74,7 +74,7 @@ If you discover a security vulnerability, please report it responsibly by openin
 | A.8.12 | Data leakage prevention | Content Security Policy restricting resource origins; `object-src 'none'`; `base-uri 'self'` |
 | A.8.15 | Logging | Persistent server-side audit log (`data/audit.log`) recording login success/failure, signup, password changes, account deletions, logout, and admin actions with timestamps, request IDs, usernames, and source IPs; client-side security event logging via `SecurityLoggerService` |
 | A.8.16 | Monitoring activities | Structured JSON audit log entries enable integration with SIEM tools; X-Request-Id header on every response for end-to-end request tracing; `GET /api/health` endpoint for availability monitoring |
-| A.8.24 | Use of cryptography | PBKDF2 with SHA-256 for password storage; SHA-256 client-side pre-hashing; HTTPS with TLS certificates; `crypto.timingSafeEqual` for constant-time comparison; `crypto.randomUUID()` for session tokens |
+| A.8.24 | Use of cryptography | PBKDF2 with SHA-256 for password storage; SHA-256 client-side pre-hashing; AES-256-GCM for API key encryption at rest; HTTPS with TLS certificates; `crypto.timingSafeEqual` for constant-time comparison; `crypto.randomUUID()` for session tokens |
 | A.8.25 | Secure development lifecycle | Server-side input validation (username length/format, password hash format); rate limiting on all API and auth endpoints; SSRF protection with IP-range blocking and DNS validation; request body size limits |
 | A.8.26 | Application security requirements | Express Rate Limiter (100 req/15 min general, 10 req/15 min auth); server-side account lockout (5 failures / 15-min lockout); timing-safe password comparison; no sensitive data in error responses |
 
@@ -88,7 +88,7 @@ Server-side session tokens are issued on successful login or signup:
 - **Client delivery**: Returned in the login/signup JSON response and stored in `sessionStorage`
 - **Transmission**: Attached to all API requests via `Authorization: Bearer <token>` header (Angular HTTP interceptor)
 - **Invalidation**: `POST /api/auth/logout` removes the token server-side; account deletion revokes all user sessions
-- **Protected endpoints**: `GET /api/auth/password-reset-status`, `PUT /api/auth/change-password`, `DELETE /api/auth/account`, `GET /api/user/language`, `PUT /api/user/language`, `POST /api/auth/logout`
+- **Protected endpoints**: All authenticated API endpoints are session-protected, including endpoints for authentication management (`/api/auth/*`), user settings and language (`/api/user/*`), personas, chats, roleplay sessions, datasets, repositories, coding agent containers, model training, web SEO, local fix sessions, and admin operations
 
 ## Cryptographic Standards
 
@@ -98,6 +98,8 @@ Server-side session tokens are issued on successful login or signup:
 | Client pre-hash | SHA-256 | Single pass before transmission over HTTPS |
 | Session tokens | `crypto.randomUUID()` | UUID v4 via Node.js CSPRNG |
 | Admin password generation | `crypto.randomBytes(24)` | 192-bit entropy, base64url-encoded |
+| API key encryption | AES-256-GCM | Per-user key derived via PBKDF2 from 256-bit master key; IV + auth tag + ciphertext stored in `data/apikeys_<user>.enc` |
+| Encryption master key | `crypto.randomBytes(32)` | 256-bit key stored in `data/encryption.key` with mode 0600 |
 
 ## Security Headers
 
@@ -139,12 +141,66 @@ Each line in `data/audit.log` is a self-contained JSON object:
 | `SIGNUP_FAILURE` | Account creation rejected |
 | `PASSWORD_CHANGED` | Password updated successfully |
 | `PASSWORD_CHANGE_FAILURE` | Password change rejected |
+| `USERNAME_CHANGED` | Username updated successfully |
 | `ACCOUNT_DELETED` | Account removed |
 | `LOGOUT` | User logged out (server-side session invalidated) |
+| `API_KEY_SET` | User saved an API key for a provider |
+| `API_KEY_REMOVED` | User removed an API key for a provider |
+| `GITHUB_TOKEN_SET` | User saved a GitHub integration token |
+| `GITHUB_TOKEN_REMOVED` | User removed a GitHub integration token |
+| `HF_TOKEN_SET` | User saved a HuggingFace integration token |
+| `HF_TOKEN_REMOVED` | User removed a HuggingFace integration token |
+| `PERSONA_CREATED` | User created a persona |
+| `PERSONA_UPDATED` | User updated a persona |
+| `PERSONA_DELETED` | User deleted a persona |
+| `DATASET_GENERATED` | User generated a dataset with AI |
+| `DATASET_CREATED` | User created or saved a dataset |
+| `DATASET_UPDATED` | User updated a dataset |
+| `DATASET_DELETED` | User deleted a dataset |
+| `DATASET_ARCHIVED` | User archived a dataset |
+| `DATASET_UNARCHIVED` | User unarchived a dataset |
+| `DATASET_IMPORTED` | User imported a dataset from HuggingFace |
+| `DATASET_REFINED` | User refined a dataset with AI |
+| `REPO_CREATED` | User created a repository |
+| `REPO_DELETED` | User deleted a repository |
+| `REPO_ARCHIVED` | User archived a repository |
+| `REPO_UNARCHIVED` | User unarchived a repository |
+| `REPO_IMPORTED` | User imported a repository from GitHub |
+| `REPO_EXPORTED` | User exported a repository to GitHub |
+| `REPO_KEY_REGENERATED` | User regenerated a repository key |
+| `CONTAINER_CREATED` | Coding agent container created |
+| `CONTAINER_STARTED` | Coding agent container started |
+| `CONTAINER_STOPPED` | Coding agent container stopped |
+| `CONTAINER_REMOVED` | Coding agent container removed |
+| `TRAINING_STARTED` | Model training job started |
+| `TRAINING_CANCELLED` | Model training job cancelled |
+| `TRAINING_DELETED` | Model training job deleted |
+| `LOCAL_FIX_SESSION_CREATED` | Local fix session created |
+| `LOCAL_FIX_SESSION_REMOVED` | Local fix session removed |
+| `LOCAL_FIX_COMMAND_APPROVED` | Local fix command approved for execution |
+| `LOCAL_FIX_COMMAND_REJECTED` | Local fix command rejected |
+| `LOCAL_FIX_FILE_WRITE` | Local fix wrote a file |
+| `SEO_APP_CREATED` | User created a web SEO app |
 | `ADMIN_LIST_USERS` | Admin viewed user list |
 | `ADMIN_RESET_PASSWORD` | Admin flagged user for password reset |
 | `ADMIN_DELETE_USER` | Admin deleted a user account |
 | `ADMIN_AUTH_FAILURE` | Failed admin authentication |
+| `ADMIN_SET_KOBOLD` | Admin toggled Kobold.cpp integration |
+| `ADMIN_SET_OLLAMA` | Admin toggled Ollama integration |
+| `ADMIN_SET_RISKY_APPS` | Admin toggled risky apps setting |
+| `ADMIN_SET_AUTO_SYNC` | Admin toggled auto-sync setting |
+| `ADMIN_SET_DATASET_TOKEN_LIMIT` | Admin set dataset token limit |
+| `ADMIN_UPLOAD_MODEL` | Admin uploaded a GGUF model |
+| `ADMIN_DOWNLOAD_MODEL` | Admin downloaded a model from HuggingFace |
+| `ADMIN_DELETE_MODEL` | Admin deleted a local model |
+| `ADMIN_CREATE_UNIVERSE` | Admin created a character universe |
+| `ADMIN_UPDATE_UNIVERSE` | Admin updated a character universe |
+| `ADMIN_DELETE_UNIVERSE` | Admin deleted a character universe |
+| `ADMIN_CREATE_CHARACTER` | Admin created a character |
+| `ADMIN_UPDATE_CHARACTER` | Admin updated a character |
+| `ADMIN_DELETE_CHARACTER` | Admin deleted a character |
+| `ADMIN_AUTO_SYNC_TRIGGER` | Auto-sync backup triggered |
+| `ADMIN_AUTO_SYNC_IMPORT` | Auto-sync import triggered |
 
 ## Rate Limiting
 
@@ -163,5 +219,5 @@ Each line in `data/audit.log` is a self-contained JSON object:
 - User data files are excluded from version control via `.gitignore`
 - Account deletion permanently removes all user data and invalidates all sessions
 - Audit logs are automatically rotated at 10 MB to prevent unbounded growth
-- Request body size limited to 10 KB to prevent denial-of-service attacks
+- Request body size limited to 1 MB to prevent denial-of-service attacks
 - Expired sessions are automatically cleaned up from server memory hourly

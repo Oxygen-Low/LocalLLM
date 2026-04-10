@@ -1,12 +1,14 @@
-# Fusion Angular Tailwind Starter
+# Local.LLM
 
-A production-ready Angular application template with TypeScript, TailwindCSS 3, and modern tooling.
+A self-hosted AI platform built with Angular, Express, and Python — supporting local and cloud LLM providers, a coding agent, dataset management, model training, and more.
 
 ## Tech Stack
 
-- **Frontend**: Angular 20 + TypeScript + TailwindCSS 3.4.11
+- **Frontend**: Angular 21 + TypeScript + TailwindCSS 3.4.11
+- **Backend**: Node.js + Express 5
+- **Python Service**: Python 3 with transformers + torch (auto-managed venv)
 - **Styling**: TailwindCSS 3 with Typography Plugin + PostCSS + Autoprefixer
-- **Testing**: Angular Testing Framework (Jasmine + Karma via `ng test`)
+- **Testing**: Vitest (via `ng test`)
 - **Build Tool**: Angular CLI with Vite
 - **Package Manager**: npm
 
@@ -14,15 +16,28 @@ A production-ready Angular application template with TypeScript, TailwindCSS 3, 
 
 ```
 src/                     # Angular application source
-├── app/                 # Main application module
+├── app/
 │   ├── app.html         # Main app template
 │   ├── app.ts           # App component
 │   ├── app.config.ts    # App configuration
 │   ├── app.routes.ts    # Route definitions
-│   └── app.spec.ts      # App component tests
+│   ├── app.spec.ts      # App component tests
+│   ├── components/      # Shared UI components (navbar, footer, hero, etc.)
+│   ├── pages/           # Page-level components (admin, dashboard, login, etc.)
+│   ├── services/        # Angular services (auth, admin, LLM, datasets, etc.)
+│   ├── guards/          # Route guards (auth, admin, risky-apps)
+│   ├── interceptors/    # HTTP interceptors (auth token injection)
+│   └── layout/          # Layout components (app layout, docs layout)
 ├── styles.css           # Global styles with TailwindCSS imports
 ├── index.html           # Main HTML entry point
 └── main.ts              # Application bootstrap
+
+server/                  # Backend
+├── server.js            # Express API server
+├── server.test.js       # Server tests
+├── python_service.py    # Python inference/training service
+├── search-tool.js       # Search tooling
+└── reset-admin.js       # Admin password reset script
 
 public/                  # Static assets
 ├── favicon.ico          # Site favicon
@@ -72,11 +87,13 @@ export const routes: Routes = [
 ### Development Commands
 
 ```bash
-npm start          # Start development server
+npm start          # Start dev server (Express backend + Angular frontend)
+npm run start:no-lan  # Start dev server on localhost only (no LAN access)
+npm run server     # Start Express backend only
 npm run build      # Production build
 npm run watch      # Build with watch mode
-npm test          # Run Angular tests (ng test)
-ng serve          # Alternative dev server command
+npm test           # Run tests (Vitest via ng test)
+npm run resetadmin # Reset admin password
 ```
 
 ## Adding Features
@@ -177,14 +194,15 @@ module.exports = {
 
 - **Standard**: `npm run build` creates optimized production build
 - **Development**: `npm start` for local development
-- **Testing**: `npm test` runs Angular tests with Jasmine/Karma
+- **Testing**: `npm test` runs tests with Vitest
 
 ## Architecture Notes
 
-- Angular 20 with standalone components
-- TypeScript throughout the application
+- Angular 21 with standalone components
+- Express 5 backend with Python inference service
+- TypeScript throughout the frontend
 - TailwindCSS 3.4.11 for utility-first styling
 - Typography plugin for rich text content
 - PostCSS with Autoprefixer for cross-browser support
-- Angular Testing Framework (Jasmine + Karma) for unit testing
+- Vitest for unit testing
 - Angular CLI for development and build tooling
