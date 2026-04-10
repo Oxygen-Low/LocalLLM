@@ -4410,26 +4410,24 @@ function getUserDatasetArchivePath(username, datasetId) {
   return ensureWithinDir(userDir, path.join(userDir, `${datasetId}.tar.gz`));
 }
 
-function getDatasetBytesOnDisk(username, datasetId) {
+async function getDatasetBytesOnDisk(username, datasetId) {
   try {
-    const { execFileSync } = require('child_process');
     let target;
     try { target = getUserDatasetDir(username, datasetId); } catch { return 0; }
     if (!fs.existsSync(target)) {
       try { target = getUserDatasetArchivePath(username, datasetId); } catch { return 0; }
     }
     if (!fs.existsSync(target)) return 0;
-    const out = execFileSync('du', ['-sb', target], { encoding: 'utf-8', timeout: 10000 });
+    const out = await runCommandAsync('du', ['-sb', target], { timeout: 10000 });
     return parseInt(out.split('\t')[0], 10) || 0;
   } catch { return 0; }
 }
 
-function getUserDatasetStorageBytes(username) {
+async function getUserDatasetStorageBytes(username) {
   try {
-    const { execFileSync } = require('child_process');
     const userDir = path.join(DATASETS_DIR, path.basename(sanitizeUsernameForPath(username)));
     if (!fs.existsSync(userDir)) return 0;
-    const out = execFileSync('du', ['-sb', userDir], { encoding: 'utf-8', timeout: 15000 });
+    const out = await runCommandAsync('du', ['-sb', userDir], { timeout: 15000 });
     return parseInt(out.split('\t')[0], 10) || 0;
   } catch { return 0; }
 }
@@ -4853,10 +4851,10 @@ app.post('/api/datasets/import-huggingface', requireSession, async (req, res) =>
 });
 
 // GET /api/datasets – List all datasets for the current user
-app.get('/api/datasets', requireSession, (req, res) => {
+app.get('/api/datasets', requireSession, async (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
-    const storageUsed = getUserDatasetStorageBytes(req.sessionUser);
+    const storageUsed = await getUserDatasetStorageBytes(req.sessionUser);
     res.json({ success: true, datasets, storageUsed });
   } catch (err) {
     console.error('List datasets error:', err);
@@ -4865,12 +4863,12 @@ app.get('/api/datasets', requireSession, (req, res) => {
 });
 
 // GET /api/datasets/:id – Get single dataset details
-app.get('/api/datasets/:id', requireSession, (req, res) => {
+app.get('/api/datasets/:id', requireSession, async (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const dataset = datasets.find(d => d.id === req.params.id);
     if (!dataset) return res.status(404).json({ success: false, error: 'Dataset not found' });
-    const size = getDatasetBytesOnDisk(req.sessionUser, dataset.id);
+    const size = await getDatasetBytesOnDisk(req.sessionUser, dataset.id);
     res.json({ success: true, dataset: { ...dataset, size } });
   } catch (err) {
     console.error('Get dataset error:', err);
@@ -6659,26 +6657,24 @@ function getUserRepoArchivePath(username, repoId) {
   return ensureWithinDir(userDir, path.join(userDir, `${repoId}.tar.gz`));
 }
 
-function getUserStorageBytes(username) {
+async function getUserStorageBytes(username) {
   try {
-    const { execFileSync } = require('child_process');
     const userDir = path.join(REPOS_DIR, path.basename(sanitizeUsernameForPath(username)));
     if (!fs.existsSync(userDir)) return 0;
-    const out = execFileSync('du', ['-sb', userDir], { encoding: 'utf-8', timeout: 15000 });
+    const out = await runCommandAsync('du', ['-sb', userDir], { timeout: 15000 });
     return parseInt(out.split('\t')[0], 10) || 0;
   } catch { return 0; }
 }
 
-function getRepoBytesOnDisk(username, repoId) {
+async function getRepoBytesOnDisk(username, repoId) {
   try {
-    const { execFileSync } = require('child_process');
     let target;
     try { target = getUserRepoBareDir(username, repoId); } catch { return 0; }
     if (!fs.existsSync(target)) {
       try { target = getUserRepoArchivePath(username, repoId); } catch { return 0; }
     }
     if (!fs.existsSync(target)) return 0;
-    const out = execFileSync('du', ['-sb', target], { encoding: 'utf-8', timeout: 10000 });
+    const out = await runCommandAsync('du', ['-sb', target], { timeout: 10000 });
     return parseInt(out.split('\t')[0], 10) || 0;
   } catch { return 0; }
 }
@@ -7009,7 +7005,7 @@ app.post('/api/repositories', requireSession, async (req, res) => {
     if (!isGitAvailable()) {
       return res.status(503).json({ success: false, error: 'Git is not available on this server' });
     }
-    const currentStorage = getUserStorageBytes(req.sessionUser);
+    const currentStorage = await getUserStorageBytes(req.sessionUser);
     if (currentStorage >= USER_MAX_STORAGE_BYTES) {
       return res.status(409).json({ success: false, error: `Storage quota exceeded (max ${Math.round(USER_MAX_STORAGE_BYTES / 1073741824)} GB per user)` });
     }
@@ -7066,10 +7062,10 @@ app.post('/api/repositories', requireSession, async (req, res) => {
 });
 
 // GET /api/repositories – List user's repositories
-app.get('/api/repositories', requireSession, (req, res) => {
+app.get('/api/repositories', requireSession, async (req, res) => {
   try {
     const repos = readUserRepos(req.sessionUser);
-    const storageUsed = getUserStorageBytes(req.sessionUser);
+    const storageUsed = await getUserStorageBytes(req.sessionUser);
     // Omit authKey from list response; clients call GET /:id for the key
     const sanitized = repos.map(({ authKey, ...r }) => r);
     res.json({ success: true, repos: sanitized, storageUsed, storageMax: USER_MAX_STORAGE_BYTES });
@@ -7080,13 +7076,13 @@ app.get('/api/repositories', requireSession, (req, res) => {
 });
 
 // GET /api/repositories/:id – Get single repo details (includes authKey for owner)
-app.get('/api/repositories/:id', requireSession, (req, res) => {
+app.get('/api/repositories/:id', requireSession, async (req, res) => {
   try {
     const repos = readUserRepos(req.sessionUser);
     const repo = repos.find(r => r.id === req.params.id);
     if (!repo) return res.status(404).json({ success: false, error: 'Repository not found' });
     touchRepoActivity(repo.id);
-    const size = getRepoBytesOnDisk(req.sessionUser, repo.id);
+    const size = await getRepoBytesOnDisk(req.sessionUser, repo.id);
     res.json({ success: true, repo: { ...repo, size } });
   } catch (err) {
     console.error('Get repo error:', err);
@@ -7146,13 +7142,13 @@ app.post('/api/repositories/:id/archive', requireSession, async (req, res) => {
 });
 
 // POST /api/repositories/:id/unarchive – Restore from archive
-app.post('/api/repositories/:id/unarchive', requireSession, (req, res) => {
+app.post('/api/repositories/:id/unarchive', requireSession, async (req, res) => {
   try {
     const repos = readUserRepos(req.sessionUser);
     if (!repos.find(r => r.id === req.params.id && r.status === 'archived')) {
       return res.status(404).json({ success: false, error: 'Archived repository not found' });
     }
-    const currentStorage = getUserStorageBytes(req.sessionUser);
+    const currentStorage = await getUserStorageBytes(req.sessionUser);
     if (currentStorage >= USER_MAX_STORAGE_BYTES) {
       return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
     }
@@ -7217,7 +7213,7 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
     if (!isGitAvailable()) {
       return res.status(503).json({ success: false, error: 'Git is not available on this server' });
     }
-    const currentStorage = getUserStorageBytes(req.sessionUser);
+    const currentStorage = await getUserStorageBytes(req.sessionUser);
     if (currentStorage >= USER_MAX_STORAGE_BYTES) {
       return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
     }
@@ -7244,7 +7240,7 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
         cloneEnv.GIT_TOKEN = gitToken;
       }
       try {
-        execFileSync('git', ['clone', '--bare', cloneUrl, bareDir], { timeout: 300000, env: cloneEnv });
+        await runCommandAsync('git', ['clone', '--bare', cloneUrl, bareDir], { timeout: 300000, env: cloneEnv });
       } finally {
         if (tmpAskPass) { try { fs.unlinkSync(tmpAskPass); } catch {} }
       }
@@ -7254,7 +7250,7 @@ app.post('/api/repositories/import-github', requireSession, async (req, res) => 
       return res.status(500).json({ success: false, error: 'Failed to clone repository. Verify the URL is correct and you have access.' });
     }
 
-    const repoSize = getRepoBytesOnDisk(req.sessionUser, repoId);
+    const repoSize = await getRepoBytesOnDisk(req.sessionUser, repoId);
     if (repoSize > REPO_MAX_SIZE_BYTES) {
       try { const bd = getUserRepoBareDir(req.sessionUser, repoId); fs.rmSync(bd, { recursive: true, force: true }); } catch {}
       return res.status(409).json({ success: false, error: `Repository exceeds max size (${Math.round(REPO_MAX_SIZE_BYTES / 1073741824)} GB)` });
