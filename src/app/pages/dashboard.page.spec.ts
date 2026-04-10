@@ -100,7 +100,7 @@ describe('DashboardPageComponent', () => {
     expect(badge?.textContent?.trim()).toContain('대시보드');
   });
 
-  it('should display all app cards (Chat, Coding Agent, Repositories, Web Seo, Datasets, Roleplay, and Train LLM)', () => {
+  it('should display all app cards (Chat, Coding Agent, Repositories, Web Seo, Datasets, Roleplay, Train LLM, and Local Fix)', () => {
     const fixture = TestBed.createComponent(DashboardPageComponent);
     fixture.detectChanges();
     flushAppSettings();
@@ -108,7 +108,7 @@ describe('DashboardPageComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     const appCards = compiled.querySelectorAll('app-app-card');
-    expect(appCards.length).toBe(7);
+    expect(appCards.length).toBe(8);
   });
 
   it('should disable coding agent card when risky apps are disabled', async () => {
