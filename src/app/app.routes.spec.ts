@@ -90,6 +90,7 @@ describe('App Routes', () => {
     expect(childPaths).toContain('app/datasets');
     expect(childPaths).toContain('app/roleplay');
     expect(childPaths).toContain('app/train-llm');
+    expect(childPaths).toContain('app/local-fix');
   });
 
   it('should have all expected doc child routes', () => {

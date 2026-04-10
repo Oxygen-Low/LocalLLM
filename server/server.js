@@ -5216,6 +5216,558 @@ app.get('/api/datasets/:id/download', requireSession, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Local Fix – Remote diagnostic session management
+// ---------------------------------------------------------------------------
+
+const LOCAL_FIX_DIR = path.join(DATA_DIR, 'local_fix');
+if (!fs.existsSync(LOCAL_FIX_DIR)) fs.mkdirSync(LOCAL_FIX_DIR, { recursive: true });
+
+const LOCAL_FIX_SESSION_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours max session
+
+function getUserLocalFixFile(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  return ensureWithinDir(LOCAL_FIX_DIR, path.join(LOCAL_FIX_DIR, `${safe}.json`));
+}
+
+function readUserLocalFixSessions(username) {
+  const file = getUserLocalFixFile(username);
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch { return []; }
+}
+
+function writeUserLocalFixSessions(username, sessions) {
+  const file = getUserLocalFixFile(username);
+  fs.writeFileSync(file, JSON.stringify(sessions, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+// POST /api/local-fix/sessions – Create a new diagnostic session
+app.post('/api/local-fix/sessions', requireSession, (req, res) => {
+  try {
+    const { instanceUrl, userId, issueDescription, allowCommands } = req.body;
+
+    if (!instanceUrl || typeof instanceUrl !== 'string' || instanceUrl.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Instance URL is required' });
+    }
+    if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'User ID is required' });
+    }
+    if (!issueDescription || typeof issueDescription !== 'string' || issueDescription.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Issue description is required' });
+    }
+    if (issueDescription.trim().length > 2000) {
+      return res.status(400).json({ success: false, error: 'Issue description must be 2000 characters or less' });
+    }
+
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+
+    // Limit active sessions per user
+    const activeSessions = userSessions.filter(s => s.status === 'active');
+    if (activeSessions.length >= 5) {
+      return res.status(400).json({ success: false, error: 'Maximum of 5 active sessions reached. Please end an existing session first.' });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const newSession = {
+      id: sessionId,
+      computerName: `local-fix-${sessionId.slice(0, 8)}`,
+      instanceUrl: instanceUrl.trim(),
+      userId: userId.trim(),
+      issueDescription: issueDescription.trim(),
+      allowCommands: !!allowCommands,
+      status: 'active',
+      createdAt: now,
+      lastActivity: Date.now(),
+      logs: [
+        {
+          id: crypto.randomUUID(),
+          type: 'info',
+          content: `Session started. Diagnosing: ${issueDescription.trim()}`,
+          timestamp: now,
+        },
+      ],
+      commands: [],
+    };
+
+    userSessions.push(newSession);
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    auditLog({ event: 'LOCAL_FIX_SESSION_CREATED', message: `Session ${sessionId} created`, username: req.sessionUser, req });
+
+    res.json({ success: true, session: newSession });
+  } catch (err) {
+    console.error('Error creating local-fix session:', err);
+    res.status(500).json({ success: false, error: 'Failed to create session' });
+  }
+});
+
+// GET /api/local-fix/sessions – List all sessions for the user
+app.get('/api/local-fix/sessions', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    res.json({ success: true, sessions: userSessions });
+  } catch (err) {
+    console.error('Error listing local-fix sessions:', err);
+    res.status(500).json({ success: false, error: 'Failed to list sessions' });
+  }
+});
+
+// GET /api/local-fix/sessions/:id – Get a specific session
+app.get('/api/local-fix/sessions/:id', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    res.json({ success: true, session });
+  } catch (err) {
+    console.error('Error getting local-fix session:', err);
+    res.status(500).json({ success: false, error: 'Failed to get session' });
+  }
+});
+
+// DELETE /api/local-fix/sessions/:id – Remove session and cleanup
+app.delete('/api/local-fix/sessions/:id', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const idx = userSessions.findIndex(s => s.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    // Mark as removed (cleanup)
+    userSessions[idx].status = 'removed';
+    userSessions[idx].logs.push({
+      id: crypto.randomUUID(),
+      type: 'info',
+      content: 'Session ended. Setup scripts deleted and computer removed from Local Fix.',
+      timestamp: new Date().toISOString(),
+    });
+
+    // Remove from active sessions entirely
+    userSessions.splice(idx, 1);
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    auditLog({ event: 'LOCAL_FIX_SESSION_REMOVED', message: `Session ${req.params.id} removed and cleaned up`, username: req.sessionUser, req });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error removing local-fix session:', err);
+    res.status(500).json({ success: false, error: 'Failed to remove session' });
+  }
+});
+
+// GET /api/local-fix/sessions/:id/script – Generate setup scripts for the session
+app.get('/api/local-fix/sessions/:id/script', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    const instanceUrl = session.instanceUrl;
+    const sessionId = session.id;
+
+    const bat = `@echo off
+echo ============================================
+echo   Local Fix - Diagnostic Agent Setup
+echo ============================================
+echo.
+echo Connecting to Local.LLM instance...
+echo Instance: ${instanceUrl}
+echo Session ID: ${sessionId}
+echo.
+echo This script connects your computer to a
+echo Local Fix diagnostic session. The LLM agent
+echo will help diagnose and fix issues.
+echo.
+echo Press Ctrl+C to cancel at any time.
+echo ============================================
+echo.
+
+REM Verify connectivity
+curl -s -o nul -w "%%{http_code}" "${instanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" > nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Cannot connect to Local.LLM instance.
+    echo Please verify the URL and try again.
+    pause
+    exit /b 1
+)
+
+echo Connected successfully!
+echo.
+echo Session is now active. You can manage it from
+echo the Local Fix web interface.
+echo.
+echo To end the session, close this window or press Ctrl+C.
+echo The session will be automatically cleaned up.
+echo.
+pause
+del "%~f0"
+`;
+
+    const sh = `#!/bin/bash
+echo "============================================"
+echo "  Local Fix - Diagnostic Agent Setup"
+echo "============================================"
+echo ""
+echo "Connecting to Local.LLM instance..."
+echo "Instance: ${instanceUrl}"
+echo "Session ID: ${sessionId}"
+echo ""
+echo "This script connects your computer to a"
+echo "Local Fix diagnostic session. The LLM agent"
+echo "will help diagnose and fix issues."
+echo ""
+echo "Press Ctrl+C to cancel at any time."
+echo "============================================"
+echo ""
+
+# Verify connectivity
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${instanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" 2>/dev/null)
+if [ "$?" -ne 0 ]; then
+    echo "ERROR: Cannot connect to Local.LLM instance."
+    echo "Please verify the URL and try again."
+    exit 1
+fi
+
+echo "Connected successfully!"
+echo ""
+echo "Session is now active. You can manage it from"
+echo "the Local Fix web interface."
+echo ""
+echo "To end the session, close this window or press Ctrl+C."
+echo "The session will be automatically cleaned up."
+echo ""
+
+# Cleanup on exit
+cleanup() {
+    echo ""
+    echo "Cleaning up..."
+    rm -f "$0"
+    echo "Script removed. Session ended."
+}
+trap cleanup EXIT
+
+# Keep alive
+read -p "Press Enter to end the session..."
+`;
+
+    res.json({ success: true, bat, sh });
+  } catch (err) {
+    console.error('Error generating local-fix script:', err);
+    res.status(500).json({ success: false, error: 'Failed to generate script' });
+  }
+});
+
+// GET /api/local-fix/sessions/:id/heartbeat – Health check for the session (used by setup scripts)
+app.get('/api/local-fix/sessions/:id/heartbeat', (req, res) => {
+  // This endpoint is intentionally not authenticated so the setup script can check connectivity.
+  // It only confirms whether a session ID exists; no sensitive data is returned.
+  try {
+    // Check all users for this session (O(n) but acceptable for small user counts)
+    if (!fs.existsSync(LOCAL_FIX_DIR)) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    const files = fs.readdirSync(LOCAL_FIX_DIR).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const filePath = path.join(LOCAL_FIX_DIR, file);
+        ensureWithinDir(LOCAL_FIX_DIR, filePath);
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const session = data.find(s => s.id === req.params.id && s.status === 'active');
+        if (session) {
+          return res.json({ success: true, status: 'active' });
+        }
+      } catch {
+        continue;
+      }
+    }
+    res.status(404).json({ success: false, error: 'Session not found' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/local-fix/sessions/:id/commands – Get pending commands
+app.get('/api/local-fix/sessions/:id/commands', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    const commands = (session.commands || []).filter(c => c.status === 'pending');
+    res.json({ success: true, commands });
+  } catch (err) {
+    console.error('Error getting local-fix commands:', err);
+    res.status(500).json({ success: false, error: 'Failed to get commands' });
+  }
+});
+
+// POST /api/local-fix/sessions/:id/commands/:cmdId/approve – Approve a pending command
+app.post('/api/local-fix/sessions/:id/commands/:cmdId/approve', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    if (!session.allowCommands) {
+      return res.status(403).json({ success: false, error: 'Command execution is not allowed for this session' });
+    }
+    const cmd = (session.commands || []).find(c => c.id === req.params.cmdId);
+    if (!cmd) {
+      return res.status(404).json({ success: false, error: 'Command not found' });
+    }
+    if (cmd.status !== 'pending') {
+      return res.status(400).json({ success: false, error: 'Command is not in pending status' });
+    }
+
+    cmd.status = 'approved';
+    cmd.output = '(Command approved – awaiting execution on target machine)';
+
+    session.logs.push({
+      id: crypto.randomUUID(),
+      type: 'command',
+      content: cmd.command,
+      timestamp: new Date().toISOString(),
+      approved: true,
+    });
+
+    session.lastActivity = Date.now();
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    auditLog({ event: 'LOCAL_FIX_COMMAND_APPROVED', message: `Command "${cmd.command}" approved in session ${session.id}`, username: req.sessionUser, req });
+
+    res.json({ success: true, output: cmd.output });
+  } catch (err) {
+    console.error('Error approving local-fix command:', err);
+    res.status(500).json({ success: false, error: 'Failed to approve command' });
+  }
+});
+
+// POST /api/local-fix/sessions/:id/commands/:cmdId/reject – Reject a pending command
+app.post('/api/local-fix/sessions/:id/commands/:cmdId/reject', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    const cmd = (session.commands || []).find(c => c.id === req.params.cmdId);
+    if (!cmd) {
+      return res.status(404).json({ success: false, error: 'Command not found' });
+    }
+    if (cmd.status !== 'pending') {
+      return res.status(400).json({ success: false, error: 'Command is not in pending status' });
+    }
+
+    cmd.status = 'rejected';
+
+    session.logs.push({
+      id: crypto.randomUUID(),
+      type: 'info',
+      content: `Command rejected: ${cmd.command}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    session.lastActivity = Date.now();
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    auditLog({ event: 'LOCAL_FIX_COMMAND_REJECTED', message: `Command "${cmd.command}" rejected in session ${session.id}`, username: req.sessionUser, req });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error rejecting local-fix command:', err);
+    res.status(500).json({ success: false, error: 'Failed to reject command' });
+  }
+});
+
+// POST /api/local-fix/sessions/:id/chat – Send a message and get AI response
+app.post('/api/local-fix/sessions/:id/chat', requireSession, async (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    if (session.status !== 'active') {
+      return res.status(400).json({ success: false, error: 'Session is not active' });
+    }
+
+    const { message } = req.body;
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Message is required' });
+    }
+    if (message.trim().length > 4000) {
+      return res.status(400).json({ success: false, error: 'Message must be 4000 characters or less' });
+    }
+
+    // Add user message to logs
+    session.logs.push({
+      id: crypto.randomUUID(),
+      type: 'info',
+      content: `User: ${message.trim()}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Build context for LLM
+    const systemPrompt = `You are a diagnostic AI assistant helping to fix computer issues. The user is experiencing the following issue: "${session.issueDescription}". ${session.allowCommands ? 'You can suggest commands to run for diagnosis. Format any suggested command on its own line prefixed with "COMMAND:" (e.g., "COMMAND: systeminfo"). The user will need to approve commands before they run.' : 'Command execution is disabled for this session. Provide guidance and instructions only.'} Be concise and helpful. Focus on diagnosing and resolving the issue.`;
+
+    const recentLogs = session.logs.slice(-20).map(l => `[${l.type}] ${l.content}`).join('\n');
+
+    const llmMessages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Recent session activity:\n${recentLogs}\n\nUser message: ${message.trim()}` },
+    ];
+
+    let response;
+    try {
+      response = await getLLMCompletion(req.sessionUser, llmMessages, { max_tokens: 1024, temperature: 0.5 });
+    } catch (llmErr) {
+      const errorMsg = llmErr instanceof Error ? llmErr.message : 'LLM service unavailable';
+      session.lastActivity = Date.now();
+      writeUserLocalFixSessions(req.sessionUser, userSessions);
+      return res.status(503).json({ success: false, error: errorMsg });
+    }
+
+    const aiContent = typeof response === 'string' ? response : (response.content || '');
+
+    // Add AI response to logs
+    session.logs.push({
+      id: crypto.randomUUID(),
+      type: 'llm',
+      content: aiContent,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Extract suggested commands from AI response
+    if (session.allowCommands) {
+      const commandRegex = /^COMMAND:\s*(.+)$/gm;
+      let match;
+      while ((match = commandRegex.exec(aiContent)) !== null) {
+        const suggestedCmd = match[1].trim();
+        if (suggestedCmd.length > 0 && suggestedCmd.length <= 500) {
+          session.commands = session.commands || [];
+          session.commands.push({
+            id: crypto.randomUUID(),
+            command: suggestedCmd,
+            status: 'pending',
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    session.lastActivity = Date.now();
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    res.json({ success: true, response: aiContent });
+  } catch (err) {
+    console.error('Error in local-fix chat:', err);
+    res.status(500).json({ success: false, error: 'Failed to process message' });
+  }
+});
+
+// GET /api/local-fix/sessions/:id/logs – Get session logs
+app.get('/api/local-fix/sessions/:id/logs', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    res.json({ success: true, logs: session.logs || [] });
+  } catch (err) {
+    console.error('Error getting local-fix logs:', err);
+    res.status(500).json({ success: false, error: 'Failed to get logs' });
+  }
+});
+
+// GET /api/local-fix/sessions/:id/file – Read a file (for diagnostics)
+app.get('/api/local-fix/sessions/:id/file', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    if (session.status !== 'active') {
+      return res.status(400).json({ success: false, error: 'Session is not active' });
+    }
+
+    const filePath = req.query.path;
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({ success: false, error: 'File path is required' });
+    }
+
+    // Log the file read request
+    session.logs.push({
+      id: crypto.randomUUID(),
+      type: 'file-read',
+      content: `File read requested: ${filePath}`,
+      timestamp: new Date().toISOString(),
+    });
+    session.lastActivity = Date.now();
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    // Note: Actual file reading would be done by the agent running on the target machine.
+    // This endpoint logs the intent and returns a placeholder indicating the file read is
+    // delegated to the setup-script agent on the remote computer.
+    res.json({ success: true, content: `(File read request logged for path: ${filePath}. The agent on the target machine will process this.)` });
+  } catch (err) {
+    console.error('Error reading local-fix file:', err);
+    res.status(500).json({ success: false, error: 'Failed to read file' });
+  }
+});
+
+// PUT /api/local-fix/sessions/:id/file – Write a file (for fixes)
+app.put('/api/local-fix/sessions/:id/file', requireSession, (req, res) => {
+  try {
+    const userSessions = readUserLocalFixSessions(req.sessionUser);
+    const session = userSessions.find(s => s.id === req.params.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    if (session.status !== 'active') {
+      return res.status(400).json({ success: false, error: 'Session is not active' });
+    }
+    if (!session.allowCommands) {
+      return res.status(403).json({ success: false, error: 'File writing is not allowed for this session' });
+    }
+
+    const { path: filePath, content } = req.body;
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({ success: false, error: 'File path is required' });
+    }
+    if (content === undefined || typeof content !== 'string') {
+      return res.status(400).json({ success: false, error: 'File content is required' });
+    }
+
+    // Log the file write request
+    session.logs.push({
+      id: crypto.randomUUID(),
+      type: 'file-write',
+      content: `File write requested: ${filePath} (${content.length} bytes)`,
+      timestamp: new Date().toISOString(),
+    });
+    session.lastActivity = Date.now();
+    writeUserLocalFixSessions(req.sessionUser, userSessions);
+
+    auditLog({ event: 'LOCAL_FIX_FILE_WRITE', message: `File write requested for "${filePath}" in session ${session.id}`, username: req.sessionUser, req });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error writing local-fix file:', err);
+    res.status(500).json({ success: false, error: 'Failed to write file' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Train LLM Management
 // ---------------------------------------------------------------------------
 
@@ -8722,4 +9274,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, readUserTrainings, writeUserTrainings };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions };

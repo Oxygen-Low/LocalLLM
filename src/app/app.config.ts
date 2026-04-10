@@ -21,6 +21,8 @@ import { MockWebSeoService } from './services/mocks/mock-web-seo.service';
 import { MockRoleplayService } from './services/mocks/mock-roleplay.service';
 import { DatasetsService } from './services/datasets.service';
 import { MockDatasetsService } from './services/mocks/mock-datasets.service';
+import { LocalFixService } from './services/local-fix.service';
+import { MockLocalFixService } from './services/mocks/mock-local-fix.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -38,6 +40,7 @@ export const appConfig: ApplicationConfig = {
           { provide: WebSeoService, useClass: MockWebSeoService },
           { provide: RoleplayService, useClass: MockRoleplayService },
           { provide: DatasetsService, useClass: MockDatasetsService },
+          { provide: LocalFixService, useClass: MockLocalFixService },
         ]
       : []),
   ]
