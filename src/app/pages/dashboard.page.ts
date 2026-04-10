@@ -133,7 +133,6 @@ export class DashboardPageComponent implements OnInit {
       icon: '🔧',
       category: 'apps.category.diagnostic',
       color: 'green',
-      risky: true,
     },
   ];
 

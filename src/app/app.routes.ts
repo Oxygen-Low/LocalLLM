@@ -90,7 +90,7 @@ export const routes: Routes = [
       {
         path: 'app/local-fix',
         loadComponent: () => import('./pages/local-fix.page').then(m => m.LocalFixPageComponent),
-        canActivate: [authGuard, riskyAppsGuard],
+        canActivate: [authGuard],
       },
     ],
   },
