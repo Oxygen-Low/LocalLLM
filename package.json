@@ -52,7 +52,7 @@
     "autoprefixer": "^10.4.21",
     "jsdom": "^29.0.2",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.3"
+    "vitest": "^4.1.4"
   },
   "overrides": {
     "undici": "^7.24.3"
