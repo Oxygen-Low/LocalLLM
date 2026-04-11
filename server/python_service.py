@@ -53,6 +53,48 @@ from urllib.parse import urlparse, parse_qs
 # HTTP server.  Must be set before any transformers / tokenizers imports.
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Disable HuggingFace Hub telemetry to avoid background network calls that
+# could stall in a subprocess context.
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
+# ---------------------------------------------------------------------------
+# Pre-load heavy ML libraries in the main thread **before** starting the HTTP
+# server.  Python's import machinery uses per-module locks that can deadlock
+# when large native-extension packages (torch, tokenizers) are first imported
+# concurrently across multiple threads – exactly the situation created by our
+# ThreadingMixIn HTTP server spawning worker threads that lazily import them.
+# By importing once here (in the single main thread) every subsequent
+# `import torch` / `from transformers import ...` inside a handler or worker
+# thread becomes a fast no-op (the module is already in sys.modules).
+# ---------------------------------------------------------------------------
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    from transformers import (  # noqa: F401
+        AutoModelForCausalLM, AutoTokenizer, AutoConfig,
+        TrainingArguments, Trainer, TrainerCallback,
+        DataCollatorForLanguageModeling,
+        GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast,
+        TextIteratorStreamer,
+    )
+except ImportError:
+    pass
+
+try:
+    from tokenizers import (  # noqa: F401
+        Tokenizer, models, trainers, pre_tokenizers,
+    )
+except ImportError:
+    pass
+
+try:
+    from huggingface_hub import snapshot_download  # noqa: F401
+except ImportError:
+    pass
+
 # Global model cache: { model_dir: (model, tokenizer) }
 _model_cache = {}
 _model_lock = threading.Lock()
@@ -319,6 +361,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
     ``post_dataset_path``) and the newer list parameters (``dataset_paths`` /
     ``post_dataset_paths``).  When lists are provided they take precedence.
     """
+    _log(f"Job {job_id[:8]}... worker thread started (mode: {training_mode})")
+
     # Normalize to lists for uniform handling
     if dataset_paths:
         _dataset_paths = list(dataset_paths)
@@ -693,10 +737,18 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
             _model_cache.pop(model_dir, None)
             _model_cache.pop(output_dir, None)
 
-    except Exception as exc:
-        _log(f"Job {job_id[:8]}... FAILED: {exc}")
-        traceback.print_exc()
-        sys.stderr.flush()
+    except BaseException as exc:
+        # Use BaseException to catch SystemExit, KeyboardInterrupt, etc.
+        # that would otherwise kill the thread silently.
+        try:
+            _log(f"Job {job_id[:8]}... FAILED: {exc}")
+        except Exception:
+            pass
+        try:
+            traceback.print_exc()
+            sys.stderr.flush()
+        except Exception:
+            pass
         with _trainings_lock:
             job = _active_trainings.get(job_id)
             if job:
