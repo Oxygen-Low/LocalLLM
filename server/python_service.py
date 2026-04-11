@@ -40,6 +40,7 @@ import json
 import os
 import signal
 import sys
+import datetime
 import traceback
 import threading
 import uuid
@@ -83,7 +84,6 @@ _DEFAULT_CHAT_TEMPLATE = (
 def _log(msg):
     """Print a timestamped log message and flush immediately so the parent
     Node.js process receives it without delay."""
-    import datetime
     ts = datetime.datetime.now().strftime("%H:%M:%S")
     print(f"[train {ts}] {msg}", flush=True)
 
@@ -525,10 +525,11 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         if not texts:
             raise ValueError("No valid training samples after formatting")
 
-        _log(f"Job {job_id[:8]}... tokenizing {len(texts)} samples (max_length={max_length})")
-
         # Tokenize
         max_length = 512
+
+        _log(f"Job {job_id[:8]}... tokenizing {len(texts)} samples (max_length={max_length})")
+
         encodings = tokenizer(
             texts,
             truncation=True,
