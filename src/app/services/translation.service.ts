@@ -474,10 +474,10 @@ const translations: TranslationDictionary = {
     ru: 'Количество строк',
   },
   'datasets.numRowsHint': {
-    en: 'Choose between 1 and 100 rows. Larger datasets take longer to generate.',
-    ko: '1에서 100 사이의 행 수를 선택하세요. 큰 데이터셋은 생성 시간이 더 걸립니다.',
-    ja: '1から100の間で行数を選択してください。大きなデータセットは生成に時間がかかります。',
-    ru: 'Выберите от 1 до 100 строк. Более крупные наборы данных генерируются дольше.',
+    en: 'Choose between 1 and 100,000 rows. Larger datasets take longer to generate.',
+    ko: '1에서 100,000 사이의 행 수를 선택하세요. 큰 데이터셋은 생성 시간이 더 걸립니다.',
+    ja: '1から100,000の間で行数を選択してください。大きなデータセットは生成に時間がかかります。',
+    ru: 'Выберите от 1 до 100 000 строк. Более крупные наборы данных генерируются дольше.',
   },
   'datasets.numTokensLabel': {
     en: 'Number of Tokens',
