@@ -8,10 +8,16 @@ const path = require('path');
 // Must match the constants in server.js
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const ENCRYPTION_KEY_FILE = path.join(DATA_DIR, 'encryption.key');
+const AUTO_SYNC_FOLDER_NAME = 'LocalLLM Data';
+const AUTO_SYNC_DATE_FILE = 'Date';
 const ADMIN_USERNAME = 'admin';
 const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const IV_BYTES = 12;
 
 function generateSalt() {
   return crypto.randomBytes(SALT_BYTES).toString('hex');
@@ -63,7 +69,11 @@ async function resetAdmin() {
   users.push(adminUser);
 
   // Write back with consistent formatting
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+  const usersJson = JSON.stringify(users, null, 2);
+  fs.writeFileSync(USERS_FILE, usersJson, 'utf-8');
+
+  // Also update users.json in the sync directory (if auto-sync is configured)
+  updateSyncDirectory(usersJson);
 
   console.log('===========================================');
   console.log('  Admin account password has been reset.');
@@ -74,6 +84,69 @@ async function resetAdmin() {
   console.log('');
   console.log('If the server is currently running, restart it to');
   console.log('apply the new password and clear active admin sessions.');
+}
+
+/**
+ * If auto-sync is enabled, update users.json in the sync directory and
+ * refresh the Date file so the next startup pull won't overwrite the reset.
+ */
+function updateSyncDirectory(usersJson) {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) return;
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+    const syncConfig = settings.autoSync;
+    if (!syncConfig || !syncConfig.enabled || !syncConfig.directory) return;
+
+    const syncDataDir = path.join(path.resolve(syncConfig.directory), AUTO_SYNC_FOLDER_NAME);
+    if (!fs.existsSync(syncDataDir)) return;
+
+    const isEncrypted = fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+
+    if (isEncrypted) {
+      const encryptedPath = path.join(syncDataDir, 'users.json.enc');
+      if (!fs.existsSync(encryptedPath)) return;
+      const encrypted = encryptSyncData(Buffer.from(usersJson, 'utf-8'));
+      fs.writeFileSync(encryptedPath, encrypted, 'utf-8');
+      console.log('[reset-admin] Updated encrypted users.json in sync directory.');
+    } else {
+      const syncUsersFile = path.join(syncDataDir, 'users.json');
+      if (!fs.existsSync(syncUsersFile)) return;
+      fs.writeFileSync(syncUsersFile, usersJson, 'utf-8');
+      console.log('[reset-admin] Updated users.json in sync directory.');
+    }
+
+    // Update the sync Date file so next startup won't pull stale data
+    const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
+    fs.writeFileSync(syncDateFile, new Date().toISOString(), 'utf-8');
+  } catch (err) {
+    console.warn('[reset-admin] Warning: could not update sync directory:', err.message);
+  }
+}
+
+/**
+ * Read the server master key from data/encryption.key.
+ * Returns null if the key file doesn't exist.
+ */
+function getMasterKey() {
+  if (process.env.ENCRYPTION_KEY) return process.env.ENCRYPTION_KEY;
+  if (!fs.existsSync(ENCRYPTION_KEY_FILE)) return null;
+  return fs.readFileSync(ENCRYPTION_KEY_FILE, 'utf-8').trim();
+}
+
+/**
+ * Encrypt file contents with AES-256-GCM using the server master key.
+ * Must match encryptSyncData in server.js.
+ */
+function encryptSyncData(buffer) {
+  const masterKey = getMasterKey();
+  if (!masterKey) throw new Error('No master key available for encryption');
+  const salt = crypto.randomBytes(SALT_BYTES);
+  const key = crypto.pbkdf2Sync(masterKey, salt, PBKDF2_ITERATIONS, 32, 'sha256');
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
 }
 
 resetAdmin().catch((err) => {
