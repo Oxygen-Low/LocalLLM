@@ -533,6 +533,12 @@ const translations: TranslationDictionary = {
     ja: 'トークン数によって時間がかかる場合があります。',
     ru: 'Это может занять некоторое время в зависимости от количества токенов.',
   },
+  'datasets.rowsCompleted': {
+    en: 'rows completed',
+    ko: '행 완료',
+    ja: '行完了',
+    ru: 'строк завершено',
+  },
   'datasets.generationFailed': {
     en: 'Dataset Generation Failed',
     ko: '데이터셋 생성 실패',

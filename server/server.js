@@ -5051,7 +5051,7 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
       }
     }
 
-    // --- Individual generation mode ---
+    // --- Individual generation mode (SSE streaming) ---
     if (isIndividual) {
       const totalRows = typeof numRows === 'number' ? numRows : Number(numRows);
       const individualPrompt = `You are a dataset generator. Based on the following instructions, generate exactly ONE training data row.
@@ -5065,6 +5065,17 @@ Output a single JSON object with three fields: "instruction", "input", and "outp
 
 Return ONLY valid JSON, no markdown, no explanation. Example format:
 {"instruction": "...", "input": "...", "output": "..."}`;
+
+      // Set up SSE headers for progress streaming
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      const sendSSE = (data) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
 
       const perRowMaxTokens = TOKENS_PER_ROW_ESTIMATE + LLM_TOKEN_BUFFER;
       const maxRetries = retryOnFail ? MAX_DATASET_RETRIES : 0;
@@ -5138,10 +5149,14 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
         } else {
           console.warn(`Individual dataset generation: skipped row ${rowIdx + 1}/${totalRows} after ${maxRetries + 1} attempt(s)`);
         }
+
+        // Send progress event after each row attempt
+        sendSSE({ type: 'progress', completed: rowIdx + 1, total: totalRows, successCount: collectedRows.length });
       }
 
       if (collectedRows.length === 0) {
-        return res.status(500).json({ success: false, error: 'Failed to generate any valid dataset rows. Please try again.' });
+        sendSSE({ type: 'done', success: false, error: 'Failed to generate any valid dataset rows. Please try again.' });
+        return res.end();
       }
 
       const totalTokens = collectedRows.reduce((sum, r) => {
@@ -5149,7 +5164,8 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       }, 0);
 
       auditLog({ event: 'DATASET_GENERATED', message: `Generated ${collectedRows.length}/${totalRows} dataset rows individually (~${totalTokens} tokens)`, username: req.sessionUser, req });
-      return res.json({ success: true, rows: collectedRows, totalTokens });
+      sendSSE({ type: 'done', success: true, rows: collectedRows, totalTokens });
+      return res.end();
     }
 
     // --- Batch generation mode (default) ---
