@@ -86,6 +86,8 @@ import { AuthService } from '../services/auth.service';
             (click)="toggleMobileMenu()"
             class="md:hidden p-2 rounded-lg hover:bg-secondary-100 transition-colors"
             [attr.aria-label]="mobileMenuOpen() ? 'Close menu' : 'Open menu'"
+            [attr.aria-expanded]="mobileMenuOpen()"
+            aria-haspopup="menu"
           >
             <svg
               class="w-6 h-6"
