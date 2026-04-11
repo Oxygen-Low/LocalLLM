@@ -35,4 +35,21 @@ describe('authGuard', () => {
     const result = await TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
     expect(result).toEqual(router.createUrlTree(['/login']));
   });
+
+  it('should allow navigation when demo login succeeds', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: AuthService,
+          useValue: {
+            isAuthenticated: () => false,
+            checkAndLoginDemo: async () => true,
+          },
+        },
+      ],
+    });
+    const result = await TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
+    expect(result).toBe(true);
+  });
 });

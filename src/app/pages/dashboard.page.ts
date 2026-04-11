@@ -66,7 +66,7 @@ export class DashboardPageComponent implements OnInit {
 
   riskyAppsEnabled = signal<boolean>(false);
 
-  /** App IDs locked specifically in demo mode (in addition to risky apps) */
+  /** App IDs locked in demo mode beyond risky apps – these access local system resources or start long-running server processes */
   private readonly demoLockedIds = new Set(['local-fix', 'train-llm']);
 
   readonly allApps: AIApp[] = [
