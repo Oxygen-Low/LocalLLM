@@ -2200,6 +2200,11 @@ app.delete('/api/admin/universes/:universeId/characters/:characterId', async (re
 // App Settings endpoints
 // ---------------------------------------------------------------------------
 
+// GET /api/settings/demo – Returns whether the server is running in demo mode (public, no auth)
+app.get('/api/settings/demo', (_req, res) => {
+  res.json({ success: true, demoMode: DEMO_MODE });
+});
+
 // GET /api/settings/apps – Returns current app settings (requires valid session)
 app.get('/api/settings/apps', requireSession, (req, res) => {
   try {

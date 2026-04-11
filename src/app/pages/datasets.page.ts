@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { TranslationService } from '../services/translation.service';
 import { LlmService, ProviderInfo } from '../services/llm.service';
 import { DatasetsService, DatasetRow, DatasetEntry } from '../services/datasets.service';
+import { AdminService } from '../services/admin.service';
 
 type WizardStep = 'configure' | 'generating' | 'results';
 type DatasetMode = 'generate' | 'import' | 'queue' | 'refine';
@@ -60,6 +61,11 @@ interface QueueItem {
         </div>
 
         <!-- Error banner -->
+        @if (adminService.demoMode()) {
+          <div class="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
+            🎮 Demo mode — you can generate and preview datasets, but saving is disabled.
+          </div>
+        }
         @if (errorMessage()) {
           <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
             {{ errorMessage() }}
@@ -1214,6 +1220,7 @@ export class DatasetsPageComponent implements OnInit {
   protected t = inject(TranslationService);
   private llmService = inject(LlmService);
   datasetsService = inject(DatasetsService);
+  adminService = inject(AdminService);
 
   // Page view
   pageView = signal<PageView>('list');

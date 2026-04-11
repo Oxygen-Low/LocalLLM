@@ -1,7 +1,9 @@
-import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
 
@@ -183,12 +185,32 @@ export class SignupPageComponent {
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
 
+  private http = inject(HttpClient);
+
   constructor(
     private authService: AuthService,
     private router: Router
   ) {
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
+    } else {
+      this.checkDemoMode();
+    }
+  }
+
+  private async checkDemoMode(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; demoMode: boolean }>(`${environment.apiUrl}/api/settings/demo`)
+      );
+      if (resp.demoMode) {
+        const result = await this.authService.demoLogin();
+        if (result.success) {
+          this.router.navigate(['/dashboard']);
+        }
+      }
+    } catch {
+      // Server not reachable yet – ignore
     }
   }
 

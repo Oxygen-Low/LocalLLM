@@ -1,8 +1,12 @@
-import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, inject, ChangeDetectionStrategy, OnInit } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { HeroComponent } from '../components/hero.component';
 import { LanguageSelectorComponent } from '../components/language-selector.component';
 import { TranslationService } from '../services/translation.service';
+import { AuthService } from '../services/auth.service';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-home',
@@ -131,6 +135,25 @@ import { TranslationService } from '../services/translation.service';
     </div>
   `,
 })
-export class HomePageComponent {
+export class HomePageComponent implements OnInit {
   protected t = inject(TranslationService);
+  private router = inject(Router);
+  private http = inject(HttpClient);
+  private authService = inject(AuthService);
+
+  async ngOnInit(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; demoMode: boolean }>(`${environment.apiUrl}/api/settings/demo`)
+      );
+      if (resp.demoMode) {
+        const result = await this.authService.demoLogin();
+        if (result.success) {
+          this.router.navigate(['/dashboard']);
+        }
+      }
+    } catch {
+      // Server not reachable – ignore
+    }
+  }
 }

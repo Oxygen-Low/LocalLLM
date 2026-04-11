@@ -47,7 +47,7 @@ import { AdminService } from '../services/admin.service';
         <!-- Apps Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
           @for (app of sortedApps(); track app.id) {
-            <app-app-card [app]="app" [disabled]="isAppDisabled(app)"></app-app-card>
+            <app-app-card [app]="app" [disabled]="isAppDisabled(app)" [disabledReason]="getDisabledReason(app)"></app-app-card>
           }
         </div>
 
@@ -65,6 +65,9 @@ export class DashboardPageComponent implements OnInit {
   private adminService = inject(AdminService);
 
   riskyAppsEnabled = signal<boolean>(false);
+
+  /** App IDs locked specifically in demo mode (in addition to risky apps) */
+  private readonly demoLockedIds = new Set(['local-fix', 'train-llm']);
 
   readonly allApps: AIApp[] = [
     {
@@ -153,7 +156,17 @@ export class DashboardPageComponent implements OnInit {
   }
 
   isAppDisabled(app: AIApp): boolean {
+    if (this.adminService.demoMode() && (app.risky || this.demoLockedIds.has(app.id))) {
+      return true;
+    }
     return !!app.risky && !this.riskyAppsEnabled();
+  }
+
+  getDisabledReason(app: AIApp): string {
+    if (this.adminService.demoMode() && (app.risky || this.demoLockedIds.has(app.id))) {
+      return 'Unavailable In Demo';
+    }
+    return '';
   }
 
   private updateSortedApps(): void {

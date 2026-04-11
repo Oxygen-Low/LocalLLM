@@ -533,6 +533,21 @@ export class AuthService {
     }
   }
 
+  async demoLogin(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/demo-login`, {})
+      );
+      if (response.success && response.username) {
+        await this.createSession(response.username, false, response.token, response.instanceId);
+        return { success: true };
+      }
+      return { success: false, error: response.error };
+    } catch {
+      return { success: false, error: 'Demo login failed' };
+    }
+  }
+
   logout(): void {
     const user = this.username();
     const token = this.getSessionToken();

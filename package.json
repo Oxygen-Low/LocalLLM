@@ -5,6 +5,7 @@
     "ng": "ng",
     "start": "concurrently --names server,angular --prefix-colors blue,green \"npm run server\" \"ng serve --configuration lan\"",
     "start:no-lan": "concurrently --names server,angular --prefix-colors blue,green \"cross-env HOST=127.0.0.1 npm run server\" \"ng serve\"",
+    "start:demo": "concurrently --names server,angular --prefix-colors blue,green \"cross-env DEMO_MODE=true npm run server\" \"ng serve --configuration lan\"",
     "server": "node server/server.js",
     "build": "ng build",
     "preview": "ng build --configuration preview && npx serve -s dist/local-llm/browser",
