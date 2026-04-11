@@ -548,6 +548,22 @@ export class AuthService {
     }
   }
 
+  /** Check if the server is in demo mode and auto-login if so. Returns true if demo login succeeded. */
+  async checkAndLoginDemo(): Promise<boolean> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; demoMode: boolean }>(`${environment.apiUrl}/api/settings/demo`)
+      );
+      if (resp.demoMode) {
+        const result = await this.demoLogin();
+        return result.success;
+      }
+    } catch {
+      // Server not reachable – ignore
+    }
+    return false;
+  }
+
   logout(): void {
     const user = this.username();
     const token = this.getSessionToken();

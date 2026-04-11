@@ -1521,6 +1521,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     const normalizedUsername = normalizeUsername(username);
 
+    // Block regular login for the demo user – demo sessions use /api/auth/demo-login
+    if (DEMO_MODE && normalizedUsername === 'demo') {
+      return res.status(403).json({ success: false, error: 'Use demo login' });
+    }
+
     // SOC2 CC6.8: Server-side account lockout check
     const lockoutCheck = checkServerLockout(normalizedUsername);
     if (!lockoutCheck.allowed) {

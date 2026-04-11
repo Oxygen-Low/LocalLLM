@@ -284,8 +284,8 @@ export class AdminService {
       const response = await firstValueFrom(
         this.http.get<AppSettingsResponse>(`${environment.apiUrl}/api/settings/apps`)
       );
-      if (response.success && typeof response.demoMode === 'boolean') {
-        this.demoMode.set(response.demoMode);
+      if (response.success) {
+        this.demoMode.set(response.demoMode ?? false);
       }
       return response;
     } catch (error: unknown) {
