@@ -13,3 +13,7 @@
 ## 2026-04-10 - [Accessibility] ARIA pressed states for list filters and tabs
 **Learning:** Custom tabs and list filters that visually update (using `ngClass` to change backgrounds or text colors when selected) but aren't native `<input type="radio">` or `<button role="tab">` do not inherently announce their active state to screen readers. This makes it impossible for visually impaired users to know which filter or tab is currently applied.
 **Action:** Always ensure that custom button controls acting as toggles or segmented tabs have an `[attr.aria-pressed]="currentState === 'value'"` attribute alongside their `ngClass` visual updates so screen readers correctly announce them as pressed/selected.
+
+## 2026-04-11 - [Accessibility] Added missing aria-expanded and aria-haspopup on mobile navbar
+**Learning:** Interactive menu toggle buttons must include `[attr.aria-expanded]` to reflect their open/closed state and `aria-haspopup` to indicate they open a menu to screen readers. Failing to do so prevents visually impaired users from knowing the menu state.
+**Action:** Applied `[attr.aria-expanded]="mobileMenuOpen()"` and `aria-haspopup="menu"` to the mobile menu button in `navbar.component.ts` to guarantee compliance with custom interactive elements guidelines.
