@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from './guards/auth.guard';
 import { adminGuard } from './guards/admin.guard';
 import { riskyAppsGuard } from './guards/risky-apps.guard';
+import { demoGuard } from './guards/demo.guard';
 
 export const routes: Routes = [
   {
@@ -60,17 +61,17 @@ export const routes: Routes = [
       {
         path: 'app/coding-agent',
         loadComponent: () => import('./pages/coding-agent.page').then(m => m.CodingAgentPageComponent),
-        canActivate: [authGuard, riskyAppsGuard],
+        canActivate: [authGuard, riskyAppsGuard, demoGuard],
       },
       {
         path: 'app/repositories',
         loadComponent: () => import('./pages/repositories.page').then(m => m.RepositoriesPageComponent),
-        canActivate: [authGuard, riskyAppsGuard],
+        canActivate: [authGuard, riskyAppsGuard, demoGuard],
       },
       {
         path: 'app/web-seo',
         loadComponent: () => import('./pages/web-seo.page').then(m => m.WebSeoPageComponent),
-        canActivate: [authGuard, riskyAppsGuard],
+        canActivate: [authGuard, riskyAppsGuard, demoGuard],
       },
       {
         path: 'app/datasets',
@@ -85,12 +86,12 @@ export const routes: Routes = [
       {
         path: 'app/train-llm',
         loadComponent: () => import('./pages/train-llm.page').then(m => m.TrainLlmPageComponent),
-        canActivate: [authGuard],
+        canActivate: [authGuard, demoGuard],
       },
       {
         path: 'app/local-fix',
         loadComponent: () => import('./pages/local-fix.page').then(m => m.LocalFixPageComponent),
-        canActivate: [authGuard],
+        canActivate: [authGuard, demoGuard],
       },
     ],
   },

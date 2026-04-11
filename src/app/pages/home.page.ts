@@ -1,8 +1,9 @@
-import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, inject, ChangeDetectionStrategy, OnInit } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { HeroComponent } from '../components/hero.component';
 import { LanguageSelectorComponent } from '../components/language-selector.component';
 import { TranslationService } from '../services/translation.service';
+import { AuthService } from '../services/auth.service';
 
 @Component({
   selector: 'app-home',
@@ -131,6 +132,14 @@ import { TranslationService } from '../services/translation.service';
     </div>
   `,
 })
-export class HomePageComponent {
+export class HomePageComponent implements OnInit {
   protected t = inject(TranslationService);
+  private router = inject(Router);
+  private authService = inject(AuthService);
+
+  async ngOnInit(): Promise<void> {
+    if (await this.authService.checkAndLoginDemo()) {
+      this.router.navigate(['/dashboard']);
+    }
+  }
 }

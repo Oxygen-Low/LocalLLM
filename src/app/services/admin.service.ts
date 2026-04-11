@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
@@ -53,6 +53,7 @@ interface AppSettingsResponse {
   koboldEnabled?: boolean;
   ollamaEnabled?: boolean;
   maxDatasetTokensGB?: number;
+  demoMode?: boolean;
 }
 
 export interface AutoSyncConfig {
@@ -114,6 +115,9 @@ interface McpServerResponse {
 export class AdminService {
   private http = inject(HttpClient);
   private authService = inject(AuthService);
+
+  /** Whether the server is running in demo mode */
+  demoMode = signal(false);
 
   async listUsers(adminPasswordHash: string): Promise<AdminListResponse> {
     try {
@@ -280,6 +284,9 @@ export class AdminService {
       const response = await firstValueFrom(
         this.http.get<AppSettingsResponse>(`${environment.apiUrl}/api/settings/apps`)
       );
+      if (response.success) {
+        this.demoMode.set(response.demoMode ?? false);
+      }
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to load app settings' };

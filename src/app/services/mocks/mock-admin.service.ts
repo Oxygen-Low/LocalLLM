@@ -1,10 +1,11 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { AdminUserSummary, AdminService, Universe, Character } from '../admin.service';
 
 @Injectable({
   providedIn: 'root',
 })
 export class MockAdminService {
+  demoMode = signal(false);
   async listUsers(): Promise<{ success: boolean; users: AdminUserSummary[] }> {
     return {
       success: true,

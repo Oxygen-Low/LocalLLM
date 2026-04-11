@@ -55,7 +55,7 @@ export interface AIApp {
           aria-disabled="true"
           class="w-full px-4 py-2 rounded-lg border border-secondary-200 text-secondary-400 font-medium text-center text-sm cursor-not-allowed select-none"
         >
-          {{ t.translate('apps.action.disabled') }}
+          {{ disabledReason() || t.translate('apps.action.disabled') }}
         </button>
       } @else {
         <!-- Button -->
@@ -73,6 +73,7 @@ export class AppCardComponent {
   protected t = inject(TranslationService);
   readonly app = input.required<AIApp>();
   readonly disabled = input<boolean>(false);
+  readonly disabledReason = input<string>('');
 
   getColorClasses(color: string): string {
     const colors: Record<string, string> = {

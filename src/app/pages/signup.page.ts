@@ -189,6 +189,14 @@ export class SignupPageComponent {
   ) {
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
+    } else {
+      this.checkDemoMode();
+    }
+  }
+
+  private async checkDemoMode(): Promise<void> {
+    if (await this.authService.checkAndLoginDemo()) {
+      this.router.navigate(['/dashboard']);
     }
   }
 

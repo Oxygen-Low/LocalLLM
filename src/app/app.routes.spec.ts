@@ -53,11 +53,11 @@ describe('App Routes', () => {
     expect(adminRoute?.canActivate?.length).toBe(2);
   });
 
-  it('should protect coding-agent with authGuard and riskyAppsGuard', () => {
+  it('should protect coding-agent with authGuard, riskyAppsGuard and demoGuard', () => {
     const layoutRoute = routes.find(r => r.path === '');
     const codingAgentRoute = layoutRoute?.children?.find(r => r.path === 'app/coding-agent');
     expect(codingAgentRoute).toBeTruthy();
-    expect(codingAgentRoute?.canActivate?.length).toBe(2);
+    expect(codingAgentRoute?.canActivate?.length).toBe(3);
   });
 
   it('should not protect public pages like license, privacy, terms', () => {

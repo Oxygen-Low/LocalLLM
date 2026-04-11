@@ -16,6 +16,7 @@ describe('authGuard', () => {
           provide: AuthService,
           useValue: {
             isAuthenticated: () => isAuthenticated,
+            checkAndLoginDemo: async () => false,
           },
         },
       ],
@@ -23,15 +24,32 @@ describe('authGuard', () => {
     router = TestBed.inject(Router);
   }
 
-  it('should allow navigation when user is authenticated', () => {
+  it('should allow navigation when user is authenticated', async () => {
     setup(true);
-    const result = TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
+    const result = await TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
     expect(result).toBe(true);
   });
 
-  it('should redirect to /login when user is not authenticated', () => {
+  it('should redirect to /login when user is not authenticated', async () => {
     setup(false);
-    const result = TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
+    const result = await TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
     expect(result).toEqual(router.createUrlTree(['/login']));
+  });
+
+  it('should allow navigation when demo login succeeds', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: AuthService,
+          useValue: {
+            isAuthenticated: () => false,
+            checkAndLoginDemo: async () => true,
+          },
+        },
+      ],
+    });
+    const result = await TestBed.runInInjectionContext(() => authGuard(mockRoute, mockState));
+    expect(result).toBe(true);
   });
 });

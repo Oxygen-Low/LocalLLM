@@ -533,6 +533,37 @@ export class AuthService {
     }
   }
 
+  async demoLogin(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<AuthResponse>(`${environment.apiUrl}/api/auth/demo-login`, {})
+      );
+      if (response.success && response.username) {
+        await this.createSession(response.username, false, response.token, response.instanceId);
+        return { success: true };
+      }
+      return { success: false, error: response.error };
+    } catch {
+      return { success: false, error: 'Demo login failed' };
+    }
+  }
+
+  /** Check if the server is in demo mode and auto-login if so. Returns true if demo login succeeded. */
+  async checkAndLoginDemo(): Promise<boolean> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; demoMode: boolean }>(`${environment.apiUrl}/api/settings/demo`)
+      );
+      if (resp.demoMode) {
+        const result = await this.demoLogin();
+        return result.success;
+      }
+    } catch {
+      // Server not reachable – ignore
+    }
+    return false;
+  }
+
   logout(): void {
     const user = this.username();
     const token = this.getSessionToken();

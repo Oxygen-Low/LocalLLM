@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LlmService, type Persona } from '../services/llm.service';
+import { AdminService } from '../services/admin.service';
 
 type PageView = 'list' | 'create' | 'edit';
 
@@ -30,7 +31,7 @@ type PageView = 'list' | 'create' | 'edit';
             </h1>
             <p class="text-muted mt-1">Manage your private AI chat personas</p>
           </div>
-          @if (currentView() === 'list') {
+          @if (currentView() === 'list' && !adminService.demoMode()) {
             <button (click)="showCreate()" class="btn-primary text-sm">
               + New Persona
             </button>
@@ -38,6 +39,11 @@ type PageView = 'list' | 'create' | 'edit';
         </div>
 
         <!-- Error banner -->
+        @if (adminService.demoMode()) {
+          <div class="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
+            🎮 Demo mode — persona creation is disabled.
+          </div>
+        }
         @if (errorMessage()) {
           <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center justify-between">
             <span>{{ errorMessage() }}</span>
@@ -157,6 +163,7 @@ type PageView = 'list' | 'create' | 'edit';
 })
 export class PersonasPageComponent implements OnInit {
   private llmService = inject(LlmService);
+  adminService = inject(AdminService);
 
   currentView = signal<PageView>('list');
   personas = signal<Persona[]>([]);
