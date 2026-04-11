@@ -1141,6 +1141,19 @@ interface QueueItem {
             <div class="animate-spin w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full mx-auto mb-4"></div>
             <p class="text-lg font-semibold text-secondary-900">{{ t.translate('datasets.generating') }}</p>
             <p class="text-sm text-muted mt-2">{{ t.translate('datasets.generatingHint') }}</p>
+            @if (generationRowsTotal() > 0) {
+              <div class="mt-6 space-y-2">
+                <div class="w-full bg-secondary-200 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    class="bg-primary-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                    [style.width.%]="(generationRowsCompleted() / generationRowsTotal()) * 100"
+                  ></div>
+                </div>
+                <p class="text-sm font-medium text-secondary-700">
+                  {{ generationRowsCompleted() }} / {{ generationRowsTotal() }} {{ t.translate('datasets.rowsCompleted') }}
+                </p>
+              </div>
+            }
           </div>
         }
 
@@ -1327,6 +1340,8 @@ export class DatasetsPageComponent implements OnInit {
   // Results
   generatedRows = signal<DatasetRow[]>([]);
   generationError = signal('');
+  generationRowsCompleted = signal(0);
+  generationRowsTotal = signal(0);
 
   // Save
   showSaveForm = signal(false);
@@ -1460,8 +1475,17 @@ export class DatasetsPageComponent implements OnInit {
     this.currentStep.set('generating');
     this.generationError.set('');
     this.saveErrorMessage.set('');
+    this.generationRowsCompleted.set(0);
+    this.generationRowsTotal.set(this.individualGeneration ? this.numRows : 0);
 
     try {
+      const onProgress = this.individualGeneration
+        ? (completed: number, total: number) => {
+            this.generationRowsCompleted.set(completed);
+            this.generationRowsTotal.set(total);
+          }
+        : undefined;
+
       const res = await this.datasetsService.generate(
         this.instructions,
         provider.id,
@@ -1469,7 +1493,8 @@ export class DatasetsPageComponent implements OnInit {
         this.numTokens,
         this.retryOnFail,
         this.individualGeneration,
-        this.numRows
+        this.numRows,
+        onProgress
       );
       if (res.success && res.rows) {
         this.generatedRows.set(res.rows);
@@ -1509,6 +1534,8 @@ export class DatasetsPageComponent implements OnInit {
     this.saveDatasetName = '';
     this.saveDatasetDescription = '';
     this.generatedRows.set([]);
+    this.generationRowsCompleted.set(0);
+    this.generationRowsTotal.set(0);
     this.currentStep.set('configure');
   }
 

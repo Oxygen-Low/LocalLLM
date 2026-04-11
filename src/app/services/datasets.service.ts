@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { AuthService } from './auth.service';
 
 export interface DatasetRow {
   instruction: string;
@@ -77,6 +78,7 @@ export interface UpdateDatasetRowsResponse {
 })
 export class DatasetsService {
   private http = inject(HttpClient);
+  private authService = inject(AuthService);
 
   async generate(
     instructions: string,
@@ -85,8 +87,13 @@ export class DatasetsService {
     numTokens: number,
     retryOnFail: boolean = false,
     individualGeneration: boolean = false,
-    numRows: number = 10
+    numRows: number = 10,
+    onProgress?: (completed: number, total: number) => void
   ): Promise<GenerateDatasetResponse> {
+    // Use SSE streaming for individual generation to get progress updates
+    if (individualGeneration && onProgress) {
+      return this.generateWithProgress(instructions, provider, model, numTokens, retryOnFail, numRows, onProgress);
+    }
     const res = await firstValueFrom(
       this.http.post<GenerateDatasetResponse>(
         `${environment.apiUrl}/api/datasets/generate`,
@@ -94,6 +101,79 @@ export class DatasetsService {
       )
     );
     return res;
+  }
+
+  private async generateWithProgress(
+    instructions: string,
+    provider: string,
+    model: string,
+    numTokens: number,
+    retryOnFail: boolean,
+    numRows: number,
+    onProgress: (completed: number, total: number) => void
+  ): Promise<GenerateDatasetResponse> {
+    const token = this.authService.getSessionToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${environment.apiUrl}/api/datasets/generate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        instructions, provider, model, numTokens,
+        retryOnFail, individualGeneration: true, numRows,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw { error: errorBody };
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw { error: { error: 'Streaming not supported' } };
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result: GenerateDatasetResponse | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events from buffer
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'progress') {
+              onProgress(data.completed, data.total);
+            } else if (data.type === 'done') {
+              result = {
+                success: data.success,
+                rows: data.rows || [],
+                totalTokens: data.totalTokens,
+                error: data.error,
+              };
+            }
+          } catch { /* ignore malformed SSE data */ }
+        }
+      }
+    }
+
+    if (!result) {
+      return { success: false, rows: [], error: 'No response received from server' };
+    }
+    return result;
   }
 
   async save(
