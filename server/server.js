@@ -6636,6 +6636,12 @@ app.get('/api/train-llm/jobs', requireSession, async (req, res) => {
             } else if (progress.status === 'failed' || progress.status === 'cancelled') {
               job.completedAt = new Date().toISOString();
             }
+          } else if (pyRes.status === 404) {
+            // Python service doesn't know about this job – it was lost
+            // (e.g. service restarted). Mark job as failed.
+            job.status = 'failed';
+            job.error = 'Training process was lost (service may have restarted)';
+            job.completedAt = new Date().toISOString();
           }
         } catch {
           // Python service unreachable – keep existing status
@@ -6694,6 +6700,12 @@ app.get('/api/train-llm/jobs/:id', requireSession, async (req, res) => {
           } else if (progress.status === 'failed' || progress.status === 'cancelled') {
             job.completedAt = new Date().toISOString();
           }
+          writeUserTrainings(req.sessionUser, jobs);
+        } else if (pyRes.status === 404) {
+          // Python service doesn't know about this job – it was lost
+          job.status = 'failed';
+          job.error = 'Training process was lost (service may have restarted)';
+          job.completedAt = new Date().toISOString();
           writeUserTrainings(req.sessionUser, jobs);
         }
       } catch {

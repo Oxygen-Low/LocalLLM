@@ -320,16 +320,6 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
     _dataset_paths = [p for p in _dataset_paths if p]
     _post_dataset_paths = [p for p in _post_dataset_paths if p]
     try:
-        with _trainings_lock:
-            _active_trainings[job_id] = {
-                "status": "starting",
-                "progress": 0,
-                "current_epoch": 0,
-                "total_epochs": epochs,
-                "phase": "training",
-                "error": None,
-            }
-
         from transformers import (  # noqa: E402
             AutoModelForCausalLM,
             AutoTokenizer,
@@ -885,6 +875,19 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         job_id = str(uuid.uuid4())
+
+        # Register job BEFORE starting the thread so /train-progress
+        # never returns 404 for a valid job_id.
+        with _trainings_lock:
+            _active_trainings[job_id] = {
+                "status": "starting",
+                "progress": 0,
+                "current_epoch": 0,
+                "total_epochs": epochs,
+                "phase": "training",
+                "error": None,
+            }
+
         thread = threading.Thread(
             target=_train_worker,
             args=(job_id, resolved_model_dir, resolved_dataset_paths[0] if resolved_dataset_paths else "", resolved_output_dir),
