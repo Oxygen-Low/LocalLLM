@@ -48,6 +48,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 
+# Disable tokenizers parallelism to prevent deadlocks when the Rust-based
+# tokenizers library is used from a Python thread inside this multi-threaded
+# HTTP server.  Must be set before any transformers / tokenizers imports.
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # Global model cache: { model_dir: (model, tokenizer) }
 _model_cache = {}
 _model_lock = threading.Lock()
@@ -578,6 +583,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
             weight_decay=0.01,
             max_grad_norm=1.0,
             dataloader_pin_memory=False,
+            disable_tqdm=True,
+            dataloader_num_workers=0,
         )
 
         trainer = Trainer(
@@ -639,6 +646,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                         weight_decay=0.01,
                         max_grad_norm=1.0,
                         dataloader_pin_memory=False,
+                        disable_tqdm=True,
+                        dataloader_num_workers=0,
                     )
 
                     post_trainer = Trainer(
