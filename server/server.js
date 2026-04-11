@@ -5119,6 +5119,8 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 
         if (rowParsed) {
           collectedRows.push(rowParsed);
+        } else {
+          console.warn(`Individual dataset generation: skipped row ${rowIdx + 1}/${totalRows} after ${maxRetries + 1} attempt(s)`);
         }
       }
 
