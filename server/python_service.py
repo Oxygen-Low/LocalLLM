@@ -1039,22 +1039,30 @@ class _Handler(BaseHTTPRequestHandler):
                 "path": dataset_id,
                 "split": split.strip(),
                 "trust_remote_code": False,
+                "streaming": True,
             }
             if hf_token:
                 kwargs["token"] = hf_token
 
             ds = load_dataset(**kwargs)
 
-            # Limit the number of rows
-            if len(ds) > max_rows:
-                ds = ds.select(range(max_rows))
+            # Collect up to max_rows items from the streaming dataset
+            columns = None
+            raw_items = []
+            for item in ds:
+                if columns is None:
+                    columns = list(item.keys())
+                raw_items.append(item)
+                if len(raw_items) >= max_rows:
+                    break
+
+            if columns is None:
+                columns = []
 
             # Convert to instruction/input/output format
             # Try to detect common column patterns
-            columns = ds.column_names
             rows = []
 
-            # Common dataset formats
             has_instruction = "instruction" in columns
             has_input = "input" in columns
             has_output = "output" in columns
@@ -1067,7 +1075,7 @@ class _Handler(BaseHTTPRequestHandler):
             has_completion = "completion" in columns
             has_chosen = "chosen" in columns
 
-            for item in ds:
+            for item in raw_items:
                 row = {"instruction": "", "input": "", "output": ""}
 
                 if has_instruction and has_output:
@@ -1107,7 +1115,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if row["instruction"].strip() or row["output"].strip():
                     rows.append(row)
 
-            self._send_json(200, {"rows": rows, "columns": columns, "total_available": len(ds)})
+            self._send_json(200, {"rows": rows, "columns": columns, "rows_fetched": len(raw_items)})
 
         except Exception as exc:
             error_msg = str(exc)
