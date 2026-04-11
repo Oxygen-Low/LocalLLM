@@ -297,8 +297,28 @@ def _download_worker(download_id, repo_id, target_dir, hf_token=None):
 
 
 def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path=None,
-                  training_mode="fine-tune", epochs=3, learning_rate=2e-5, batch_size=4):
-    """Background thread that trains a model on a dataset and tracks progress."""
+                  training_mode="fine-tune", epochs=3, learning_rate=2e-5, batch_size=4,
+                  dataset_paths=None, post_dataset_paths=None):
+    """Background thread that trains a model on a dataset and tracks progress.
+
+    Supports both the legacy single-path parameters (``dataset_path`` /
+    ``post_dataset_path``) and the newer list parameters (``dataset_paths`` /
+    ``post_dataset_paths``).  When lists are provided they take precedence.
+    """
+    # Normalise to lists for uniform handling
+    if dataset_paths:
+        _dataset_paths = list(dataset_paths)
+    else:
+        _dataset_paths = [dataset_path] if dataset_path else []
+
+    if post_dataset_paths:
+        _post_dataset_paths = list(post_dataset_paths)
+    else:
+        _post_dataset_paths = [post_dataset_path] if post_dataset_path else []
+
+    # Filter out None / empty entries
+    _dataset_paths = [p for p in _dataset_paths if p]
+    _post_dataset_paths = [p for p in _post_dataset_paths if p]
     try:
         with _trainings_lock:
             _active_trainings[job_id] = {
@@ -359,19 +379,20 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
             with _trainings_lock:
                 _active_trainings[job_id]["status"] = "loading_dataset"
 
-            # Read dataset text to train the tokenizer on
+            # Read dataset text to train the tokenizer on (all training datasets)
             raw_lines: list[str] = []
-            with open(dataset_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        row = json.loads(line)
-                        parts = []
-                        for key in ("instruction", "input", "output"):
-                            if row.get(key):
-                                parts.append(str(row[key]))
-                        if parts:
-                            raw_lines.append(" ".join(parts))
+            for _ds_path in _dataset_paths:
+                with open(_ds_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            row = json.loads(line)
+                            parts = []
+                            for key in ("instruction", "input", "output"):
+                                if row.get(key):
+                                    parts.append(str(row[key]))
+                            if parts:
+                                raw_lines.append(" ".join(parts))
 
             if not raw_lines:
                 raise ValueError("Dataset is empty – cannot build tokenizer")
@@ -454,7 +475,10 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                         rows.append(json.loads(line))
             return rows
 
-        raw_rows = _load_jsonl(dataset_path)
+        # Load JSONL rows from all training datasets
+        raw_rows = []
+        for _ds_path in _dataset_paths:
+            raw_rows.extend(_load_jsonl(_ds_path))
         if not raw_rows:
             raise ValueError("Dataset is empty")
 
@@ -535,8 +559,9 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
         trainer.train()
 
-        # Post-training phase (if post-dataset provided)
-        if post_dataset_path and os.path.isfile(post_dataset_path):
+        # Post-training phase (if any post-training datasets provided)
+        _valid_post_paths = [p for p in _post_dataset_paths if os.path.isfile(p)]
+        if _valid_post_paths:
             with _trainings_lock:
                 job = _active_trainings.get(job_id)
                 if job:
@@ -544,7 +569,9 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                     job["phase"] = "post_training"
                     job["progress"] = 0
 
-            post_rows = _load_jsonl(post_dataset_path)
+            post_rows = []
+            for _pp in _valid_post_paths:
+                post_rows.extend(_load_jsonl(_pp))
             if post_rows:
                 post_texts = [_format_row(r) for r in post_rows]
                 post_texts = [t for t in post_texts if t.strip()]
@@ -766,13 +793,33 @@ class _Handler(BaseHTTPRequestHandler):
         learning_rate = data.get("learning_rate", 2e-5)
         batch_size = data.get("batch_size", 4)
 
+        # Support multiple dataset paths (new) alongside the legacy single
+        # path fields for backward compatibility.
+        dataset_paths = data.get("dataset_paths", None)
+        post_dataset_paths = data.get("post_dataset_paths", None)
+
+        # Normalise into lists
+        if isinstance(dataset_paths, list) and dataset_paths:
+            all_dataset_paths = list(dataset_paths)
+        elif dataset_path:
+            all_dataset_paths = [dataset_path]
+        else:
+            all_dataset_paths = []
+
+        if isinstance(post_dataset_paths, list) and post_dataset_paths:
+            all_post_dataset_paths = list(post_dataset_paths)
+        elif post_dataset_path:
+            all_post_dataset_paths = [post_dataset_path]
+        else:
+            all_post_dataset_paths = []
+
         if training_mode not in ("fine-tune", "from-scratch"):
             training_mode = "fine-tune"
 
         if training_mode == "fine-tune" and (not model_dir or not isinstance(model_dir, str)):
             self._send_json(400, {"error": "model_dir is required for fine-tuning"})
             return
-        if not dataset_path or not isinstance(dataset_path, str):
+        if not all_dataset_paths:
             self._send_json(400, {"error": "dataset_path is required"})
             return
         if not output_dir or not isinstance(output_dir, str):
@@ -808,25 +855,27 @@ class _Handler(BaseHTTPRequestHandler):
         # Validate dataset paths – they must be absolute and must not contain
         # path traversal sequences.  The Node.js server already validates them
         # via ensureWithinDir, but we re-check here as defence-in-depth.
-        for label, dp in [("dataset_path", dataset_path),
-                          ("post_dataset_path", post_dataset_path)]:
-            if dp is None:
-                continue
-            real = os.path.realpath(dp)
-            # Reject if the normalised path differs from the real path
-            # (indicates traversal via .., symlinks, or encoded components).
+        all_paths_to_validate: list[tuple[str, str]] = []
+        for i, dp in enumerate(all_dataset_paths):
+            all_paths_to_validate.append((f"dataset_paths[{i}]", dp))
+        for i, dp in enumerate(all_post_dataset_paths):
+            all_paths_to_validate.append((f"post_dataset_paths[{i}]", dp))
+
+        for label, dp in all_paths_to_validate:
+            if not isinstance(dp, str) or not dp:
+                self._send_json(400, {"error": f"{label} must be a non-empty string"})
+                return
             normed = os.path.normpath(dp)
             if normed != dp or os.path.isabs(dp) is False:
                 self._send_json(400, {"error": f"{label} contains invalid path components"})
                 return
-            if not os.path.isfile(real):
+            if not os.path.isfile(os.path.realpath(dp)):
                 self._send_json(400, {"error": f"{label} does not exist"})
                 return
 
         # Use resolved (realpath) dataset paths to prevent symlink attacks
-        resolved_dataset_path = os.path.realpath(dataset_path)
-        resolved_post_dataset_path = (os.path.realpath(post_dataset_path)
-                                      if post_dataset_path else None)
+        resolved_dataset_paths = [os.path.realpath(p) for p in all_dataset_paths]
+        resolved_post_dataset_paths = [os.path.realpath(p) for p in all_post_dataset_paths]
 
         if not isinstance(epochs, int) or epochs < 1 or epochs > 100:
             self._send_json(400, {"error": "epochs must be between 1 and 100"})
@@ -838,9 +887,10 @@ class _Handler(BaseHTTPRequestHandler):
         job_id = str(uuid.uuid4())
         thread = threading.Thread(
             target=_train_worker,
-            args=(job_id, resolved_model_dir, resolved_dataset_path, resolved_output_dir),
+            args=(job_id, resolved_model_dir, resolved_dataset_paths[0] if resolved_dataset_paths else "", resolved_output_dir),
             kwargs={
-                "post_dataset_path": resolved_post_dataset_path,
+                "dataset_paths": resolved_dataset_paths,
+                "post_dataset_paths": resolved_post_dataset_paths,
                 "training_mode": training_mode,
                 "epochs": epochs,
                 "learning_rate": float(learning_rate),

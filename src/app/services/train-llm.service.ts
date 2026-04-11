@@ -9,10 +9,10 @@ export interface TrainingJob {
   trainingMode: 'fine-tune' | 'from-scratch';
   baseModelId: string;
   baseModelName: string;
-  datasetId: string;
-  datasetName: string;
-  postDatasetId: string | null;
-  postDatasetName: string | null;
+  datasetIds: string[];
+  datasetNames: string[];
+  postDatasetIds: string[] | null;
+  postDatasetNames: string[] | null;
   outputModelId: string;
   status: string;
   progress: number;
@@ -71,8 +71,8 @@ export class TrainLlmService {
     name: string;
     trainingMode: 'fine-tune' | 'from-scratch';
     baseModelId?: string;
-    datasetId: string;
-    postDatasetId?: string;
+    datasetIds: string[];
+    postDatasetIds?: string[];
     epochs?: number;
     learningRate?: number;
     batchSize?: number;

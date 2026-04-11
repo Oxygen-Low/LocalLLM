@@ -44,7 +44,7 @@ describe('TrainLlmService', () => {
       name: 'Test Training',
       trainingMode: 'fine-tune',
       baseModelId: 'model-1',
-      datasetId: 'ds-1',
+      datasetIds: ['ds-1'],
       epochs: 3,
     });
 

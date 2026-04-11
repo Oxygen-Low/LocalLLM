@@ -6424,7 +6424,21 @@ function writeUserTrainings(username, trainings) {
 // POST /api/train-llm/jobs – Create a new training job
 app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) => {
   try {
-    const { name, trainingMode, baseModelId, datasetId, postDatasetId, epochs, learningRate, batchSize } = req.body;
+    const { name, trainingMode, baseModelId, epochs, learningRate, batchSize } = req.body;
+
+    // Support both new array fields and legacy single-id fields
+    let datasetIds = req.body.datasetIds;
+    let postDatasetIds = req.body.postDatasetIds;
+
+    // Legacy single-field fallback
+    if (!Array.isArray(datasetIds) || datasetIds.length === 0) {
+      const legacyId = req.body.datasetId;
+      datasetIds = legacyId ? [legacyId] : [];
+    }
+    if (!Array.isArray(postDatasetIds)) {
+      const legacyPostId = req.body.postDatasetId;
+      postDatasetIds = legacyPostId ? [legacyPostId] : [];
+    }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100) {
       return res.status(400).json({ success: false, error: 'Name is required (max 100 characters)' });
@@ -6435,8 +6449,15 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
     if (mode === 'fine-tune' && (!baseModelId || typeof baseModelId !== 'string')) {
       return res.status(400).json({ success: false, error: 'Base model is required for fine-tuning' });
     }
-    if (!datasetId || typeof datasetId !== 'string') {
+    if (!datasetIds.length) {
+      return res.status(400).json({ success: false, error: 'At least one training dataset is required' });
+    }
+    // Validate every entry is a string
+    if (!datasetIds.every(id => typeof id === 'string' && id)) {
       return res.status(400).json({ success: false, error: 'Training dataset is required' });
+    }
+    if (!postDatasetIds.every(id => typeof id === 'string' && id)) {
+      return res.status(400).json({ success: false, error: 'Invalid post-training dataset IDs' });
     }
 
     // Validate base model exists (required for fine-tune, optional for from-scratch)
@@ -6452,31 +6473,39 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
       baseModel = models.find(m => m.id === baseModelId);
     }
 
-    // Validate training dataset
+    // Validate all training datasets
     const datasets = readUserDatasets(req.sessionUser);
-    const trainDataset = datasets.find(d => d.id === datasetId && d.status === 'active');
-    if (!trainDataset) {
-      return res.status(400).json({ success: false, error: 'Training dataset not found' });
+    const trainDatasets = [];
+    const datasetPaths = [];
+    for (const dsId of datasetIds) {
+      const ds = datasets.find(d => d.id === dsId && d.status === 'active');
+      if (!ds) {
+        return res.status(400).json({ success: false, error: `Training dataset not found: ${dsId}` });
+      }
+      const dsDir = getUserDatasetDir(req.sessionUser, dsId);
+      const dsPath = path.join(dsDir, 'dataset.jsonl');
+      if (!fs.existsSync(dsPath)) {
+        return res.status(400).json({ success: false, error: `Training dataset file not found: ${ds.name}` });
+      }
+      trainDatasets.push(ds);
+      datasetPaths.push(dsPath);
     }
 
-    const datasetDir = getUserDatasetDir(req.sessionUser, datasetId);
-    const datasetPath = path.join(datasetDir, 'dataset.jsonl');
-    if (!fs.existsSync(datasetPath)) {
-      return res.status(400).json({ success: false, error: 'Training dataset file not found' });
-    }
-
-    // Validate post-training dataset (optional)
-    let postDatasetPath = null;
-    if (postDatasetId) {
-      const postDs = datasets.find(d => d.id === postDatasetId && d.status === 'active');
-      if (!postDs) {
-        return res.status(400).json({ success: false, error: 'Post-training dataset not found' });
+    // Validate all post-training datasets (optional)
+    const postTrainDatasets = [];
+    const postDatasetPaths = [];
+    for (const dsId of postDatasetIds) {
+      const ds = datasets.find(d => d.id === dsId && d.status === 'active');
+      if (!ds) {
+        return res.status(400).json({ success: false, error: `Post-training dataset not found: ${dsId}` });
       }
-      const postDsDir = getUserDatasetDir(req.sessionUser, postDatasetId);
-      postDatasetPath = path.join(postDsDir, 'dataset.jsonl');
-      if (!fs.existsSync(postDatasetPath)) {
-        return res.status(400).json({ success: false, error: 'Post-training dataset file not found' });
+      const dsDir = getUserDatasetDir(req.sessionUser, dsId);
+      const dsPath = path.join(dsDir, 'dataset.jsonl');
+      if (!fs.existsSync(dsPath)) {
+        return res.status(400).json({ success: false, error: `Post-training dataset file not found: ${ds.name}` });
       }
+      postTrainDatasets.push(ds);
+      postDatasetPaths.push(dsPath);
     }
 
     // Check python service is up
@@ -6503,9 +6532,9 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
     // Start training via Python service
     const trainPayload = {
       model_dir: modelDir,
-      dataset_path: datasetPath,
+      dataset_paths: datasetPaths,
       output_dir: outputDir,
-      post_dataset_path: postDatasetPath,
+      post_dataset_paths: postDatasetPaths.length ? postDatasetPaths : undefined,
       training_mode: mode,
       epochs: epochs && Number.isInteger(epochs) && epochs >= 1 && epochs <= 100 ? epochs : 3,
       learning_rate: learningRate && typeof learningRate === 'number' && learningRate > 0 ? learningRate : 2e-5,
@@ -6537,10 +6566,10 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
       trainingMode: mode,
       baseModelId: baseModelId || null,
       baseModelName: baseModel ? baseModel.name : 'New Model (from scratch)',
-      datasetId,
-      datasetName: trainDataset.name,
-      postDatasetId: postDatasetId || null,
-      postDatasetName: postDatasetId ? (datasets.find(d => d.id === postDatasetId)?.name || '') : null,
+      datasetIds,
+      datasetNames: trainDatasets.map(d => d.name),
+      postDatasetIds: postDatasetIds.length ? postDatasetIds : null,
+      postDatasetNames: postTrainDatasets.length ? postTrainDatasets.map(d => d.name) : null,
       outputModelId,
       status: 'queued',
       progress: 0,

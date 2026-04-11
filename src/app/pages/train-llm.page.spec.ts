@@ -133,10 +133,10 @@ describe('TrainLlmPageComponent', () => {
         trainingMode: 'fine-tune' as const,
         baseModelId: 'model-1',
         baseModelName: 'GPT-2',
-        datasetId: 'ds-1',
-        datasetName: 'My Dataset',
-        postDatasetId: null,
-        postDatasetName: null,
+        datasetIds: ['ds-1'],
+        datasetNames: ['My Dataset'],
+        postDatasetIds: null,
+        postDatasetNames: null,
         outputModelId: 'out-1',
         status: 'completed',
         progress: 100,
@@ -170,10 +170,10 @@ describe('TrainLlmPageComponent', () => {
         trainingMode: 'fine-tune' as const,
         baseModelId: 'model-1',
         baseModelName: 'GPT-2',
-        datasetId: 'ds-1',
-        datasetName: 'My Dataset',
-        postDatasetId: null,
-        postDatasetName: null,
+        datasetIds: ['ds-1'],
+        datasetNames: ['My Dataset'],
+        postDatasetIds: null,
+        postDatasetNames: null,
         outputModelId: 'out-1',
         status: 'training',
         progress: 60,
@@ -256,7 +256,7 @@ describe('TrainLlmPageComponent', () => {
 
     instance.formTrainingMode = 'from-scratch';
     instance.formName = 'Test Model';
-    instance.formDatasetId = 'ds-1';
+    instance.formDatasetIds = ['ds-1'];
     instance.formBaseModelId = '';
 
     // Should not set error about base model
@@ -280,7 +280,7 @@ describe('TrainLlmPageComponent', () => {
 
     instance.formTrainingMode = 'fine-tune';
     instance.formName = 'Test Model';
-    instance.formDatasetId = 'ds-1';
+    instance.formDatasetIds = ['ds-1'];
     instance.formBaseModelId = '';
 
     instance.createJob();

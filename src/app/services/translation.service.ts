@@ -1476,10 +1476,10 @@ const translations: TranslationDictionary = {
     ru: '-- Выберите базовую модель --',
   },
   'trainLlm.create.dataset': {
-    en: 'Training Dataset',
+    en: 'Training Datasets',
     ko: '훈련 데이터셋',
     ja: 'トレーニングデータセット',
-    ru: 'Набор данных для обучения',
+    ru: 'Наборы данных для обучения',
   },
   'trainLlm.create.noDatasets': {
     en: 'No datasets available. Create a dataset in the Datasets app first.',
@@ -1488,16 +1488,16 @@ const translations: TranslationDictionary = {
     ru: 'Нет доступных наборов данных. Сначала создайте набор данных в приложении «Наборы данных».',
   },
   'trainLlm.create.selectDataset': {
-    en: '-- Select a training dataset --',
+    en: '-- Select training datasets --',
     ko: '-- 훈련 데이터셋 선택 --',
     ja: '-- トレーニングデータセットを選択 --',
-    ru: '-- Выберите набор данных для обучения --',
+    ru: '-- Выберите наборы данных для обучения --',
   },
   'trainLlm.create.postDataset': {
-    en: 'Post-Training Dataset (Optional)',
+    en: 'Post-Training Datasets (Optional)',
     ko: '후처리 훈련 데이터셋 (선택사항)',
     ja: 'ポストトレーニングデータセット（オプション）',
-    ru: 'Набор данных для пост-обучения (необязательно)',
+    ru: 'Наборы данных для пост-обучения (необязательно)',
   },
   'trainLlm.create.noPostDataset': {
     en: '-- None (skip post-training) --',
