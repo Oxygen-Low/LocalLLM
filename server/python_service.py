@@ -40,6 +40,7 @@ import json
 import os
 import signal
 import sys
+import traceback
 import threading
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -77,6 +78,14 @@ _DEFAULT_CHAT_TEMPLATE = (
     "{% endfor %}"
     "Assistant:"
 )
+
+
+def _log(msg):
+    """Print a timestamped log message and flush immediately so the parent
+    Node.js process receives it without delay."""
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    print(f"[train {ts}] {msg}", flush=True)
 
 
 def _validate_path_within_models_dir(target_path):
@@ -332,32 +341,51 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         import torch  # noqa: E402
 
         class _ProgressCallback(TrainerCallback):
-            """Update training progress in the shared dict."""
+            """Update training progress in the shared dict and log to console."""
 
             def __init__(self, job_id, phase="training"):
                 self._job_id = job_id
                 self._phase = phase
+                self._last_logged_pct = -1
 
             def on_step_end(self, args, state, control, **kwargs):
                 if state.max_steps > 0:
                     pct = int((state.global_step / state.max_steps) * 100)
                 else:
                     pct = 0
+                cancelled = False
                 with _trainings_lock:
                     job = _active_trainings.get(self._job_id)
                     if job:
                         job["progress"] = pct
                         job["current_epoch"] = int(state.epoch) if state.epoch else 0
                         job["phase"] = self._phase
+                        if job.get("status") == "cancelled":
+                            cancelled = True
+
+                # Log progress every 10% or on first step
+                if pct >= self._last_logged_pct + 10 or self._last_logged_pct == -1:
+                    epoch_str = int(state.epoch) if state.epoch else 0
+                    _log(f"Job {self._job_id[:8]}... {self._phase} — step {state.global_step}/{state.max_steps} ({pct}%), epoch {epoch_str}/{args.num_train_epochs}")
+                    self._last_logged_pct = pct
+
+                # Stop training if the job was cancelled
+                if cancelled:
+                    _log(f"Job {self._job_id[:8]}... cancelled by user, stopping training")
+                    control.should_training_stop = True
 
             def on_epoch_end(self, args, state, control, **kwargs):
+                epoch_num = int(state.epoch) if state.epoch else 0
                 with _trainings_lock:
                     job = _active_trainings.get(self._job_id)
                     if job:
-                        job["current_epoch"] = int(state.epoch) if state.epoch else 0
+                        job["current_epoch"] = epoch_num
+                _log(f"Job {self._job_id[:8]}... {self._phase} — epoch {epoch_num}/{args.num_train_epochs} completed")
 
         with _trainings_lock:
             _active_trainings[job_id]["status"] = "loading_model"
+
+        _log(f"Job {job_id[:8]}... loading model (mode: {training_mode})")
 
         if training_mode == "from-scratch":
             # Train completely from scratch: build a tokenizer from the
@@ -386,6 +414,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
             if not raw_lines:
                 raise ValueError("Dataset is empty – cannot build tokenizer")
+
+            _log(f"Job {job_id[:8]}... building BPE tokenizer from {len(raw_lines)} text samples")
 
             # Train a BPE tokenizer from the dataset text
             bpe_tokenizer = HFTokenizer(tok_models.BPE(unk_token="<unk>"))
@@ -423,9 +453,11 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                 eos_token_id=tokenizer.eos_token_id,
             )
             model = GPT2LMHeadModel(config)
+            _log(f"Job {job_id[:8]}... from-scratch model initialized (vocab_size={actual_vocab_size})")
         else:
             # Fine-tune: load existing model and tokenizer
             gguf_filename = _find_gguf_file(model_dir)
+            _log(f"Job {job_id[:8]}... loading model from {model_dir}" + (f" (GGUF: {gguf_filename})" if gguf_filename else ""))
 
             load_kwargs = {
                 "torch_dtype": torch.float32,
@@ -449,11 +481,15 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
         if torch.cuda.is_available():
             model = model.cuda()
+            _log(f"Job {job_id[:8]}... model moved to CUDA")
 
         model.train()
+        _log(f"Job {job_id[:8]}... model loaded successfully")
 
         with _trainings_lock:
             _active_trainings[job_id]["status"] = "loading_dataset"
+
+        _log(f"Job {job_id[:8]}... loading dataset ({len(_dataset_paths)} file(s))")
 
         # Load JSONL dataset
         def _load_jsonl(fpath):
@@ -489,6 +525,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         if not texts:
             raise ValueError("No valid training samples after formatting")
 
+        _log(f"Job {job_id[:8]}... tokenizing {len(texts)} samples (max_length={max_length})")
+
         # Tokenize
         max_length = 512
         encodings = tokenizer(
@@ -522,6 +560,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         with _trainings_lock:
             _active_trainings[job_id]["status"] = "training"
 
+        _log(f"Job {job_id[:8]}... starting training (epochs={epochs}, lr={learning_rate}, batch_size={batch_size}, samples={len(train_dataset)})")
+
         # Training arguments
         training_args = TrainingArguments(
             output_dir=output_dir,
@@ -549,6 +589,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
         trainer.train()
 
+        _log(f"Job {job_id[:8]}... main training phase completed")
+
         # Post-training phase (if any post-training datasets provided)
         _valid_post_paths = [p for p in _post_dataset_paths if os.path.isfile(p)]
         if _valid_post_paths:
@@ -558,6 +600,8 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                     job["status"] = "post_training"
                     job["phase"] = "post_training"
                     job["progress"] = 0
+
+            _log(f"Job {job_id[:8]}... starting post-training phase ({len(_valid_post_paths)} dataset(s))")
 
             post_rows = []
             for _pp in _valid_post_paths:
@@ -606,12 +650,16 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
                     post_trainer.train()
 
+                    _log(f"Job {job_id[:8]}... post-training phase completed")
+
         # Save the final model
         with _trainings_lock:
             job = _active_trainings.get(job_id)
             if job:
                 job["status"] = "saving"
                 job["progress"] = 95
+
+        _log(f"Job {job_id[:8]}... saving model to {output_dir}")
 
         model.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
@@ -628,12 +676,17 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                     "size": total_size,
                 })
 
+        _log(f"Job {job_id[:8]}... completed successfully (size: {total_size / (1024*1024):.1f} MB)")
+
         # Evict from model cache so re-load picks up trained weights
         with _model_lock:
             _model_cache.pop(model_dir, None)
             _model_cache.pop(output_dir, None)
 
     except Exception as exc:
+        _log(f"Job {job_id[:8]}... FAILED: {exc}")
+        traceback.print_exc()
+        sys.stderr.flush()
         with _trainings_lock:
             job = _active_trainings.get(job_id)
             if job:
@@ -875,6 +928,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         job_id = str(uuid.uuid4())
+
+        _log(f"Job {job_id[:8]}... received training request (mode: {training_mode}, epochs: {epochs}, lr: {learning_rate}, batch_size: {batch_size})")
 
         # Register job BEFORE starting the thread so /train-progress
         # never returns 404 for a valid job_id.
