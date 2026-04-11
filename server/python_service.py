@@ -1056,7 +1056,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if len(raw_items) >= max_rows:
                     break
 
-            if not columns:
+            if columns is None:
                 columns = []
 
             # Convert to instruction/input/output format
@@ -1115,7 +1115,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if row["instruction"].strip() or row["output"].strip():
                     rows.append(row)
 
-            self._send_json(200, {"rows": rows, "columns": columns, "total_available": len(raw_items)})
+            self._send_json(200, {"rows": rows, "columns": columns, "rows_fetched": len(raw_items)})
 
         except Exception as exc:
             error_msg = str(exc)
