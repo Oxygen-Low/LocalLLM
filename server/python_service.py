@@ -305,7 +305,7 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
     ``post_dataset_path``) and the newer list parameters (``dataset_paths`` /
     ``post_dataset_paths``).  When lists are provided they take precedence.
     """
-    # Normalise to lists for uniform handling
+    # Normalize to lists for uniform handling
     if dataset_paths:
         _dataset_paths = list(dataset_paths)
     else:
@@ -798,7 +798,7 @@ class _Handler(BaseHTTPRequestHandler):
         dataset_paths = data.get("dataset_paths", None)
         post_dataset_paths = data.get("post_dataset_paths", None)
 
-        # Normalise into lists
+        # Normalize into lists
         if isinstance(dataset_paths, list) and dataset_paths:
             all_dataset_paths = list(dataset_paths)
         elif dataset_path:

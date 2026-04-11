@@ -6454,7 +6454,7 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
     }
     // Validate every entry is a string
     if (!datasetIds.every(id => typeof id === 'string' && id)) {
-      return res.status(400).json({ success: false, error: 'Training dataset is required' });
+      return res.status(400).json({ success: false, error: 'Invalid training dataset IDs provided' });
     }
     if (!postDatasetIds.every(id => typeof id === 'string' && id)) {
       return res.status(400).json({ success: false, error: 'Invalid post-training dataset IDs' });
