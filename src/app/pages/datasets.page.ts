@@ -25,6 +25,8 @@ interface QueueItem {
   model: string;
   numTokens: number;
   retryOnFail: boolean;
+  individualGeneration: boolean;
+  numRows: number;
   status: QueueItemStatus;
   error?: string;
   rowCount?: number;
@@ -483,21 +485,57 @@ interface QueueItem {
                 </div>
               }
 
-              <!-- Number of tokens -->
-              <div>
-                <label class="block text-sm font-semibold text-secondary-900 mb-2">
-                  {{ t.translate('datasets.numTokensLabel') }}
-                </label>
+              <!-- Individual generation -->
+              <div class="flex items-start gap-3">
                 <input
-                  type="number"
-                  [(ngModel)]="numTokens"
-                  min="1"
-                  max="4096"
-                  step="1"
-                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  type="checkbox"
+                  id="individualGeneration"
+                  [(ngModel)]="individualGeneration"
+                  class="mt-0.5 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-200"
                 />
-                <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numTokensHint') }}</p>
+                <div>
+                  <label for="individualGeneration" class="text-sm font-semibold text-secondary-900 cursor-pointer">
+                    {{ t.translate('datasets.individualGenerationLabel') }}
+                  </label>
+                  <p class="text-xs text-muted mt-0.5">{{ t.translate('datasets.individualGenerationHint') }}</p>
+                </div>
               </div>
+
+              <!-- Number of rows (individual mode) -->
+              @if (individualGeneration) {
+                <div>
+                  <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                    {{ t.translate('datasets.numRowsLabel') }}
+                  </label>
+                  <input
+                    type="number"
+                    [(ngModel)]="numRows"
+                    min="1"
+                    max="500"
+                    step="1"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  />
+                  <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numRowsHint') }}</p>
+                </div>
+              }
+
+              <!-- Number of tokens (batch mode) -->
+              @if (!individualGeneration) {
+                <div>
+                  <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                    {{ t.translate('datasets.numTokensLabel') }}
+                  </label>
+                  <input
+                    type="number"
+                    [(ngModel)]="numTokens"
+                    min="1"
+                    max="4096"
+                    step="1"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  />
+                  <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numTokensHint') }}</p>
+                </div>
+              }
 
               <!-- Retry on fail -->
               <div class="flex items-start gap-3">
@@ -685,18 +723,52 @@ interface QueueItem {
                 </div>
               }
 
-              <!-- Number of tokens -->
-              <div>
-                <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.numTokensLabel') }}</label>
+              <!-- Individual generation -->
+              <div class="flex items-start gap-3">
                 <input
-                  type="number"
-                  [(ngModel)]="queueItemTokens"
-                  min="1"
-                  max="4096"
-                  step="1"
-                  class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  type="checkbox"
+                  id="queueIndividualGeneration"
+                  [(ngModel)]="queueItemIndividualGeneration"
+                  class="mt-0.5 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-200"
                 />
+                <div>
+                  <label for="queueIndividualGeneration" class="text-sm font-semibold text-secondary-900 cursor-pointer">
+                    {{ t.translate('datasets.individualGenerationLabel') }}
+                  </label>
+                  <p class="text-xs text-muted mt-0.5">{{ t.translate('datasets.individualGenerationHint') }}</p>
+                </div>
               </div>
+
+              <!-- Number of rows (individual mode) -->
+              @if (queueItemIndividualGeneration) {
+                <div>
+                  <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.numRowsLabel') }}</label>
+                  <input
+                    type="number"
+                    [(ngModel)]="queueItemNumRows"
+                    min="1"
+                    max="500"
+                    step="1"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  />
+                  <p class="text-xs text-muted mt-1">{{ t.translate('datasets.numRowsHint') }}</p>
+                </div>
+              }
+
+              <!-- Number of tokens (batch mode) -->
+              @if (!queueItemIndividualGeneration) {
+                <div>
+                  <label class="block text-sm font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.numTokensLabel') }}</label>
+                  <input
+                    type="number"
+                    [(ngModel)]="queueItemTokens"
+                    min="1"
+                    max="4096"
+                    step="1"
+                    class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
+                  />
+                </div>
+              }
 
               <!-- Retry on fail -->
               <div class="flex items-start gap-3">
@@ -1244,6 +1316,8 @@ export class DatasetsPageComponent implements OnInit {
   numTokens = 1000;
   selectedModel = '';
   retryOnFail = false;
+  individualGeneration = false;
+  numRows = 10;
 
   // Providers
   isLoadingProviders = signal(false);
@@ -1281,6 +1355,8 @@ export class DatasetsPageComponent implements OnInit {
   queueSelectedModel = '';
   queueItemTokens = 1000;
   queueItemRetryOnFail = false;
+  queueItemIndividualGeneration = false;
+  queueItemNumRows = 10;
 
   // Refine
   refineDatasetId = '';
@@ -1364,12 +1440,14 @@ export class DatasetsPageComponent implements OnInit {
 
   canGenerate(): boolean {
     const hasModel = !!(this.selectedModel || this.selectedProvider()?.model);
+    const hasValidSize = this.individualGeneration
+      ? Number.isInteger(this.numRows) && this.numRows >= 1
+      : Number.isInteger(this.numTokens) && this.numTokens >= 1;
     return (
       this.instructions.trim().length > 0 &&
       this.selectedProvider() !== null &&
       hasModel &&
-      Number.isInteger(this.numTokens) &&
-      this.numTokens >= 1
+      hasValidSize
     );
   }
 
@@ -1389,7 +1467,9 @@ export class DatasetsPageComponent implements OnInit {
         provider.id,
         model,
         this.numTokens,
-        this.retryOnFail
+        this.retryOnFail,
+        this.individualGeneration,
+        this.numRows
       );
       if (res.success && res.rows) {
         this.generatedRows.set(res.rows);
@@ -1693,6 +1773,8 @@ export class DatasetsPageComponent implements OnInit {
       model,
       numTokens: 0,
       retryOnFail: false,
+      individualGeneration: false,
+      numRows: 0,
       status: 'pending',
       type: 'refine',
       datasetId: this.refineDatasetId,
@@ -1713,13 +1795,15 @@ export class DatasetsPageComponent implements OnInit {
 
   canAddToQueue(): boolean {
     const hasModel = !!(this.queueSelectedModel || this.queueSelectedProvider()?.model);
+    const hasValidSize = this.queueItemIndividualGeneration
+      ? Number.isInteger(this.queueItemNumRows) && this.queueItemNumRows >= 1
+      : Number.isInteger(this.queueItemTokens) && this.queueItemTokens >= 1;
     return (
       this.queueItemName.trim().length > 0 &&
       this.queueItemInstructions.trim().length > 0 &&
       this.queueSelectedProvider() !== null &&
       hasModel &&
-      Number.isInteger(this.queueItemTokens) &&
-      this.queueItemTokens >= 1
+      hasValidSize
     );
   }
 
@@ -1736,6 +1820,8 @@ export class DatasetsPageComponent implements OnInit {
       model,
       numTokens: this.queueItemTokens,
       retryOnFail: this.queueItemRetryOnFail,
+      individualGeneration: this.queueItemIndividualGeneration,
+      numRows: this.queueItemNumRows,
       status: 'pending',
       type: 'generate',
     };
@@ -1860,7 +1946,9 @@ export class DatasetsPageComponent implements OnInit {
             item.providerId,
             item.model,
             item.numTokens,
-            item.retryOnFail
+            item.retryOnFail,
+            item.individualGeneration,
+            item.numRows
           );
 
           if (this.queueStopRequested) {

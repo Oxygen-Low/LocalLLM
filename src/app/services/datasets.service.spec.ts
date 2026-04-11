@@ -43,6 +43,8 @@ describe('DatasetsService', () => {
         model: 'gpt-4',
         numTokens: 1000,
         retryOnFail: false,
+        individualGeneration: false,
+        numRows: 10,
       });
       req.flush(mockResponse);
       const result = await promise;
@@ -66,6 +68,8 @@ describe('DatasetsService', () => {
         model: 'gpt-4',
         numTokens: 1000,
         retryOnFail: true,
+        individualGeneration: false,
+        numRows: 10,
       });
       req.flush(mockResponse);
       const result = await promise;
