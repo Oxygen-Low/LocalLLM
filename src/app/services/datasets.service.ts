@@ -83,12 +83,14 @@ export class DatasetsService {
     provider: string,
     model: string,
     numTokens: number,
-    retryOnFail: boolean = false
+    retryOnFail: boolean = false,
+    individualGeneration: boolean = false,
+    numRows: number = 10
   ): Promise<GenerateDatasetResponse> {
     const res = await firstValueFrom(
       this.http.post<GenerateDatasetResponse>(
         `${environment.apiUrl}/api/datasets/generate`,
-        { instructions, provider, model, numTokens, retryOnFail }
+        { instructions, provider, model, numTokens, retryOnFail, individualGeneration, numRows }
       )
     );
     return res;

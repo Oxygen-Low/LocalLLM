@@ -4940,6 +4940,7 @@ const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
 const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
 const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
 const MAX_DATASET_RETRIES = 3; // maximum number of retries when retryOnFail is enabled
+const MAX_INDIVIDUAL_ROWS = 500; // cap for number of rows in individual generation mode
 const REFINE_ROW_PROMPT_TEMPLATE = `You are a dataset quality refinement assistant. Your task is to improve a single training data row for an LLM fine-tuning dataset.
 
 Review and fix the following training data row:
@@ -4964,7 +4965,7 @@ function getMaxDatasetTokens() {
 // POST /api/datasets/generate – Generate dataset rows using an LLM (token-based)
 app.post('/api/datasets/generate', requireSession, async (req, res) => {
   try {
-    const { instructions, provider, model, numTokens, retryOnFail } = req.body;
+    const { instructions, provider, model, numTokens, retryOnFail, individualGeneration, numRows } = req.body;
 
     if (!instructions || typeof instructions !== 'string' || instructions.trim().length === 0) {
       return res.status(400).json({ success: false, error: 'Instructions are required' });
@@ -4981,16 +4982,33 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     if (!model || typeof model !== 'string') {
       return res.status(400).json({ success: false, error: 'Model is required' });
     }
+    const isIndividual = individualGeneration === true;
+
+    // Validate numRows for individual generation mode
+    if (isIndividual) {
+      const rowCount =
+        typeof numRows === 'number'
+          ? numRows
+          : typeof numRows === 'string' && numRows.trim().length > 0
+            ? Number(numRows.trim())
+            : NaN;
+      if (!Number.isInteger(rowCount) || rowCount < 1 || rowCount > MAX_INDIVIDUAL_ROWS) {
+        return res.status(400).json({ success: false, error: `Number of rows must be between 1 and ${MAX_INDIVIDUAL_ROWS}` });
+      }
+    }
+
     const tokenCount =
       typeof numTokens === 'number'
         ? numTokens
         : typeof numTokens === 'string' && numTokens.trim().length > 0
           ? Number(numTokens.trim())
           : NaN;
-    const maxTokens = getMaxDatasetTokens();
-    if (!Number.isInteger(tokenCount) || tokenCount < 1 || tokenCount > maxTokens) {
-      const settings = readSettings();
-      return res.status(400).json({ success: false, error: `Number of tokens must be between 1 and ${maxTokens} (${settings.maxDatasetTokensGB} GB)` });
+    if (!isIndividual) {
+      const maxTokens = getMaxDatasetTokens();
+      if (!Number.isInteger(tokenCount) || tokenCount < 1 || tokenCount > maxTokens) {
+        const settings = readSettings();
+        return res.status(400).json({ success: false, error: `Number of tokens must be between 1 and ${maxTokens} (${settings.maxDatasetTokensGB} GB)` });
+      }
     }
 
     // Validate local providers
@@ -5016,6 +5034,107 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
         return res.status(400).json({ success: false, error: `No API key configured for provider "${provider}". Add one in Settings.` });
       }
     }
+
+    // --- Individual generation mode ---
+    if (isIndividual) {
+      const totalRows = typeof numRows === 'number' ? numRows : Number(numRows);
+      const individualPrompt = `You are a dataset generator. Based on the following instructions, generate exactly ONE training data row.
+
+Instructions: ${instructions.trim()}
+
+Output a single JSON object with three fields: "instruction", "input", and "output".
+- "instruction": The task description or prompt for the model
+- "input": Additional context or input for the task (can be empty string if not needed)
+- "output": The expected model response
+
+Return ONLY valid JSON, no markdown, no explanation. Example format:
+{"instruction": "...", "input": "...", "output": "..."}`;
+
+      const perRowMaxTokens = TOKENS_PER_ROW_ESTIMATE + LLM_TOKEN_BUFFER;
+      const maxRetries = retryOnFail ? MAX_DATASET_RETRIES : 0;
+      const collectedRows = [];
+
+      for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+        let rowParsed = null;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          let response;
+          try {
+            response = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: individualPrompt }], {
+              provider,
+              model,
+              max_tokens: perRowMaxTokens,
+              temperature: 0.8,
+            });
+          } catch (llmErr) {
+            if (attempt === maxRetries) break; // skip this row after all retries
+            continue;
+          }
+
+          // Parse the single-row response
+          const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
+          let parsed;
+          try {
+            parsed = JSON.parse(cleaned);
+          } catch {
+            // Try to extract first JSON object
+            try {
+              let depth = 0, start = -1, inString = false;
+              for (let i = 0; i < cleaned.length; i++) {
+                const char = cleaned[i];
+                if (inString) {
+                  if (char === '\\' && i + 1 < cleaned.length) { i++; continue; }
+                  if (char === '"') inString = false;
+                  continue;
+                }
+                if (char === '"') { inString = true; continue; }
+                if (char === '{') { if (depth === 0) start = i; depth++; }
+                else if (char === '}') {
+                  depth--;
+                  if (depth === 0 && start !== -1) {
+                    try { parsed = JSON.parse(cleaned.slice(start, i + 1)); } catch { /* skip */ }
+                    break;
+                  }
+                }
+              }
+            } catch { /* ignore */ }
+          }
+
+          if (parsed && Array.isArray(parsed)) parsed = parsed[0];
+
+          if (parsed && typeof parsed === 'object') {
+            const row = {
+              instruction: typeof parsed.instruction === 'string' ? parsed.instruction.trim() : '',
+              input: typeof parsed.input === 'string' ? parsed.input.trim() : '',
+              output: typeof parsed.output === 'string' ? parsed.output.trim() : '',
+            };
+            if (row.instruction && row.output) {
+              rowParsed = row;
+              break; // success, move to next row
+            }
+          }
+
+          // If we get here, parsing/validation failed — retry if possible
+        }
+
+        if (rowParsed) {
+          collectedRows.push(rowParsed);
+        }
+      }
+
+      if (collectedRows.length === 0) {
+        return res.status(500).json({ success: false, error: 'Failed to generate any valid dataset rows. Please try again.' });
+      }
+
+      const totalTokens = collectedRows.reduce((sum, r) => {
+        return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
+      }, 0);
+
+      auditLog({ event: 'DATASET_GENERATED', message: `Generated ${collectedRows.length}/${totalRows} dataset rows individually (~${totalTokens} tokens)`, username: req.sessionUser, req });
+      return res.json({ success: true, rows: collectedRows, totalTokens });
+    }
+
+    // --- Batch generation mode (default) ---
 
     // Estimate number of rows from token count
     const estimatedRows = Math.max(1, Math.min(Math.ceil(tokenCount / TOKENS_PER_ROW_ESTIMATE), MAX_ESTIMATED_ROWS));
