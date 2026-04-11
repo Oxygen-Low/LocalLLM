@@ -511,7 +511,7 @@ interface QueueItem {
                     type="number"
                     [(ngModel)]="numRows"
                     min="1"
-                    max="500"
+                    max="100000"
                     step="1"
                     class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
                   />
@@ -747,7 +747,7 @@ interface QueueItem {
                     type="number"
                     [(ngModel)]="queueItemNumRows"
                     min="1"
-                    max="500"
+                    max="100000"
                     step="1"
                     class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm"
                   />

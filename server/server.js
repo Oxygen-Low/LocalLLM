@@ -4956,7 +4956,7 @@ const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
 const MAX_ESTIMATED_ROWS = 500; // cap for row estimation from token count
 const LLM_TOKEN_BUFFER = 512; // extra tokens for JSON overhead in LLM response
 const MAX_DATASET_RETRIES = 3; // maximum number of retries when retryOnFail is enabled
-const MAX_INDIVIDUAL_ROWS = 500; // cap for number of rows in individual generation mode
+const MAX_INDIVIDUAL_ROWS = 100000; // cap for number of rows in individual generation mode
 const REFINE_ROW_PROMPT_TEMPLATE = `You are a dataset quality refinement assistant. Your task is to improve a single training data row for an LLM fine-tuning dataset.
 
 Review and fix the following training data row:
