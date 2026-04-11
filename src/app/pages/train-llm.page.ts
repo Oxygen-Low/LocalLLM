@@ -82,9 +82,9 @@ type PageView = 'queue' | 'create';
                         · {{ t.translate('trainLlm.job.mode') }}: {{ job.trainingMode === 'from-scratch' ? t.translate('trainLlm.job.modeFromScratch') : t.translate('trainLlm.job.modeFineTune') }}
                       </p>
                       <p class="text-sm text-muted">
-                        {{ t.translate('trainLlm.job.dataset') }}: {{ job.datasetName }}
-                        @if (job.postDatasetName) {
-                          · {{ t.translate('trainLlm.job.postDataset') }}: {{ job.postDatasetName }}
+                        {{ t.translate('trainLlm.job.dataset') }}: {{ job.datasetNames.join(', ') || 'Unknown' }}
+                        @if (job.postDatasetNames?.length) {
+                          · {{ t.translate('trainLlm.job.postDataset') }}: {{ job.postDatasetNames!.join(', ') }}
                         }
                       </p>
                       <p class="text-xs text-muted mt-1">
@@ -246,7 +246,7 @@ type PageView = 'queue' | 'create';
                 </div>
               }
 
-              <!-- Training Dataset -->
+              <!-- Training Datasets (multi-select) -->
               <div>
                 <label class="block text-sm font-medium text-secondary-700 mb-1.5">
                   {{ t.translate('trainLlm.create.dataset') }}
@@ -256,32 +256,42 @@ type PageView = 'queue' | 'create';
                     {{ t.translate('trainLlm.create.noDatasets') }}
                   </p>
                 } @else {
-                  <select
-                    [(ngModel)]="formDatasetId"
-                    class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
-                  >
-                    <option value="">{{ t.translate('trainLlm.create.selectDataset') }}</option>
+                  <div class="max-h-48 overflow-y-auto border border-secondary-200 rounded-lg divide-y divide-secondary-100">
                     @for (ds of datasets(); track ds.id) {
-                      <option [value]="ds.id">{{ ds.name }} ({{ ds.rowCount }} rows)</option>
+                      <label class="flex items-center gap-3 px-3 py-2 hover:bg-secondary-50 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          [checked]="formDatasetIds.includes(ds.id)"
+                          (change)="toggleDataset(ds.id, 'training')"
+                          class="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span class="text-secondary-800">{{ ds.name }}</span>
+                        <span class="text-xs text-muted ml-auto">({{ ds.rowCount }} rows)</span>
+                      </label>
                     }
-                  </select>
+                  </div>
                 }
               </div>
 
-              <!-- Post-Training Dataset (Optional) -->
+              <!-- Post-Training Datasets (multi-select, optional) -->
               <div>
                 <label class="block text-sm font-medium text-secondary-700 mb-1.5">
                   {{ t.translate('trainLlm.create.postDataset') }}
                 </label>
-                <select
-                  [(ngModel)]="formPostDatasetId"
-                  class="w-full px-3 py-2 border border-secondary-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
-                >
-                  <option value="">{{ t.translate('trainLlm.create.noPostDataset') }}</option>
+                <div class="max-h-48 overflow-y-auto border border-secondary-200 rounded-lg divide-y divide-secondary-100">
                   @for (ds of datasets(); track ds.id) {
-                    <option [value]="ds.id">{{ ds.name }} ({{ ds.rowCount }} rows)</option>
+                    <label class="flex items-center gap-3 px-3 py-2 hover:bg-secondary-50 cursor-pointer text-sm">
+                      <input
+                        type="checkbox"
+                        [checked]="formPostDatasetIds.includes(ds.id)"
+                        (change)="toggleDataset(ds.id, 'post')"
+                        class="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span class="text-secondary-800">{{ ds.name }}</span>
+                      <span class="text-xs text-muted ml-auto">({{ ds.rowCount }} rows)</span>
+                    </label>
                   }
-                </select>
+                </div>
               </div>
 
               <!-- Training Parameters -->
@@ -385,8 +395,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
   formName = '';
   formTrainingMode: 'fine-tune' | 'from-scratch' = 'fine-tune';
   formBaseModelId = '';
-  formDatasetId = '';
-  formPostDatasetId = '';
+  formDatasetIds: string[] = [];
+  formPostDatasetIds: string[] = [];
   formEpochs = 3;
   formLearningRate = 0.00002;
   formBatchSize = 4;
@@ -448,6 +458,16 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  toggleDataset(id: string, type: 'training' | 'post'): void {
+    const arr = type === 'training' ? this.formDatasetIds : this.formPostDatasetIds;
+    const idx = arr.indexOf(id);
+    if (idx >= 0) {
+      arr.splice(idx, 1);
+    } else {
+      arr.push(id);
+    }
+  }
+
   async createJob(): Promise<void> {
     this.createError.set('');
 
@@ -459,8 +479,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
       this.createError.set('Please select a base model');
       return;
     }
-    if (!this.formDatasetId) {
-      this.createError.set('Please select a training dataset');
+    if (!this.formDatasetIds.length) {
+      this.createError.set('Please select at least one training dataset');
       return;
     }
 
@@ -470,8 +490,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
         name: this.formName.trim(),
         trainingMode: this.formTrainingMode,
         baseModelId: this.formTrainingMode === 'fine-tune' ? this.formBaseModelId : undefined,
-        datasetId: this.formDatasetId,
-        postDatasetId: this.formPostDatasetId || undefined,
+        datasetIds: this.formDatasetIds,
+        postDatasetIds: this.formPostDatasetIds.length ? this.formPostDatasetIds : undefined,
         epochs: this.formEpochs,
         learningRate: this.formLearningRate,
         batchSize: this.formBatchSize,
@@ -562,8 +582,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
     this.formName = '';
     this.formTrainingMode = 'fine-tune';
     this.formBaseModelId = '';
-    this.formDatasetId = '';
-    this.formPostDatasetId = '';
+    this.formDatasetIds = [];
+    this.formPostDatasetIds = [];
     this.formEpochs = 3;
     this.formLearningRate = 0.00002;
     this.formBatchSize = 4;
