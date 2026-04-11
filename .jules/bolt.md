@@ -7,3 +7,4 @@
 ## 2026-04-09 - Ensure Comments Exist for OnPush Optimization Inclusions
 **Learning:** During the application of `ChangeDetectionStrategy.OnPush` to signal-heavy components, adding a comment alongside the change detailing why it was added ensures compliance with project constraints (like Bolt's requirement to add comments explaining the optimization) and maintains clarity.
 **Action:** Always include an explanatory comment in the component decorator when adding `ChangeDetectionStrategy.OnPush` if required by the persona constraints.
+* To prevent blocking the Node.js event loop during bulk file synchronization (e.g., `copyDirSync`), the AES-256-GCM encryption step in `server/server.js` was optimized by deriving a single random salt (`SYNC_ENCRYPTION_SALT`) per server lifecycle and caching the resulting PBKDF2 key in a `syncKeyCache` Map. This avoids running `crypto.pbkdf2Sync` with 100,000 iterations for every individual file.

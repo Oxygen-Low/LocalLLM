@@ -766,18 +766,27 @@ function validateSyncDirectory(directory) {
   return { valid: true, resolved };
 }
 
+const syncKeyCache = new Map();
+const SYNC_ENCRYPTION_SALT = crypto.randomBytes(SALT_BYTES);
+
 /**
  * Encrypt file contents with AES-256-GCM using the server master key.
  * Returns a hex-encoded string: iv:authTag:ciphertext
  */
 function encryptSyncData(buffer) {
-  const salt = crypto.randomBytes(SALT_BYTES);
-  const key = crypto.pbkdf2Sync(MASTER_KEY, salt, PBKDF2_ITERATIONS, 32, 'sha256');
+  const saltHex = SYNC_ENCRYPTION_SALT.toString('hex');
+  let key;
+  if (syncKeyCache.has(saltHex)) {
+    key = syncKeyCache.get(saltHex);
+  } else {
+    key = crypto.pbkdf2Sync(MASTER_KEY, SYNC_ENCRYPTION_SALT, PBKDF2_ITERATIONS, 32, 'sha256');
+    syncKeyCache.set(saltHex, key);
+  }
   const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
   const authTag = cipher.getAuthTag();
-  return `${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+  return `${saltHex}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
 }
 
 /**
@@ -787,11 +796,18 @@ function encryptSyncData(buffer) {
 function decryptSyncData(encryptedStr) {
   const parts = encryptedStr.split(':');
   if (parts.length !== 4) throw new Error('Invalid encrypted sync data format');
-  const salt = Buffer.from(parts[0], 'hex');
+  const saltHex = parts[0];
+  const salt = Buffer.from(saltHex, 'hex');
   const iv = Buffer.from(parts[1], 'hex');
   const authTag = Buffer.from(parts[2], 'hex');
   const encrypted = Buffer.from(parts[3], 'hex');
-  const key = crypto.pbkdf2Sync(MASTER_KEY, salt, PBKDF2_ITERATIONS, 32, 'sha256');
+  let key;
+  if (syncKeyCache.has(saltHex)) {
+    key = syncKeyCache.get(saltHex);
+  } else {
+    key = crypto.pbkdf2Sync(MASTER_KEY, salt, PBKDF2_ITERATIONS, 32, 'sha256');
+    syncKeyCache.set(saltHex, key);
+  }
   const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]);
