@@ -16,6 +16,7 @@ const multer = require('multer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const SERVER_INSTANCE_ID = crypto.randomUUID();
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -291,6 +292,14 @@ function requireSession(req, res, next) {
   }
   req.sessionUser = session.username;
   req.sessionToken = token;
+  next();
+}
+
+// Middleware to block specific endpoints when running in demo mode
+function blockInDemo(req, res, next) {
+  if (DEMO_MODE) {
+    return res.status(403).json({ success: false, error: 'Unavailable In Demo' });
+  }
   next();
 }
 
@@ -1407,7 +1416,7 @@ function hashPassword(password, salt) {
 }
 
 // POST /api/auth/signup
-app.post('/api/auth/signup', authLimiter, async (req, res) => {
+app.post('/api/auth/signup', authLimiter, blockInDemo, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -1467,6 +1476,34 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
     console.error('Signup error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
+});
+
+// POST /api/auth/demo-login – Auto-login for demo mode (no credentials required)
+app.post('/api/auth/demo-login', authLimiter, (req, res) => {
+  if (!DEMO_MODE) {
+    return res.status(404).json({ success: false, error: 'Not found' });
+  }
+
+  const demoUsername = 'demo';
+
+  // Ensure the demo user exists
+  const users = readUsers();
+  let demoUser = users.find((u) => u.username === demoUsername);
+  if (!demoUser) {
+    demoUser = {
+      username: demoUsername,
+      passwordHash: 'demo-no-login',
+      salt: 'demo-no-login',
+      createdAt: new Date().toISOString(),
+      passwordResetRequired: false,
+    };
+    users.push(demoUser);
+    writeUsers(users);
+  }
+
+  const token = createSessionToken(demoUsername);
+  auditLog({ event: 'DEMO_LOGIN', message: 'Demo user auto-logged in', username: demoUsername, req });
+  res.json({ success: true, username: demoUsername, token, instanceId: SERVER_INSTANCE_ID });
 });
 
 // POST /api/auth/login
@@ -2173,6 +2210,7 @@ app.get('/api/settings/apps', requireSession, (req, res) => {
       koboldEnabled: settings.koboldEnabled,
       ollamaEnabled: settings.ollamaEnabled,
       maxDatasetTokensGB: settings.maxDatasetTokensGB,
+      demoMode: DEMO_MODE,
     });
   } catch (err) {
     console.error('Get app settings error:', err);
@@ -3455,7 +3493,7 @@ app.get('/api/user/personas', requireSession, (req, res) => {
 });
 
 // POST /api/user/personas – Create a new persona
-app.post('/api/user/personas', requireSession, (req, res) => {
+app.post('/api/user/personas', requireSession, blockInDemo, (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -3491,7 +3529,7 @@ app.post('/api/user/personas', requireSession, (req, res) => {
 });
 
 // PUT /api/user/personas/:id – Update a persona
-app.put('/api/user/personas/:id', requireSession, (req, res) => {
+app.put('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => {
   try {
     const { name, description } = req.body;
     const personaId = req.params.id;
@@ -3532,7 +3570,7 @@ app.put('/api/user/personas/:id', requireSession, (req, res) => {
 });
 
 // DELETE /api/user/personas/:id – Delete a persona
-app.delete('/api/user/personas/:id', requireSession, (req, res) => {
+app.delete('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => {
   try {
     const personaId = req.params.id;
     const personas = readPersonas(req.sessionUser);
@@ -5098,7 +5136,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 });
 
 // POST /api/datasets/save – Save generated dataset as a standalone dataset (not a repository)
-app.post('/api/datasets/save', requireSession, async (req, res) => {
+app.post('/api/datasets/save', requireSession, blockInDemo, async (req, res) => {
   try {
     const { name, description, rows } = req.body;
 
@@ -5172,7 +5210,7 @@ app.post('/api/datasets/save', requireSession, async (req, res) => {
 });
 
 // POST /api/datasets/import-huggingface – Import a dataset from HuggingFace Hub
-app.post('/api/datasets/import-huggingface', requireSession, async (req, res) => {
+app.post('/api/datasets/import-huggingface', requireSession, blockInDemo, async (req, res) => {
   try {
     const { datasetId, name, split, maxRows } = req.body;
 
@@ -5350,7 +5388,7 @@ app.get('/api/datasets/:id/rows', requireSession, (req, res) => {
 });
 
 // PUT /api/datasets/:id/rows – Update all rows in a dataset
-app.put('/api/datasets/:id/rows', requireSession, (req, res) => {
+app.put('/api/datasets/:id/rows', requireSession, blockInDemo, (req, res) => {
   try {
     const { rows } = req.body;
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -5418,7 +5456,7 @@ app.put('/api/datasets/:id/rows', requireSession, (req, res) => {
 });
 
 // DELETE /api/datasets/:id – Delete a dataset
-app.delete('/api/datasets/:id', requireSession, (req, res) => {
+app.delete('/api/datasets/:id', requireSession, blockInDemo, (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const dsIdx = datasets.findIndex(d => d.id === req.params.id);
@@ -5442,7 +5480,7 @@ app.delete('/api/datasets/:id', requireSession, (req, res) => {
 });
 
 // POST /api/datasets/:id/archive – Archive a dataset
-app.post('/api/datasets/:id/archive', requireSession, (req, res) => {
+app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
@@ -5468,7 +5506,7 @@ app.post('/api/datasets/:id/archive', requireSession, (req, res) => {
 });
 
 // POST /api/datasets/:id/unarchive – Unarchive a dataset
-app.post('/api/datasets/:id/unarchive', requireSession, (req, res) => {
+app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'archived');
@@ -5703,7 +5741,7 @@ function writeUserLocalFixSessions(username, sessions) {
 }
 
 // POST /api/local-fix/sessions – Create a new diagnostic session
-app.post('/api/local-fix/sessions', requireSession, (req, res) => {
+app.post('/api/local-fix/sessions', requireSession, blockInDemo, (req, res) => {
   try {
     const { instanceUrl, userId, issueDescription, allowCommands } = req.body;
 
@@ -6253,7 +6291,7 @@ function writeUserTrainings(username, trainings) {
 }
 
 // POST /api/train-llm/jobs – Create a new training job
-app.post('/api/train-llm/jobs', requireSession, async (req, res) => {
+app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) => {
   try {
     const { name, trainingMode, baseModelId, datasetId, postDatasetId, epochs, learningRate, batchSize } = req.body;
 
@@ -9715,6 +9753,9 @@ if (require.main === module) {
         console.log(`Server running on http://${HOST}:${PORT} and https://${HOST}:${PORT}`);
       } else {
         console.log(`Server running on http://${HOST}:${PORT}`);
+      }
+      if (DEMO_MODE) {
+        console.log('🎮 Demo mode enabled – authentication bypassed, restricted features locked');
       }
       startPythonProcess();
 
