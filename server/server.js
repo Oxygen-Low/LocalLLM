@@ -641,7 +641,7 @@ app.get('/api/health', (req, res) => {
 // Default application settings – defined before initialization so the settings
 // file can be seeded with the complete defaults when created for the first time.
 const DEFAULT_MAX_DATASET_TOKENS_GB = 40;
-const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false }, maxDatasetTokensGB: DEFAULT_MAX_DATASET_TOKENS_GB };
+const DEFAULT_SETTINGS = { riskyAppsEnabled: true, koboldEnabled: false, ollamaEnabled: false, autoSync: { enabled: false, directory: '', excludeModels: true, encrypt: false }, maxDatasetTokensGB: DEFAULT_MAX_DATASET_TOKENS_GB, mcpServers: [] };
 
 // Initialize data directory and users file at startup
 if (!fs.existsSync(DATA_DIR)) {
@@ -2336,6 +2336,443 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
     return res.json({ success: true, autoSync });
   } catch (err) {
     console.error('Admin set auto-sync error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// MCP Server Management (Admin)
+// ---------------------------------------------------------------------------
+
+const MCP_SERVER_NAME_MAX_LENGTH = 100;
+const MCP_SERVER_DESC_MAX_LENGTH = 500;
+const MCP_SERVER_IMAGE_MAX_LENGTH = 200;
+const MCP_SERVER_MAX_COUNT = 50;
+const MCP_CONTAINER_TIMEOUT_MS = 30000;
+
+// GET /api/mcp-servers – List enabled MCP servers with per-user auth status (requires session)
+app.get('/api/mcp-servers', requireSession, (req, res) => {
+  try {
+    const settings = readSettings();
+    const mcpServers = (settings.mcpServers || []).filter(s => s.enabled);
+    const integrations = readUserIntegrations(req.sessionUser);
+
+    const servers = mcpServers.map(s => ({
+      id: s.id,
+      name: s.name,
+      description: s.description || '',
+      authRequired: !!s.authRequired,
+      authDescription: s.authDescription || '',
+      authenticated: s.authRequired ? !!integrations[`mcp_${s.id}`]?.token : true,
+    }));
+
+    return res.json({ success: true, servers });
+  } catch (err) {
+    console.error('List MCP servers error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/user/mcp-auth/:serverId/status – Check if user has authenticated with an MCP server
+app.get('/api/user/mcp-auth/:serverId/status', requireSession, (req, res) => {
+  try {
+    const serverId = req.params.serverId;
+    if (!serverId || typeof serverId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Server ID is required' });
+    }
+    const settings = readSettings();
+    const server = (settings.mcpServers || []).find(s => s.id === serverId && s.enabled);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'MCP server not found' });
+    }
+    const integrations = readUserIntegrations(req.sessionUser);
+    const mcpAuth = integrations[`mcp_${serverId}`];
+    return res.json({
+      success: true,
+      configured: !!mcpAuth?.token,
+      serverName: server.name,
+      authRequired: !!server.authRequired,
+    });
+  } catch (err) {
+    console.error('MCP auth status error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/user/mcp-auth/:serverId – Save user auth token for an MCP server
+app.put('/api/user/mcp-auth/:serverId', requireSession, (req, res) => {
+  try {
+    const serverId = req.params.serverId;
+    const { token } = req.body;
+    if (!serverId || typeof serverId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Server ID is required' });
+    }
+    if (!token || typeof token !== 'string' || token.length > 500) {
+      return res.status(400).json({ success: false, error: 'Valid token is required' });
+    }
+    const settings = readSettings();
+    const server = (settings.mcpServers || []).find(s => s.id === serverId && s.enabled);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'MCP server not found' });
+    }
+    if (!server.authRequired) {
+      return res.status(400).json({ success: false, error: 'This MCP server does not require authentication' });
+    }
+    writeUserIntegration(req.sessionUser, `mcp_${serverId}`, { token, configuredAt: new Date().toISOString() });
+    auditLog({ event: 'MCP_AUTH_SET', message: `MCP auth token configured for server ${server.name}`, username: req.sessionUser, req });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Set MCP auth error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/user/mcp-auth/:serverId – Remove user auth token for an MCP server
+app.delete('/api/user/mcp-auth/:serverId', requireSession, (req, res) => {
+  try {
+    const serverId = req.params.serverId;
+    if (!serverId || typeof serverId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Server ID is required' });
+    }
+    removeUserIntegration(req.sessionUser, `mcp_${serverId}`);
+    auditLog({ event: 'MCP_AUTH_REMOVED', message: `MCP auth token removed for server ${serverId}`, username: req.sessionUser, req });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Remove MCP auth error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/mcp-servers/list – List all MCP servers (admin only)
+app.post('/api/admin/mcp-servers/list', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin MCP servers list attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+    const settings = readSettings();
+    return res.json({ success: true, servers: settings.mcpServers || [] });
+  } catch (err) {
+    console.error('Admin list MCP servers error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/admin/mcp-servers – Add a new MCP server (admin only)
+app.post('/api/admin/mcp-servers', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, name, image, description, authRequired, authDescription, authEnvVar } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin MCP server add attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > MCP_SERVER_NAME_MAX_LENGTH) {
+      return res.status(400).json({ success: false, error: 'Valid name is required (max 100 characters)' });
+    }
+    if (!image || typeof image !== 'string' || image.trim().length === 0 || image.length > MCP_SERVER_IMAGE_MAX_LENGTH) {
+      return res.status(400).json({ success: false, error: 'Valid Docker image is required (max 200 characters)' });
+    }
+    if (description && (typeof description !== 'string' || description.length > MCP_SERVER_DESC_MAX_LENGTH)) {
+      return res.status(400).json({ success: false, error: 'Description must be a string (max 500 characters)' });
+    }
+    if (authRequired && (!authEnvVar || typeof authEnvVar !== 'string' || !/^[A-Z_][A-Z0-9_]*$/.test(authEnvVar))) {
+      return res.status(400).json({ success: false, error: 'Auth environment variable name is required when auth is enabled (e.g. GITHUB_TOKEN)' });
+    }
+
+    const settings = readSettings();
+    const mcpServers = settings.mcpServers || [];
+    if (mcpServers.length >= MCP_SERVER_MAX_COUNT) {
+      return res.status(400).json({ success: false, error: `Maximum of ${MCP_SERVER_MAX_COUNT} MCP servers allowed` });
+    }
+
+    const newServer = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      image: image.trim(),
+      description: (description || '').trim(),
+      enabled: true,
+      authRequired: !!authRequired,
+      authDescription: (authDescription || '').trim(),
+      authEnvVar: authRequired ? authEnvVar.trim() : '',
+      createdAt: new Date().toISOString(),
+    };
+
+    mcpServers.push(newServer);
+    writeSettings({ ...settings, mcpServers });
+
+    auditLog({ event: 'ADMIN_MCP_SERVER_ADD', message: `Admin added MCP server: ${newServer.name} (${newServer.image})`, username: adminUsername, req });
+    return res.json({ success: true, server: newServer });
+  } catch (err) {
+    console.error('Admin add MCP server error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// PUT /api/admin/mcp-servers/:id – Update an MCP server (admin only)
+app.put('/api/admin/mcp-servers/:id', async (req, res) => {
+  try {
+    const serverId = req.params.id;
+    const { adminUsername, adminPassword, name, image, description, enabled, authRequired, authDescription, authEnvVar } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin MCP server update attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const settings = readSettings();
+    const mcpServers = settings.mcpServers || [];
+    const idx = mcpServers.findIndex(s => s.id === serverId);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'MCP server not found' });
+    }
+
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0 || name.length > MCP_SERVER_NAME_MAX_LENGTH) {
+        return res.status(400).json({ success: false, error: 'Valid name is required (max 100 characters)' });
+      }
+      mcpServers[idx].name = name.trim();
+    }
+    if (image !== undefined) {
+      if (typeof image !== 'string' || image.trim().length === 0 || image.length > MCP_SERVER_IMAGE_MAX_LENGTH) {
+        return res.status(400).json({ success: false, error: 'Valid Docker image is required (max 200 characters)' });
+      }
+      mcpServers[idx].image = image.trim();
+    }
+    if (description !== undefined) {
+      if (typeof description !== 'string' || description.length > MCP_SERVER_DESC_MAX_LENGTH) {
+        return res.status(400).json({ success: false, error: 'Description must be a string (max 500 characters)' });
+      }
+      mcpServers[idx].description = description.trim();
+    }
+    if (typeof enabled === 'boolean') {
+      mcpServers[idx].enabled = enabled;
+    }
+    if (typeof authRequired === 'boolean') {
+      mcpServers[idx].authRequired = authRequired;
+    }
+    if (authDescription !== undefined) {
+      mcpServers[idx].authDescription = (authDescription || '').trim();
+    }
+    if (authEnvVar !== undefined) {
+      if (mcpServers[idx].authRequired && (!authEnvVar || typeof authEnvVar !== 'string' || !/^[A-Z_][A-Z0-9_]*$/.test(authEnvVar))) {
+        return res.status(400).json({ success: false, error: 'Auth environment variable name is required when auth is enabled' });
+      }
+      mcpServers[idx].authEnvVar = authEnvVar ? authEnvVar.trim() : '';
+    }
+
+    writeSettings({ ...settings, mcpServers });
+
+    auditLog({ event: 'ADMIN_MCP_SERVER_UPDATE', message: `Admin updated MCP server: ${mcpServers[idx].name}`, username: adminUsername, req });
+    return res.json({ success: true, server: mcpServers[idx] });
+  } catch (err) {
+    console.error('Admin update MCP server error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/mcp-servers/:id – Delete an MCP server (admin only)
+app.delete('/api/admin/mcp-servers/:id', async (req, res) => {
+  try {
+    const serverId = req.params.id;
+    const { adminUsername, adminPassword } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin MCP server delete attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const settings = readSettings();
+    const mcpServers = settings.mcpServers || [];
+    const idx = mcpServers.findIndex(s => s.id === serverId);
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: 'MCP server not found' });
+    }
+
+    const removed = mcpServers.splice(idx, 1)[0];
+    writeSettings({ ...settings, mcpServers });
+
+    auditLog({ event: 'ADMIN_MCP_SERVER_DELETE', message: `Admin deleted MCP server: ${removed.name}`, username: adminUsername, req });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Admin delete MCP server error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/mcp-servers/:id/tools – List tools from an MCP server by running the Docker container
+app.post('/api/mcp-servers/:id/tools', requireSession, async (req, res) => {
+  try {
+    const serverId = req.params.id;
+    const settings = readSettings();
+    const server = (settings.mcpServers || []).find(s => s.id === serverId && s.enabled);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'MCP server not found' });
+    }
+
+    // Check auth if required
+    if (server.authRequired) {
+      const integrations = readUserIntegrations(req.sessionUser);
+      const mcpAuth = integrations[`mcp_${serverId}`];
+      if (!mcpAuth?.token) {
+        return res.status(403).json({ success: false, error: 'Authentication required for this MCP server. Please configure your token in Settings.' });
+      }
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available' });
+    }
+
+    // Build env args for the MCP container
+    const envArgs = [];
+    if (server.authRequired && server.authEnvVar) {
+      const integrations = readUserIntegrations(req.sessionUser);
+      const mcpAuth = integrations[`mcp_${serverId}`];
+      if (mcpAuth?.token) {
+        envArgs.push('-e', `${server.authEnvVar}=${mcpAuth.token}`);
+      }
+    }
+
+    // Run container with tools/list request via stdin
+    const toolsRequest = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+    const initRequest = JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'LocalLLM', version: '1.0.0' } } });
+    const initNotification = JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+    try {
+      const { execFileSync } = require('child_process');
+      const mcpInput = `${initRequest}\n${initNotification}\n${toolsRequest}\n`;
+      const b64Input = Buffer.from(mcpInput).toString('base64');
+
+      const output = execFileSync('docker', [
+        'run', '--rm', '-i',
+        '--network=none',
+        '--memory=256m',
+        '--cpus=0.5',
+        ...envArgs,
+        server.image,
+      ], {
+        input: mcpInput,
+        timeout: MCP_CONTAINER_TIMEOUT_MS,
+        encoding: 'utf-8',
+        maxBuffer: 1024 * 1024,
+      });
+
+      // Parse the output - MCP servers output JSON-RPC responses, one per line
+      const lines = output.trim().split('\n').filter(l => l.trim());
+      let tools = [];
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.result?.tools) {
+            tools = parsed.result.tools;
+            break;
+          }
+        } catch {
+          // Skip non-JSON lines
+        }
+      }
+
+      return res.json({ success: true, tools });
+    } catch (execErr) {
+      console.error('MCP tools list error for %s: %s', server.name, execErr.message);
+      return res.status(502).json({ success: false, error: `Failed to list tools from MCP server: ${execErr.message?.substring(0, 200)}` });
+    }
+  } catch (err) {
+    console.error('MCP tools error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/mcp-servers/:id/call – Execute a tool on an MCP server
+app.post('/api/mcp-servers/:id/call', requireSession, async (req, res) => {
+  try {
+    const serverId = req.params.id;
+    const { toolName, args } = req.body;
+
+    if (!toolName || typeof toolName !== 'string') {
+      return res.status(400).json({ success: false, error: 'Tool name is required' });
+    }
+
+    const settings = readSettings();
+    const server = (settings.mcpServers || []).find(s => s.id === serverId && s.enabled);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'MCP server not found' });
+    }
+
+    // Check auth if required
+    if (server.authRequired) {
+      const integrations = readUserIntegrations(req.sessionUser);
+      const mcpAuth = integrations[`mcp_${serverId}`];
+      if (!mcpAuth?.token) {
+        return res.status(403).json({ success: false, error: 'Authentication required for this MCP server' });
+      }
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available' });
+    }
+
+    // Build env args
+    const envArgs = [];
+    if (server.authRequired && server.authEnvVar) {
+      const integrations = readUserIntegrations(req.sessionUser);
+      const mcpAuth = integrations[`mcp_${serverId}`];
+      if (mcpAuth?.token) {
+        envArgs.push('-e', `${server.authEnvVar}=${mcpAuth.token}`);
+      }
+    }
+
+    // Build MCP tool call request
+    const initRequest = JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'LocalLLM', version: '1.0.0' } } });
+    const initNotification = JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const toolCallRequest = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: toolName, arguments: args || {} } });
+
+    try {
+      const { execFileSync } = require('child_process');
+      const mcpInput = `${initRequest}\n${initNotification}\n${toolCallRequest}\n`;
+
+      const output = execFileSync('docker', [
+        'run', '--rm', '-i',
+        '--network=bridge',
+        '--memory=256m',
+        '--cpus=0.5',
+        ...envArgs,
+        server.image,
+      ], {
+        input: mcpInput,
+        timeout: MCP_CONTAINER_TIMEOUT_MS,
+        encoding: 'utf-8',
+        maxBuffer: 2 * 1024 * 1024,
+      });
+
+      // Parse the output for the tool call result
+      const lines = output.trim().split('\n').filter(l => l.trim());
+      let result = null;
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.id === 1 && parsed.result) {
+            result = parsed.result;
+            break;
+          }
+          if (parsed.id === 1 && parsed.error) {
+            return res.status(400).json({ success: false, error: `MCP tool error: ${parsed.error.message || JSON.stringify(parsed.error)}` });
+          }
+        } catch {
+          // Skip non-JSON lines
+        }
+      }
+
+      if (!result) {
+        return res.status(502).json({ success: false, error: 'No result returned from MCP server' });
+      }
+
+      return res.json({ success: true, result });
+    } catch (execErr) {
+      console.error('MCP tool call error for %s/%s: %s', server.name, toolName, execErr.message);
+      return res.status(502).json({ success: false, error: `Failed to call tool: ${String(execErr.message || '').substring(0, 200)}` });
+    }
+  } catch (err) {
+    console.error('MCP tool call error:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -8840,7 +9277,8 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     const think = req.body.think === true;
     const characterId = typeof req.body.characterId === 'string' ? req.body.characterId : null;
     const personaId = typeof req.body.personaId === 'string' ? req.body.personaId : null;
-    const options = { webSearch, think };
+    const mcpServerIds = Array.isArray(req.body.mcpServerIds) ? req.body.mcpServerIds.filter(id => typeof id === 'string') : [];
+    const options = { webSearch, think, mcpServerIds, username: req.sessionUser };
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ success: false, error: 'Messages are required' });
@@ -9296,4 +9734,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT };

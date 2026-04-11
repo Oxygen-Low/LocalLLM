@@ -84,6 +84,30 @@ export interface AutoSyncImportResponse {
   importedDate?: string;
 }
 
+export interface McpServer {
+  id: string;
+  name: string;
+  image: string;
+  description: string;
+  enabled: boolean;
+  authRequired: boolean;
+  authDescription: string;
+  authEnvVar: string;
+  createdAt: string;
+}
+
+interface McpServerListResponse {
+  success: boolean;
+  error?: string;
+  servers?: McpServer[];
+}
+
+interface McpServerResponse {
+  success: boolean;
+  error?: string;
+  server?: McpServer;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -482,6 +506,75 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to import sync data' };
+    }
+  }
+
+  // --- MCP Server Management ---
+
+  async listMcpServers(adminPasswordHash: string): Promise<McpServerListResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<McpServerListResponse>(`${environment.apiUrl}/api/admin/mcp-servers/list`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to list MCP servers' };
+    }
+  }
+
+  async addMcpServer(
+    server: { name: string; image: string; description?: string; authRequired?: boolean; authDescription?: string; authEnvVar?: string },
+    adminPasswordHash: string
+  ): Promise<McpServerResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<McpServerResponse>(`${environment.apiUrl}/api/admin/mcp-servers`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          ...server,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to add MCP server' };
+    }
+  }
+
+  async updateMcpServer(
+    serverId: string,
+    updates: { name?: string; image?: string; description?: string; enabled?: boolean; authRequired?: boolean; authDescription?: string; authEnvVar?: string },
+    adminPasswordHash: string
+  ): Promise<McpServerResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.put<McpServerResponse>(`${environment.apiUrl}/api/admin/mcp-servers/${serverId}`, {
+          adminUsername: this.authService.username(),
+          adminPassword: adminPasswordHash,
+          ...updates,
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to update MCP server' };
+    }
+  }
+
+  async deleteMcpServer(serverId: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<{ success: boolean; error?: string }>(`${environment.apiUrl}/api/admin/mcp-servers/${serverId}`, {
+          body: {
+            adminUsername: this.authService.username(),
+            adminPassword: adminPasswordHash,
+          },
+        })
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete MCP server' };
     }
   }
 }

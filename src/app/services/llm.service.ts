@@ -67,6 +67,16 @@ export interface SendMessageOptions {
   think?: boolean;
   characterId?: string;
   personaId?: string;
+  mcpServerIds?: string[];
+}
+
+export interface McpServerInfo {
+  id: string;
+  name: string;
+  description: string;
+  authRequired: boolean;
+  authDescription: string;
+  authenticated: boolean;
 }
 
 export interface ProviderKeyStatus {
@@ -329,6 +339,7 @@ export class LlmService {
     if (options?.think) body['think'] = true;
     if (options?.characterId) body['characterId'] = options.characterId;
     if (options?.personaId) body['personaId'] = options.personaId;
+    if (options?.mcpServerIds?.length) body['mcpServerIds'] = options.mcpServerIds;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -433,6 +444,7 @@ export class LlmService {
     if (options?.think) body['think'] = true;
     if (options?.characterId) body['characterId'] = options.characterId;
     if (options?.personaId) body['personaId'] = options.personaId;
+    if (options?.mcpServerIds?.length) body['mcpServerIds'] = options.mcpServerIds;
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; message: ChatMessage }>(
         `${environment.apiUrl}/api/chat/send`,
@@ -440,5 +452,41 @@ export class LlmService {
       )
     );
     return res.message;
+  }
+
+  // --- MCP Servers ---
+
+  async getMcpServers(): Promise<McpServerInfo[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; servers: McpServerInfo[] }>(
+        `${environment.apiUrl}/api/mcp-servers`
+      )
+    );
+    return res.servers || [];
+  }
+
+  async setMcpAuth(serverId: string, token: string): Promise<{ success: boolean }> {
+    return firstValueFrom(
+      this.http.put<{ success: boolean }>(
+        `${environment.apiUrl}/api/user/mcp-auth/${serverId}`,
+        { token }
+      )
+    );
+  }
+
+  async removeMcpAuth(serverId: string): Promise<{ success: boolean }> {
+    return firstValueFrom(
+      this.http.delete<{ success: boolean }>(
+        `${environment.apiUrl}/api/user/mcp-auth/${serverId}`
+      )
+    );
+  }
+
+  async getMcpAuthStatus(serverId: string): Promise<{ configured: boolean; serverName: string; authRequired: boolean }> {
+    return firstValueFrom(
+      this.http.get<{ configured: boolean; serverName: string; authRequired: boolean }>(
+        `${environment.apiUrl}/api/user/mcp-auth/${serverId}/status`
+      )
+    );
   }
 }
