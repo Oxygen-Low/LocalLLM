@@ -4965,7 +4965,7 @@ function deleteAllUserDatasets(username) {
     const metaFile = getUserDatasetsMetaFile(username);
     if (fs.existsSync(metaFile)) fs.unlinkSync(metaFile);
   } catch (err) {
-    console.error(`deleteAllUserDatasets error for ${username}:`, err.message);
+    console.error('deleteAllUserDatasets error for %s: %s', username, err.message);
   }
 }
 
