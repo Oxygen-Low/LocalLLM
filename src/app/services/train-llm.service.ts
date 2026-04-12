@@ -105,6 +105,38 @@ export class TrainLlmService {
     return res;
   }
 
+  downloadGguf(id: string): void {
+    // Trigger a file download by navigating to the GGUF download endpoint.
+    // We use a hidden anchor element to handle the browser download correctly.
+    const url = `${environment.apiUrl}/api/train-llm/jobs/${id}/download-gguf`;
+    this.http.get(url, { responseType: 'blob', observe: 'response' }).subscribe({
+      next: (response) => {
+        const blob = response.body;
+        if (!blob) return;
+
+        // Extract filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'model.gguf';
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+          if (match) filename = match[1];
+        }
+
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(downloadUrl);
+      },
+      error: (err) => {
+        console.error('Failed to download GGUF:', err);
+      },
+    });
+  }
+
   getStatusLabel(status: string): string {
     const labels: Record<string, string> = {
       queued: 'Queued',

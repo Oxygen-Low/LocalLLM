@@ -1445,6 +1445,18 @@ const translations: TranslationDictionary = {
     ja: '削除',
     ru: 'Удалить',
   },
+  'trainLlm.job.downloadGguf': {
+    en: 'Download GGUF',
+    ko: 'GGUF 다운로드',
+    ja: 'GGUFダウンロード',
+    ru: 'Скачать GGUF',
+  },
+  'trainLlm.job.converting': {
+    en: 'Converting...',
+    ko: '변환 중...',
+    ja: '変換中...',
+    ru: 'Конвертация...',
+  },
   'trainLlm.create.title': {
     en: 'New Training Job',
     ko: '새 훈련 작업',

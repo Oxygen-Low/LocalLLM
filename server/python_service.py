@@ -95,6 +95,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import gguf  # noqa: F401
+except ImportError:
+    pass
+
 # Global model cache: { model_dir: (model, tokenizer) }
 _model_cache = {}
 _model_lock = threading.Lock()
@@ -115,6 +120,9 @@ MAX_BODY_SIZE = 1 * 1024 * 1024
 
 # Allowed models directory (set from CLI arg or defaults to None = allow all)
 _allowed_models_dir = None
+
+# Allowed training outputs directory (set from CLI arg, separate from models)
+_allowed_training_outputs_dir = None
 
 # Default chat template for models that don't provide one
 _DEFAULT_CHAT_TEMPLATE = (
@@ -148,6 +156,28 @@ def _validate_path_within_models_dir(target_path):
     return resolved
 
 
+def _validate_path_within_training_outputs_dir(target_path):
+    """Validate that *target_path* resolves to a path strictly inside
+    ``_allowed_training_outputs_dir``.  Returns the resolved absolute path
+    on success, or ``None`` if outside the allowed directory."""
+    if not _allowed_training_outputs_dir:
+        return None
+    resolved = os.path.realpath(target_path)
+    if not resolved.startswith(_allowed_training_outputs_dir + os.sep):
+        return None
+    return resolved
+
+
+def _validate_path_within_any_allowed_dir(target_path):
+    """Validate that *target_path* resolves to a path inside either the
+    allowed models directory or the training-outputs directory.  Returns
+    the resolved absolute path on success, or ``None``."""
+    result = _validate_path_within_models_dir(target_path)
+    if result is not None:
+        return result
+    return _validate_path_within_training_outputs_dir(target_path)
+
+
 def _find_gguf_file(model_dir):
     """Return the filename of the first .gguf file in *model_dir*, or None."""
     if not os.path.isdir(model_dir):
@@ -156,6 +186,205 @@ def _find_gguf_file(model_dir):
         if entry.lower().endswith(".gguf"):
             return entry
     return None
+
+
+# ---------------------------------------------------------------------------
+# GGUF conversion for GPT-2 architecture models trained from scratch
+# ---------------------------------------------------------------------------
+
+# GPT-2 tensor name mapping: HuggingFace transformers → GGUF
+_GPT2_TENSOR_MAP = {
+    "transformer.wte.weight": "token_embd.weight",
+    "transformer.wpe.weight": "position_embd.weight",
+    "transformer.ln_f.weight": "output_norm.weight",
+    "transformer.ln_f.bias": "output_norm.bias",
+}
+
+# Per-block GPT-2 tensor name patterns (use .format(i=block_index))
+_GPT2_BLOCK_TENSOR_MAP = {
+    "transformer.h.{i}.ln_1.weight": "blk.{i}.attn_norm.weight",
+    "transformer.h.{i}.ln_1.bias": "blk.{i}.attn_norm.bias",
+    "transformer.h.{i}.attn.c_proj.weight": "blk.{i}.attn_output.weight",
+    "transformer.h.{i}.attn.c_proj.bias": "blk.{i}.attn_output.bias",
+    "transformer.h.{i}.ln_2.weight": "blk.{i}.ffn_norm.weight",
+    "transformer.h.{i}.ln_2.bias": "blk.{i}.ffn_norm.bias",
+    "transformer.h.{i}.mlp.c_fc.weight": "blk.{i}.ffn_up.weight",
+    "transformer.h.{i}.mlp.c_fc.bias": "blk.{i}.ffn_up.bias",
+    "transformer.h.{i}.mlp.c_proj.weight": "blk.{i}.ffn_down.weight",
+    "transformer.h.{i}.mlp.c_proj.bias": "blk.{i}.ffn_down.bias",
+}
+
+# Conv1D layers in GPT-2 that need transposition (stored as in_feat x out_feat)
+_GPT2_CONV1D_NAMES = {
+    "attn.c_attn.weight",
+    "attn.c_proj.weight",
+    "mlp.c_fc.weight",
+    "mlp.c_proj.weight",
+}
+
+
+def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
+    """Convert a HuggingFace GPT-2 model directory to GGUF format.
+
+    Uses the ``gguf`` Python package to write a single F32 GGUF file that can
+    be loaded by llama.cpp or any other GGUF-compatible runtime.
+
+    Parameters
+    ----------
+    model_dir : str
+        Path to the directory containing a HuggingFace model (config.json,
+        pytorch_model.bin / model.safetensors, tokenizer.json, etc.).
+    output_path : str
+        Destination file path for the resulting ``.gguf`` file.
+    model_name : str, optional
+        Human-readable model name embedded in the GGUF metadata.
+    """
+    import numpy as np
+    from gguf import GGUFWriter, GGUFValueType  # noqa: E402
+
+    _log(f"GGUF conversion: loading model from {model_dir}")
+
+    config = AutoConfig.from_pretrained(model_dir)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir, torch_dtype=torch.float32, device_map=None,
+    )
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+
+    n_embd = config.n_embd
+    n_head = config.n_head
+    n_layer = config.n_layer
+    n_positions = getattr(config, "n_positions", 512)
+    vocab_size = config.vocab_size
+    n_inner = getattr(config, "n_inner", None) or 4 * n_embd
+
+    _log(f"GGUF conversion: arch=gpt2 layers={n_layer} embd={n_embd} heads={n_head} vocab={vocab_size}")
+
+    writer = GGUFWriter(output_path, arch="gpt2")
+
+    # ---- Model metadata -------------------------------------------------- #
+    writer.add_name(model_name)
+    writer.add_context_length(n_positions)
+    writer.add_embedding_length(n_embd)
+    writer.add_block_count(n_layer)
+    writer.add_head_count(n_head)
+    writer.add_feed_forward_length(n_inner)
+
+    # ---- Tokenizer metadata ---------------------------------------------- #
+    writer.add_tokenizer_model("gpt2")
+
+    # Extract vocabulary tokens and merges from the fast tokenizer
+    tokens = []
+    scores = []
+    token_types = []
+    special_ids = set()
+    if tokenizer.all_special_ids:
+        special_ids = set(tokenizer.all_special_ids)
+
+    vocab = tokenizer.get_vocab()
+    # Sort by token id to ensure consistent ordering
+    sorted_vocab = sorted(vocab.items(), key=lambda x: x[1])
+    for tok_str, tok_id in sorted_vocab:
+        tokens.append(tok_str.encode("utf-8", errors="replace"))
+        scores.append(float(-tok_id))  # Use negative id as score (common convention)
+        token_types.append(3 if tok_id in special_ids else 1)  # 3=control, 1=normal
+
+    writer.add_token_list(tokens)
+    writer.add_token_scores(scores)
+    writer.add_token_types(token_types)
+
+    # Add BOS/EOS token ids
+    if tokenizer.bos_token_id is not None:
+        writer.add_bos_token_id(tokenizer.bos_token_id)
+    if tokenizer.eos_token_id is not None:
+        writer.add_eos_token_id(tokenizer.eos_token_id)
+    if tokenizer.pad_token_id is not None:
+        writer.add_pad_token_id(tokenizer.pad_token_id)
+
+    # BPE merges (from the fast tokenizer's internal model)
+    try:
+        tok_json_path = os.path.join(model_dir, "tokenizer.json")
+        if os.path.isfile(tok_json_path):
+            with open(tok_json_path, "r", encoding="utf-8") as f:
+                tok_data = json.load(f)
+            merges_raw = tok_data.get("model", {}).get("merges", [])
+            if merges_raw:
+                writer.add_token_merges([m.encode("utf-8") for m in merges_raw])
+    except Exception as e:
+        _log(f"GGUF conversion: warning – could not extract BPE merges: {e}")
+
+    # ---- Tensors --------------------------------------------------------- #
+    state_dict = model.state_dict()
+
+    for hf_name, tensor in state_dict.items():
+        data = tensor.cpu().numpy().astype(np.float32)
+
+        # Skip lm_head.weight if it's tied to wte (same data)
+        if hf_name == "lm_head.weight":
+            wte = state_dict.get("transformer.wte.weight")
+            if wte is not None and tensor.data_ptr() == wte.data_ptr():
+                continue  # Tied weights – skip duplicate
+            gguf_name = "output.weight"
+            writer.add_tensor(gguf_name, data)
+            continue
+
+        # Check global (non-block) tensors
+        if hf_name in _GPT2_TENSOR_MAP:
+            gguf_name = _GPT2_TENSOR_MAP[hf_name]
+            writer.add_tensor(gguf_name, data)
+            continue
+
+        # Check per-block tensors
+        matched = False
+        for block_idx in range(n_layer):
+            # c_attn needs special handling: split Q/K/V
+            c_attn_w = f"transformer.h.{block_idx}.attn.c_attn.weight"
+            c_attn_b = f"transformer.h.{block_idx}.attn.c_attn.bias"
+
+            if hf_name == c_attn_w:
+                # Conv1D weight shape: (n_embd, 3*n_embd) → transpose → (3*n_embd, n_embd)
+                data_t = data.T  # Now (3*n_embd, n_embd)
+                q, k, v = np.split(data_t, 3, axis=0)
+                writer.add_tensor(f"blk.{block_idx}.attn_q.weight", q)
+                writer.add_tensor(f"blk.{block_idx}.attn_k.weight", k)
+                writer.add_tensor(f"blk.{block_idx}.attn_v.weight", v)
+                matched = True
+                break
+
+            if hf_name == c_attn_b:
+                q, k, v = np.split(data, 3)
+                writer.add_tensor(f"blk.{block_idx}.attn_q.bias", q)
+                writer.add_tensor(f"blk.{block_idx}.attn_k.bias", k)
+                writer.add_tensor(f"blk.{block_idx}.attn_v.bias", v)
+                matched = True
+                break
+
+            for hf_pat, gguf_pat in _GPT2_BLOCK_TENSOR_MAP.items():
+                hf_key = hf_pat.format(i=block_idx)
+                if hf_name == hf_key:
+                    gguf_name = gguf_pat.format(i=block_idx)
+                    # Transpose Conv1D weights
+                    suffix = hf_name.split(f"transformer.h.{block_idx}.")[-1]
+                    if suffix in _GPT2_CONV1D_NAMES:
+                        data = data.T
+                    writer.add_tensor(gguf_name, data)
+                    matched = True
+                    break
+
+            if matched:
+                break
+
+        if not matched:
+            _log(f"GGUF conversion: skipping unmapped tensor '{hf_name}'")
+
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+
+    file_size = os.path.getsize(output_path)
+    _log(f"GGUF conversion: completed – {output_path} ({file_size / (1024*1024):.1f} MB)")
+    return output_path
 
 
 def _get_device_map():
@@ -803,6 +1032,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_train()
         elif self.path == "/train-cancel":
             self._handle_train_cancel()
+        elif self.path == "/convert-to-gguf":
+            self._handle_convert_to_gguf()
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -948,13 +1179,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "model_dir is required for fine-tuning"})
             return
 
-        # Validate output_dir is within allowed models directory
-        resolved_output_dir = _validate_path_within_models_dir(output_dir)
+        # Validate output_dir is within allowed models or training-outputs directory
+        resolved_output_dir = _validate_path_within_any_allowed_dir(output_dir)
         if resolved_output_dir is None:
-            if not _allowed_models_dir:
+            if not _allowed_models_dir and not _allowed_training_outputs_dir:
                 self._send_json(500, {"error": "No allowed models directory configured"})
             else:
-                self._send_json(403, {"error": "output_dir is outside the allowed models directory"})
+                self._send_json(403, {"error": "output_dir is outside the allowed directory"})
             return
 
         # Validate dataset paths – they must be absolute and must not contain
@@ -1066,6 +1297,66 @@ class _Handler(BaseHTTPRequestHandler):
             job["error"] = "Cancelled by user"
 
         self._send_json(200, {"success": True})
+
+    # --------------------------------------------------------------------- #
+    # POST /convert-to-gguf  (synchronous – converts model and returns path)
+    # --------------------------------------------------------------------- #
+    def _handle_convert_to_gguf(self):
+        data, err = self._read_json_body()
+        if err:
+            return
+
+        model_dir = data.get("model_dir", "")
+        output_path = data.get("output_path", "")
+        model_name = data.get("model_name", "model")
+
+        if not model_dir or not isinstance(model_dir, str):
+            self._send_json(400, {"error": "model_dir is required"})
+            return
+        if not output_path or not isinstance(output_path, str):
+            self._send_json(400, {"error": "output_path is required"})
+            return
+
+        # Validate model_dir is within allowed directory (models or training-outputs)
+        resolved_model_dir = _validate_path_within_any_allowed_dir(model_dir)
+        if resolved_model_dir is None:
+            if not _allowed_models_dir and not _allowed_training_outputs_dir:
+                self._send_json(500, {"error": "No allowed models directory configured"})
+            else:
+                self._send_json(403, {"error": "model_dir is outside the allowed directory"})
+            return
+
+        if not os.path.isdir(resolved_model_dir):
+            self._send_json(400, {"error": "model_dir does not exist"})
+            return
+
+        # Validate output_path is within allowed directory (models or training-outputs)
+        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(output_path))
+        if resolved_output_parent is None:
+            if not _allowed_models_dir and not _allowed_training_outputs_dir:
+                self._send_json(500, {"error": "No allowed models directory configured"})
+            else:
+                self._send_json(403, {"error": "output_path is outside the allowed directory"})
+            return
+
+        # Validate model_name is safe
+        if not isinstance(model_name, str) or len(model_name) > 200:
+            self._send_json(400, {"error": "model_name must be a string (max 200 chars)"})
+            return
+
+        try:
+            _convert_model_to_gguf(resolved_model_dir, output_path, model_name=model_name)
+            file_size = os.path.getsize(output_path)
+            self._send_json(200, {
+                "success": True,
+                "path": output_path,
+                "size": file_size,
+            })
+        except Exception as exc:
+            _log(f"GGUF conversion failed: {exc}")
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {"error": f"GGUF conversion failed: {exc}"})
 
     # --------------------------------------------------------------------- #
     # POST /download-dataset  (synchronous – returns rows)
@@ -1327,7 +1618,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global _allowed_models_dir
+    global _allowed_models_dir, _allowed_training_outputs_dir
 
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5555
 
@@ -1335,6 +1626,11 @@ def main():
     if len(sys.argv) > 2:
         _allowed_models_dir = os.path.realpath(sys.argv[2])
         print(f"Restricting model loading to: {_allowed_models_dir}", flush=True)
+
+    # Optional: training outputs directory (for from-scratch trained models)
+    if len(sys.argv) > 3:
+        _allowed_training_outputs_dir = os.path.realpath(sys.argv[3])
+        print(f"Training outputs directory: {_allowed_training_outputs_dir}", flush=True)
 
     stop_event = threading.Event()
 
