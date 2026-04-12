@@ -108,4 +108,27 @@ describe('TrainLlmService', () => {
     expect(service.isActive('failed')).toBe(false);
     expect(service.isActive('cancelled')).toBe(false);
   });
+
+  it('should make GET request for GGUF download', () => {
+    // Mock createElement/appendChild/removeChild for the download mechanism
+    const mockAnchor = { href: '', download: '', click: vi.fn() } as unknown as HTMLAnchorElement;
+    vi.spyOn(document, 'createElement').mockReturnValue(mockAnchor);
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => mockAnchor);
+    vi.spyOn(document.body, 'removeChild').mockImplementation(() => mockAnchor);
+    vi.spyOn(window.URL, 'createObjectURL').mockReturnValue('blob:test');
+    vi.spyOn(window.URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    service.downloadGguf('job-1');
+
+    const req = httpMock.expectOne('/api/train-llm/jobs/job-1/download-gguf');
+    expect(req.request.method).toBe('GET');
+    expect(req.request.responseType).toBe('blob');
+
+    // Respond with a mock blob
+    req.flush(new Blob(['test'], { type: 'application/octet-stream' }), {
+      headers: { 'Content-Disposition': 'attachment; filename="model.gguf"' },
+    });
+
+    expect(mockAnchor.click).toHaveBeenCalled();
+  });
 });
