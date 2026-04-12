@@ -1232,11 +1232,30 @@ function startPythonProcess() {
       });
 
       fs.writeFileSync(transformersMarker, new Date().toISOString(), 'utf-8');
-      console.log('transformers, torch, huggingface_hub, and datasets installed successfully');
+      fs.writeFileSync(path.join(PYTHON_VENV_DIR, '.gguf_installed'), new Date().toISOString(), 'utf-8');
+      console.log('transformers, torch, huggingface_hub, datasets, and gguf installed successfully');
     } catch (err) {
       console.error('Failed to install Python dependencies:', err.message);
       console.error('The local LLM feature will be unavailable until the dependencies are installed.');
       return;
+    }
+  }
+
+  // Ensure gguf package is installed (may be missing in older installations
+  // created before gguf was added to the dependency list).
+  const ggufMarker = path.join(PYTHON_VENV_DIR, '.gguf_installed');
+  if (fs.existsSync(transformersMarker) && !fs.existsSync(ggufMarker) && allowRuntimeInstall) {
+    console.log('Installing gguf package for GGUF model conversion support...');
+    try {
+      execFileSync(venvPip, ['install', 'gguf'], {
+        timeout: 120000, // 2 minutes
+        stdio: 'inherit',
+      });
+      fs.writeFileSync(ggufMarker, new Date().toISOString(), 'utf-8');
+      console.log('gguf package installed successfully');
+    } catch (err) {
+      console.error('Failed to install gguf package:', err.message);
+      console.error('GGUF model conversion will be unavailable until the gguf package is installed.');
     }
   }
 
