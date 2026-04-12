@@ -757,6 +757,9 @@ let autoSyncStatus = { lastSync: null, lastError: null, syncing: false };
  * Must not overlap with the application data directory.
  */
 function validateSyncDirectory(directory) {
+  if (typeof directory !== 'string' || directory.includes('\0')) {
+    return { valid: false, error: 'Invalid directory path' };
+  }
   const resolved = path.resolve(directory);
   const dataResolved = path.resolve(DATA_DIR);
   // Prevent syncing into the data directory itself (would cause infinite loops)
@@ -821,14 +824,19 @@ function decryptSyncData(encryptedStr) {
  * @param {string[]} excludeDirs - directory names to skip
  */
 function copyDirSync(src, dest, shouldEncrypt, excludeDirs) {
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
+  const resolvedSrc = path.resolve(src);
+  const resolvedDest = path.resolve(dest);
+  if (!fs.existsSync(resolvedDest)) {
+    fs.mkdirSync(resolvedDest, { recursive: true });
   }
-  const entries = fs.readdirSync(src, { withFileTypes: true });
+  const entries = fs.readdirSync(resolvedSrc, { withFileTypes: true });
   for (const entry of entries) {
     if (excludeDirs.includes(entry.name)) continue;
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
+    const srcPath = path.join(resolvedSrc, entry.name);
+    const destPath = path.join(resolvedDest, entry.name);
+    // Defense-in-depth: verify paths remain within boundaries
+    if (!srcPath.startsWith(resolvedSrc + path.sep)) continue;
+    if (!destPath.startsWith(resolvedDest + path.sep)) continue;
     if (entry.isDirectory()) {
       copyDirSync(srcPath, destPath, shouldEncrypt, excludeDirs);
     } else {
@@ -850,14 +858,19 @@ function copyDirSync(src, dest, shouldEncrypt, excludeDirs) {
  * @param {string[]} excludeDirs - directory names to skip
  */
 function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
+  const resolvedSrc = path.resolve(src);
+  const resolvedDest = path.resolve(dest);
+  if (!fs.existsSync(resolvedDest)) {
+    fs.mkdirSync(resolvedDest, { recursive: true });
   }
-  const entries = fs.readdirSync(src, { withFileTypes: true });
+  const entries = fs.readdirSync(resolvedSrc, { withFileTypes: true });
   for (const entry of entries) {
     if (excludeDirs.includes(entry.name)) continue;
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
+    const srcPath = path.join(resolvedSrc, entry.name);
+    const destPath = path.join(resolvedDest, entry.name);
+    // Defense-in-depth: verify paths remain within boundaries
+    if (!srcPath.startsWith(resolvedSrc + path.sep)) continue;
+    if (!destPath.startsWith(resolvedDest + path.sep)) continue;
     if (entry.isDirectory()) {
       restoreDirSync(srcPath, destPath, isEncrypted, excludeDirs);
     } else {
@@ -888,7 +901,8 @@ function buildSyncExcludeDirs(syncConfig) {
  */
 function detectSyncEncryption(syncDataDir) {
   try {
-    return fs.readdirSync(syncDataDir).some(f => f.endsWith('.enc'));
+    const resolved = path.resolve(syncDataDir);
+    return fs.readdirSync(resolved).some(f => f.endsWith('.enc'));
   } catch {
     return false;
   }
@@ -917,7 +931,12 @@ function performAutoSync(trigger, forcedDirection) {
   autoSyncStatus.lastError = null;
 
   try {
-    const syncRoot = path.resolve(syncConfig.directory);
+    const dirValidation = validateSyncDirectory(syncConfig.directory);
+    if (!dirValidation.valid) {
+      autoSyncStatus.syncing = false;
+      return { success: false, error: dirValidation.error };
+    }
+    const syncRoot = dirValidation.resolved;
     const syncDataDir = path.join(syncRoot, AUTO_SYNC_FOLDER_NAME);
     const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
 
@@ -971,10 +990,13 @@ function performAutoSync(trigger, forcedDirection) {
       }
 
       // Clear existing sync data (except Date file) to avoid stale files
-      const existingEntries = fs.readdirSync(syncDataDir, { withFileTypes: true });
+      const resolvedSyncDataDir = path.resolve(syncDataDir);
+      const existingEntries = fs.readdirSync(resolvedSyncDataDir, { withFileTypes: true });
       for (const entry of existingEntries) {
         if (entry.name === AUTO_SYNC_DATE_FILE) continue;
-        const entryPath = path.join(syncDataDir, entry.name);
+        const entryPath = path.join(resolvedSyncDataDir, entry.name);
+        // Defense-in-depth: verify path remains within sync directory
+        if (!entryPath.startsWith(resolvedSyncDataDir + path.sep)) continue;
         if (entry.isDirectory()) {
           fs.rmSync(entryPath, { recursive: true, force: true });
         } else {
@@ -1262,7 +1284,7 @@ function startPythonProcess() {
   // Spawn the service script inside the venv
   function spawnPython() {
     try {
-      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT), MODELS_DIR, TRAINING_OUTPUTS_DIR], {
+      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT), MODELS_DIR, TRAINING_OUTPUTS_DIR, DATASETS_DIR], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -2378,12 +2400,13 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
     }
 
     // Validate directory path exists (or can be created) when enabling
+    let resolvedDir = null;
     if (enabled) {
       const dirValidation = validateSyncDirectory(directory.trim());
       if (!dirValidation.valid) {
         return res.status(400).json({ success: false, error: dirValidation.error });
       }
-      const resolvedDir = dirValidation.resolved;
+      resolvedDir = dirValidation.resolved;
       try {
         if (!fs.existsSync(resolvedDir)) {
           fs.mkdirSync(resolvedDir, { recursive: true });
@@ -2407,8 +2430,8 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
     writeSettings({ ...settings, autoSync });
 
     // If enabling, create the LocalLLM Data folder immediately
-    if (enabled) {
-      const syncDataDir = path.join(path.resolve(autoSync.directory), AUTO_SYNC_FOLDER_NAME);
+    if (enabled && resolvedDir) {
+      const syncDataDir = path.join(resolvedDir, AUTO_SYNC_FOLDER_NAME);
       if (!fs.existsSync(syncDataDir)) {
         fs.mkdirSync(syncDataDir, { recursive: true });
         console.log(`[auto-sync] Created sync folder: ${syncDataDir}`);
@@ -2875,13 +2898,16 @@ app.post('/api/admin/auto-sync/status', async (req, res) => {
     let hasExistingData = false;
     let remoteDate = null;
     if (syncConfig.directory) {
-      const syncDataDir = path.join(path.resolve(syncConfig.directory), AUTO_SYNC_FOLDER_NAME);
-      const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
-      if (fs.existsSync(syncDataDir) && fs.existsSync(syncDateFile)) {
-        hasExistingData = true;
-        try {
-          remoteDate = fs.readFileSync(syncDateFile, 'utf-8').trim();
-        } catch { /* ignore */ }
+      const dirValidation = validateSyncDirectory(syncConfig.directory);
+      if (dirValidation.valid) {
+        const syncDataDir = path.join(dirValidation.resolved, AUTO_SYNC_FOLDER_NAME);
+        const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
+        if (fs.existsSync(syncDataDir) && fs.existsSync(syncDateFile)) {
+          hasExistingData = true;
+          try {
+            remoteDate = fs.readFileSync(syncDateFile, 'utf-8').trim();
+          } catch { /* ignore */ }
+        }
       }
     }
 

@@ -124,6 +124,9 @@ _allowed_models_dir = None
 # Allowed training outputs directory (set from CLI arg, separate from models)
 _allowed_training_outputs_dir = None
 
+# Allowed datasets directory (set from CLI arg, for validating dataset file paths)
+_allowed_datasets_dir = None
+
 # Default chat template for models that don't provide one
 _DEFAULT_CHAT_TEMPLATE = (
     "{% for message in messages %}"
@@ -176,6 +179,18 @@ def _validate_path_within_any_allowed_dir(target_path):
     if result is not None:
         return result
     return _validate_path_within_training_outputs_dir(target_path)
+
+
+def _validate_path_within_datasets_dir(target_path):
+    """Validate that *target_path* resolves to a path strictly inside
+    ``_allowed_datasets_dir``.  Returns the resolved absolute path on
+    success, or ``None`` if the path is outside the allowed directory."""
+    if not _allowed_datasets_dir:
+        return None
+    resolved = os.path.realpath(target_path)
+    if not resolved.startswith(_allowed_datasets_dir + os.sep):
+        return None
+    return resolved
 
 
 def _find_gguf_file(model_dir):
@@ -239,17 +254,25 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     model_name : str, optional
         Human-readable model name embedded in the GGUF metadata.
     """
+    # Defense-in-depth: validate paths are within allowed directories
+    validated_model_dir = _validate_path_within_any_allowed_dir(model_dir)
+    if validated_model_dir is None:
+        raise ValueError("model_dir is outside the allowed directory")
+    validated_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(os.path.realpath(output_path)))
+    if validated_output_parent is None:
+        raise ValueError("output_path is outside the allowed directory")
+    validated_output_path = os.path.join(validated_output_parent, os.path.basename(os.path.realpath(output_path)))
     import numpy as np
     from gguf import GGUFWriter, GGUFValueType  # noqa: E402
 
-    _log(f"GGUF conversion: loading model from {model_dir}")
+    _log(f"GGUF conversion: loading model from {validated_model_dir}")
 
-    config = AutoConfig.from_pretrained(model_dir)
+    config = AutoConfig.from_pretrained(validated_model_dir)
     model = AutoModelForCausalLM.from_pretrained(
-        model_dir, torch_dtype=torch.float32, device_map=None,
+        validated_model_dir, torch_dtype=torch.float32, device_map=None,
     )
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    tokenizer = AutoTokenizer.from_pretrained(validated_model_dir)
 
     n_embd = config.n_embd
     n_head = config.n_head
@@ -260,7 +283,7 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
 
     _log(f"GGUF conversion: arch=gpt2 layers={n_layer} embd={n_embd} heads={n_head} vocab={vocab_size}")
 
-    writer = GGUFWriter(output_path, arch="gpt2")
+    writer = GGUFWriter(validated_output_path, arch="gpt2")
 
     # ---- Model metadata -------------------------------------------------- #
     writer.add_name(model_name)
@@ -303,7 +326,7 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
 
     # BPE merges (from the fast tokenizer's internal model)
     try:
-        tok_json_path = os.path.join(model_dir, "tokenizer.json")
+        tok_json_path = os.path.join(validated_model_dir, "tokenizer.json")
         if os.path.isfile(tok_json_path):
             with open(tok_json_path, "r", encoding="utf-8") as f:
                 tok_data = json.load(f)
@@ -382,9 +405,9 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     writer.write_tensors_to_file()
     writer.close()
 
-    file_size = os.path.getsize(output_path)
-    _log(f"GGUF conversion: completed – {output_path} ({file_size / (1024*1024):.1f} MB)")
-    return output_path
+    file_size = os.path.getsize(validated_output_path)
+    _log(f"GGUF conversion: completed – {validated_output_path} ({file_size / (1024*1024):.1f} MB)")
+    return validated_output_path
 
 
 def _get_device_map():
@@ -1205,13 +1228,29 @@ class _Handler(BaseHTTPRequestHandler):
             if normed != dp or os.path.isabs(dp) is False:
                 self._send_json(400, {"error": f"{label} contains invalid path components"})
                 return
-            if not os.path.isfile(os.path.realpath(dp)):
-                self._send_json(400, {"error": f"{label} does not exist"})
-                return
 
         # Use resolved (realpath) dataset paths to prevent symlink attacks
-        resolved_dataset_paths = [os.path.realpath(p) for p in all_dataset_paths]
-        resolved_post_dataset_paths = [os.path.realpath(p) for p in all_post_dataset_paths]
+        resolved_dataset_paths = []
+        for i, p in enumerate(all_dataset_paths):
+            validated = _validate_path_within_datasets_dir(p)
+            if validated is None:
+                self._send_json(403, {"error": f"dataset_paths[{i}] is outside the allowed datasets directory"})
+                return
+            if not os.path.isfile(validated):
+                self._send_json(400, {"error": f"dataset_paths[{i}] does not exist"})
+                return
+            resolved_dataset_paths.append(validated)
+
+        resolved_post_dataset_paths = []
+        for i, p in enumerate(all_post_dataset_paths):
+            validated = _validate_path_within_datasets_dir(p)
+            if validated is None:
+                self._send_json(403, {"error": f"post_dataset_paths[{i}] is outside the allowed datasets directory"})
+                return
+            if not os.path.isfile(validated):
+                self._send_json(400, {"error": f"post_dataset_paths[{i}] does not exist"})
+                return
+            resolved_post_dataset_paths.append(validated)
 
         if not isinstance(epochs, int) or epochs < 1 or epochs > 100:
             self._send_json(400, {"error": "epochs must be between 1 and 100"})
@@ -1332,14 +1371,15 @@ class _Handler(BaseHTTPRequestHandler):
 
         # Validate output_path is within allowed directory (models or training-outputs)
         # Resolve the full output path to prevent path traversal in the filename
-        resolved_output_path = os.path.realpath(output_path)
-        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(resolved_output_path))
+        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(os.path.realpath(output_path)))
         if resolved_output_parent is None:
             if not _allowed_models_dir and not _allowed_training_outputs_dir:
                 self._send_json(500, {"error": "No allowed models directory configured"})
             else:
                 self._send_json(403, {"error": "output_path is outside the allowed directory"})
             return
+        # Reconstruct from validated parent + sanitized basename
+        resolved_output_path = os.path.join(resolved_output_parent, os.path.basename(os.path.realpath(output_path)))
 
         # Validate model_name is safe
         if not isinstance(model_name, str) or len(model_name) > 200:
@@ -1620,7 +1660,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global _allowed_models_dir, _allowed_training_outputs_dir
+    global _allowed_models_dir, _allowed_training_outputs_dir, _allowed_datasets_dir
 
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5555
 
@@ -1633,6 +1673,11 @@ def main():
     if len(sys.argv) > 3:
         _allowed_training_outputs_dir = os.path.realpath(sys.argv[3])
         print(f"Training outputs directory: {_allowed_training_outputs_dir}", flush=True)
+
+    # Optional: datasets directory (for validating dataset file paths)
+    if len(sys.argv) > 4:
+        _allowed_datasets_dir = os.path.realpath(sys.argv[4])
+        print(f"Datasets directory: {_allowed_datasets_dir}", flush=True)
 
     stop_event = threading.Event()
 
