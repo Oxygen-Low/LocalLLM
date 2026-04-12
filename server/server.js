@@ -1242,7 +1242,7 @@ function startPythonProcess() {
   }
 
   // Ensure gguf package is installed (may be missing in older installations
-  // created before gguf was added to the dependency list)
+  // created before gguf was added to the dependency list).
   const ggufMarker = path.join(PYTHON_VENV_DIR, '.gguf_installed');
   if (fs.existsSync(transformersMarker) && !fs.existsSync(ggufMarker) && allowRuntimeInstall) {
     console.log('Installing gguf package for GGUF model conversion support...');
