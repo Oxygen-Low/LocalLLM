@@ -757,7 +757,10 @@ let autoSyncStatus = { lastSync: null, lastError: null, syncing: false };
  * Must not overlap with the application data directory.
  */
 function validateSyncDirectory(directory) {
-  if (typeof directory !== 'string' || directory.includes('\0')) {
+  if (typeof directory !== 'string') {
+    return { valid: false, error: 'Invalid directory path' };
+  }
+  if (directory.includes('\0')) {
     return { valid: false, error: 'Invalid directory path' };
   }
   const resolved = path.resolve(directory);

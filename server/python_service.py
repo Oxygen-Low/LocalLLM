@@ -1238,7 +1238,10 @@ class _Handler(BaseHTTPRequestHandler):
         for i, p in enumerate(all_dataset_paths):
             validated = _validate_path_within_datasets_dir(p)
             if validated is None:
-                self._send_json(403, {"error": f"dataset_paths[{i}] is outside the allowed datasets directory"})
+                if not _allowed_datasets_dir:
+                    self._send_json(500, {"error": "No allowed datasets directory configured"})
+                else:
+                    self._send_json(403, {"error": f"dataset_paths[{i}] is outside the allowed datasets directory"})
                 return
             if not os.path.isfile(validated):
                 self._send_json(400, {"error": f"dataset_paths[{i}] does not exist"})
@@ -1249,7 +1252,10 @@ class _Handler(BaseHTTPRequestHandler):
         for i, p in enumerate(all_post_dataset_paths):
             validated = _validate_path_within_datasets_dir(p)
             if validated is None:
-                self._send_json(403, {"error": f"post_dataset_paths[{i}] is outside the allowed datasets directory"})
+                if not _allowed_datasets_dir:
+                    self._send_json(500, {"error": "No allowed datasets directory configured"})
+                else:
+                    self._send_json(403, {"error": f"post_dataset_paths[{i}] is outside the allowed datasets directory"})
                 return
             if not os.path.isfile(validated):
                 self._send_json(400, {"error": f"post_dataset_paths[{i}] does not exist"})
