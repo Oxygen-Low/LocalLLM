@@ -835,8 +835,10 @@ function copyDirSync(src, dest, shouldEncrypt, excludeDirs) {
     const srcPath = path.join(resolvedSrc, entry.name);
     const destPath = path.join(resolvedDest, entry.name);
     // Defense-in-depth: verify paths remain within boundaries
-    if (!srcPath.startsWith(resolvedSrc + path.sep)) continue;
-    if (!destPath.startsWith(resolvedDest + path.sep)) continue;
+    const srcRel = path.relative(resolvedSrc, srcPath);
+    const destRel = path.relative(resolvedDest, destPath);
+    if (srcRel.startsWith('..') || path.isAbsolute(srcRel)) continue;
+    if (destRel.startsWith('..') || path.isAbsolute(destRel)) continue;
     if (entry.isDirectory()) {
       copyDirSync(srcPath, destPath, shouldEncrypt, excludeDirs);
     } else {
@@ -869,8 +871,10 @@ function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
     const srcPath = path.join(resolvedSrc, entry.name);
     const destPath = path.join(resolvedDest, entry.name);
     // Defense-in-depth: verify paths remain within boundaries
-    if (!srcPath.startsWith(resolvedSrc + path.sep)) continue;
-    if (!destPath.startsWith(resolvedDest + path.sep)) continue;
+    const srcRel = path.relative(resolvedSrc, srcPath);
+    const destRel = path.relative(resolvedDest, destPath);
+    if (srcRel.startsWith('..') || path.isAbsolute(srcRel)) continue;
+    if (destRel.startsWith('..') || path.isAbsolute(destRel)) continue;
     if (entry.isDirectory()) {
       restoreDirSync(srcPath, destPath, isEncrypted, excludeDirs);
     } else {
@@ -996,7 +1000,8 @@ function performAutoSync(trigger, forcedDirection) {
         if (entry.name === AUTO_SYNC_DATE_FILE) continue;
         const entryPath = path.join(resolvedSyncDataDir, entry.name);
         // Defense-in-depth: verify path remains within sync directory
-        if (!entryPath.startsWith(resolvedSyncDataDir + path.sep)) continue;
+        const entryRel = path.relative(resolvedSyncDataDir, entryPath);
+        if (entryRel.startsWith('..') || path.isAbsolute(entryRel)) continue;
         if (entry.isDirectory()) {
           fs.rmSync(entryPath, { recursive: true, force: true });
         } else {

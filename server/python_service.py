@@ -258,10 +258,14 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     validated_model_dir = _validate_path_within_any_allowed_dir(model_dir)
     if validated_model_dir is None:
         raise ValueError("model_dir is outside the allowed directory")
-    validated_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(os.path.realpath(output_path)))
+    validated_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(output_path))
     if validated_output_parent is None:
         raise ValueError("output_path is outside the allowed directory")
-    validated_output_path = os.path.join(validated_output_parent, os.path.basename(os.path.realpath(output_path)))
+    # Reconstruct output path from validated parent and sanitized basename
+    output_basename = os.path.basename(output_path)
+    if not output_basename or output_basename in ('.', '..'):
+        raise ValueError("output_path has an invalid filename")
+    validated_output_path = os.path.join(validated_output_parent, output_basename)
     import numpy as np
     from gguf import GGUFWriter, GGUFValueType  # noqa: E402
 
@@ -1370,8 +1374,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         # Validate output_path is within allowed directory (models or training-outputs)
-        # Resolve the full output path to prevent path traversal in the filename
-        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(os.path.realpath(output_path)))
+        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(output_path))
         if resolved_output_parent is None:
             if not _allowed_models_dir and not _allowed_training_outputs_dir:
                 self._send_json(500, {"error": "No allowed models directory configured"})
@@ -1379,7 +1382,11 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error": "output_path is outside the allowed directory"})
             return
         # Reconstruct from validated parent + sanitized basename
-        resolved_output_path = os.path.join(resolved_output_parent, os.path.basename(os.path.realpath(output_path)))
+        output_basename = os.path.basename(output_path)
+        if not output_basename or output_basename in ('.', '..'):
+            self._send_json(400, {"error": "output_path has an invalid filename"})
+            return
+        resolved_output_path = os.path.join(resolved_output_parent, output_basename)
 
         # Validate model_name is safe
         if not isinstance(model_name, str) or len(model_name) > 200:
