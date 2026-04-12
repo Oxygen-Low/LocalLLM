@@ -1225,7 +1225,7 @@ function startPythonProcess() {
       // Install transformers, huggingface_hub and datasets
       console.log('Installing transformers, huggingface_hub, and datasets...');
       execFileSync(venvPip, [
-        'install', 'transformers', 'huggingface_hub', 'accelerate', 'datasets',
+        'install', 'transformers', 'huggingface_hub', 'accelerate', 'datasets', 'gguf',
       ], {
         timeout: 300000, // 5 minutes
         stdio: 'inherit',
@@ -1243,7 +1243,7 @@ function startPythonProcess() {
   // Spawn the service script inside the venv
   function spawnPython() {
     try {
-      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT), MODELS_DIR], {
+      const proc = spawn(venvPython, [PYTHON_SERVICE_SCRIPT, String(PYTHON_SERVICE_PORT), MODELS_DIR, TRAINING_OUTPUTS_DIR], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -6436,6 +6436,11 @@ app.put('/api/local-fix/sessions/:id/file', requireSession, (req, res) => {
 const TRAININGS_DIR = path.join(DATA_DIR, 'trainings');
 if (!fs.existsSync(TRAININGS_DIR)) fs.mkdirSync(TRAININGS_DIR, { recursive: true });
 
+// Training outputs directory: stores from-scratch trained models separately
+// from admin-managed models so they are never served for inference.
+const TRAINING_OUTPUTS_DIR = path.join(DATA_DIR, 'training-outputs');
+if (!fs.existsSync(TRAINING_OUTPUTS_DIR)) fs.mkdirSync(TRAINING_OUTPUTS_DIR, { recursive: true });
+
 function getUserTrainingsMetaFile(username) {
   const safe = path.basename(sanitizeUsernameForPath(username));
   return ensureWithinDir(TRAININGS_DIR, path.join(TRAININGS_DIR, `${safe}.json`));
@@ -6553,10 +6558,14 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
       return res.status(429).json({ success: false, error: 'Maximum 3 concurrent training jobs allowed. Please wait for a job to complete.' });
     }
 
-    // Create output directory for the trained model
+    // Create output directory for the trained model.
+    // From-scratch models go to TRAINING_OUTPUTS_DIR (not registered for inference).
+    // Fine-tuned models go to MODELS_DIR (registered in the model registry).
     const outputModelId = crypto.randomUUID();
-    const outputDir = path.join(path.resolve(MODELS_DIR), outputModelId);
-    ensureWithinDir(MODELS_DIR, outputDir);
+    const isFromScratch = mode === 'from-scratch';
+    const outputBaseDir = isFromScratch ? TRAINING_OUTPUTS_DIR : MODELS_DIR;
+    const outputDir = path.join(path.resolve(outputBaseDir), outputModelId);
+    ensureWithinDir(outputBaseDir, outputDir);
 
     // Resolve model directory (only needed for fine-tuning)
     const modelDir = baseModel ? getModelDirPath(baseModel) : null;
@@ -6649,22 +6658,25 @@ app.get('/api/train-llm/jobs', requireSession, async (req, res) => {
 
             if (progress.status === 'completed') {
               job.completedAt = new Date().toISOString();
-              // Register the output model
-              await withModelsLock(async () => {
-                const models = readLocalModels();
-                if (!models.some(m => m.id === job.outputModelId)) {
-                  models.push({
-                    id: job.outputModelId,
-                    name: job.name,
-                    huggingFaceId: `trained-from-${job.baseModelName}`,
-                    directory: job.outputModelId,
-                    type: 'transformers',
-                    size: progress.size || 0,
-                    downloadedAt: new Date().toISOString(),
-                  });
-                  writeLocalModels(models);
-                }
-              });
+              // Only register fine-tuned models in the server model registry.
+              // From-scratch models are download-only (not registered for inference).
+              if (job.trainingMode !== 'from-scratch') {
+                await withModelsLock(async () => {
+                  const models = readLocalModels();
+                  if (!models.some(m => m.id === job.outputModelId)) {
+                    models.push({
+                      id: job.outputModelId,
+                      name: job.name,
+                      huggingFaceId: `trained-from-${job.baseModelName}`,
+                      directory: job.outputModelId,
+                      type: 'transformers',
+                      size: progress.size || 0,
+                      downloadedAt: new Date().toISOString(),
+                    });
+                    writeLocalModels(models);
+                  }
+                });
+              }
             } else if (progress.status === 'failed' || progress.status === 'cancelled') {
               job.completedAt = new Date().toISOString();
             }
@@ -6714,21 +6726,25 @@ app.get('/api/train-llm/jobs/:id', requireSession, async (req, res) => {
 
           if (progress.status === 'completed') {
             job.completedAt = new Date().toISOString();
-            await withModelsLock(async () => {
-              const models = readLocalModels();
-              if (!models.some(m => m.id === job.outputModelId)) {
-                models.push({
-                  id: job.outputModelId,
-                  name: job.name,
-                  huggingFaceId: `trained-from-${job.baseModelName}`,
-                  directory: job.outputModelId,
-                  type: 'transformers',
-                  size: progress.size || 0,
-                  downloadedAt: new Date().toISOString(),
-                });
-                writeLocalModels(models);
-              }
-            });
+            // Only register fine-tuned models in the server model registry.
+            // From-scratch models are download-only (not registered for inference).
+            if (job.trainingMode !== 'from-scratch') {
+              await withModelsLock(async () => {
+                const models = readLocalModels();
+                if (!models.some(m => m.id === job.outputModelId)) {
+                  models.push({
+                    id: job.outputModelId,
+                    name: job.name,
+                    huggingFaceId: `trained-from-${job.baseModelName}`,
+                    directory: job.outputModelId,
+                    type: 'transformers',
+                    size: progress.size || 0,
+                    downloadedAt: new Date().toISOString(),
+                  });
+                  writeLocalModels(models);
+                }
+              });
+            }
           } else if (progress.status === 'failed' || progress.status === 'cancelled') {
             job.completedAt = new Date().toISOString();
           }
@@ -6804,6 +6820,19 @@ app.delete('/api/train-llm/jobs/:id', requireSession, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Can only delete completed, failed, or cancelled jobs' });
     }
 
+    // Clean up training output files for from-scratch models
+    if (job.trainingMode === 'from-scratch' && job.outputModelId) {
+      const outputDir = path.join(TRAINING_OUTPUTS_DIR, job.outputModelId);
+      try {
+        ensureWithinDir(TRAINING_OUTPUTS_DIR, outputDir);
+        if (fs.existsSync(outputDir)) {
+          fs.rmSync(outputDir, { recursive: true, force: true });
+        }
+      } catch (cleanupErr) {
+        console.warn(`Failed to clean up training output dir: ${cleanupErr.message}`);
+      }
+    }
+
     jobs.splice(jobIdx, 1);
     writeUserTrainings(req.sessionUser, jobs);
 
@@ -6812,6 +6841,89 @@ app.delete('/api/train-llm/jobs/:id', requireSession, async (req, res) => {
   } catch (err) {
     console.error('Delete training job error:', err);
     res.status(500).json({ success: false, error: 'Failed to delete training job' });
+  }
+});
+
+// GET /api/train-llm/jobs/:id/download-gguf – Download a from-scratch trained model as GGUF
+app.get('/api/train-llm/jobs/:id/download-gguf', requireSession, async (req, res) => {
+  try {
+    const jobs = readUserTrainings(req.sessionUser);
+    const job = jobs.find(j => j.id === req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: 'Training job not found' });
+
+    if (job.status !== 'completed') {
+      return res.status(400).json({ success: false, error: 'Can only download completed training jobs' });
+    }
+
+    if (job.trainingMode !== 'from-scratch') {
+      return res.status(400).json({ success: false, error: 'GGUF download is only available for from-scratch trained models' });
+    }
+
+    // The model is stored in TRAINING_OUTPUTS_DIR
+    const modelDir = path.join(TRAINING_OUTPUTS_DIR, job.outputModelId);
+    ensureWithinDir(TRAINING_OUTPUTS_DIR, modelDir);
+
+    if (!fs.existsSync(modelDir)) {
+      return res.status(404).json({ success: false, error: 'Training output files not found. The model may have been cleaned up.' });
+    }
+
+    // Check if GGUF file already exists (cached from previous conversion)
+    const ggufFilename = `${job.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.gguf`;
+    const ggufPath = path.join(modelDir, ggufFilename);
+    ensureWithinDir(TRAINING_OUTPUTS_DIR, ggufPath);
+
+    if (!fs.existsSync(ggufPath)) {
+      // Convert the model to GGUF via Python service
+      const healthy = await checkPythonServiceHealth();
+      if (!healthy) {
+        return res.status(503).json({ success: false, error: 'Python service is not available. Please try again later.' });
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2 * 60 * 1000); // 2 minute timeout for conversion
+      try {
+        const pyRes = await fetch(`${PYTHON_SERVICE_URL}/convert-to-gguf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model_dir: modelDir,
+            output_path: ggufPath,
+            model_name: job.name,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!pyRes.ok) {
+          const errBody = await pyRes.json().catch(() => ({}));
+          return res.status(500).json({ success: false, error: errBody.error || 'Failed to convert model to GGUF' });
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        console.error('GGUF conversion error:', fetchErr);
+        return res.status(500).json({ success: false, error: 'Failed to convert model to GGUF' });
+      }
+    }
+
+    // Stream the GGUF file to the client
+    const stat = fs.statSync(ggufPath);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${ggufFilename}"`);
+    res.setHeader('Content-Length', stat.size);
+
+    const readStream = fs.createReadStream(ggufPath);
+    readStream.pipe(res);
+    readStream.on('error', (err) => {
+      console.error('GGUF file stream error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Failed to stream GGUF file' });
+      }
+    });
+  } catch (err) {
+    console.error('Download GGUF error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to download GGUF model' });
+    }
   }
 });
 
@@ -9979,4 +10091,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT };

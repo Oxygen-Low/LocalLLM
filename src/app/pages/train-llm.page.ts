@@ -133,6 +133,19 @@ type PageView = 'queue' | 'create';
                       }
                     </span>
                     <div class="flex gap-2">
+                      @if (job.status === 'completed' && job.trainingMode === 'from-scratch') {
+                        <button
+                          (click)="downloadGguf(job.id)"
+                          [disabled]="downloadingJobId() === job.id"
+                          class="px-3 py-1.5 text-sm text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                        >
+                          @if (downloadingJobId() === job.id) {
+                            {{ t.translate('trainLlm.job.converting') }}
+                          } @else {
+                            {{ t.translate('trainLlm.job.downloadGguf') }}
+                          }
+                        </button>
+                      }
                       @if (trainLlmService.isActive(job.status)) {
                         <button
                           (click)="cancelJob(job.id)"
@@ -402,6 +415,7 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
   formBatchSize = 4;
   isCreating = signal(false);
   createError = signal('');
+  downloadingJobId = signal<string | null>(null);
 
   private static readonly POLL_INTERVAL_MS = 5000;
   private jobPollingInterval: ReturnType<typeof setInterval> | null = null;
@@ -528,6 +542,13 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
     } catch (err) {
       console.error('Failed to delete job:', err);
     }
+  }
+
+  downloadGguf(id: string): void {
+    this.downloadingJobId.set(id);
+    this.trainLlmService.downloadGguf(id, () => {
+      this.downloadingJobId.set(null);
+    });
   }
 
   getStatusBadgeClass(status: string): string {
