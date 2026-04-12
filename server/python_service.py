@@ -1331,7 +1331,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         # Validate output_path is within allowed directory (models or training-outputs)
-        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(output_path))
+        # Resolve the full output path to prevent path traversal in the filename
+        resolved_output_path = os.path.realpath(output_path)
+        resolved_output_parent = _validate_path_within_any_allowed_dir(os.path.dirname(resolved_output_path))
         if resolved_output_parent is None:
             if not _allowed_models_dir and not _allowed_training_outputs_dir:
                 self._send_json(500, {"error": "No allowed models directory configured"})
@@ -1345,11 +1347,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            _convert_model_to_gguf(resolved_model_dir, output_path, model_name=model_name)
-            file_size = os.path.getsize(output_path)
+            _convert_model_to_gguf(resolved_model_dir, resolved_output_path, model_name=model_name)
+            file_size = os.path.getsize(resolved_output_path)
             self._send_json(200, {
                 "success": True,
-                "path": output_path,
+                "path": resolved_output_path,
                 "size": file_size,
             })
         except Exception as exc:

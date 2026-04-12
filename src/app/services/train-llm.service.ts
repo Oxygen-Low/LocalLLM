@@ -105,7 +105,7 @@ export class TrainLlmService {
     return res;
   }
 
-  downloadGguf(id: string): void {
+  downloadGguf(id: string, onComplete?: () => void): void {
     // Trigger a file download by navigating to the GGUF download endpoint.
     // We use a hidden anchor element to handle the browser download correctly.
     const url = `${environment.apiUrl}/api/train-llm/jobs/${id}/download-gguf`;
@@ -130,9 +130,11 @@ export class TrainLlmService {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(downloadUrl);
+        onComplete?.();
       },
       error: (err) => {
         console.error('Failed to download GGUF:', err);
+        onComplete?.();
       },
     });
   }

@@ -6880,7 +6880,7 @@ app.get('/api/train-llm/jobs/:id/download-gguf', requireSession, async (req, res
       }
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000); // 2 minute timeout for conversion
+      const timeout = setTimeout(() => controller.abort(), 2 * 60 * 1000); // 2 minute timeout for conversion
       try {
         const pyRes = await fetch(`${PYTHON_SERVICE_URL}/convert-to-gguf`, {
           method: 'POST',

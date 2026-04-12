@@ -546,9 +546,9 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
 
   downloadGguf(id: string): void {
     this.downloadingJobId.set(id);
-    this.trainLlmService.downloadGguf(id);
-    // Reset the downloading state after a short delay (the download is async)
-    setTimeout(() => this.downloadingJobId.set(null), 5000);
+    this.trainLlmService.downloadGguf(id, () => {
+      this.downloadingJobId.set(null);
+    });
   }
 
   getStatusBadgeClass(status: string): string {
