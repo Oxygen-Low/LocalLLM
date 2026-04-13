@@ -17,3 +17,5 @@
 ## 2026-04-11 - [Accessibility] Added missing aria-expanded and aria-haspopup on mobile navbar
 **Learning:** Interactive menu toggle buttons must include `[attr.aria-expanded]` to reflect their open/closed state and `aria-haspopup` to indicate they open a menu to screen readers. Failing to do so prevents visually impaired users from knowing the menu state.
 **Action:** Applied `[attr.aria-expanded]="mobileMenuOpen()"` and `aria-haspopup="menu"` to the mobile menu button in `navbar.component.ts` to guarantee compliance with custom interactive elements guidelines.
+
+- **Accessibility for Hidden Interactive Elements:** Elements hidden by default via `opacity-0` but intended to be interactive (like icon buttons for edit/delete) must remain accessible to keyboard users. When using `focus-visible:opacity-100` to make them visible on tab focus, ensure they also have an explicit focus indicator. Added `outline-none focus-visible:ring-2 focus-visible:ring-secondary-500` (or `focus-visible:ring-red-500` for destructive actions) to ensure screen readers and keyboard users can visibly tell which element has focus.
