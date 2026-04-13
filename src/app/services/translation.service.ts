@@ -1073,6 +1073,54 @@ const translations: TranslationDictionary = {
     ja: '{count}行',
     ru: '{count} строк',
   },
+  'datasets.datasetTypeLabel': {
+    en: 'Dataset Type',
+    ko: '데이터셋 유형',
+    ja: 'データセットタイプ',
+    ru: 'Тип набора данных',
+  },
+  'datasets.typeStandard': {
+    en: 'Training Dataset',
+    ko: '학습 데이터셋',
+    ja: 'トレーニングデータセット',
+    ru: 'Обучающий набор',
+  },
+  'datasets.typeStandardDesc': {
+    en: 'Instruction, Input, Output format for main training',
+    ko: '주요 학습을 위한 지시, 입력, 출력 형식',
+    ja: 'メイントレーニング用の指示・入力・出力形式',
+    ru: 'Формат инструкция/ввод/вывод для основного обучения',
+  },
+  'datasets.typePostTraining': {
+    en: 'Post-Training',
+    ko: '사후학습',
+    ja: 'ポストトレーニング',
+    ru: 'Пост-обучение',
+  },
+  'datasets.typePostTrainingDesc': {
+    en: 'Prompt, Chosen, Rejected format for preference learning',
+    ko: '선호도 학습을 위한 프롬프트, 선택, 거부 형식',
+    ja: '選好学習用のプロンプト・選択・拒否形式',
+    ru: 'Формат запрос/выбранный/отклонённый для обучения предпочтениям',
+  },
+  'datasets.tablePrompt': {
+    en: 'Prompt',
+    ko: '프롬프트',
+    ja: 'プロンプト',
+    ru: 'Запрос',
+  },
+  'datasets.tableChosen': {
+    en: 'Chosen',
+    ko: '선택',
+    ja: '選択',
+    ru: 'Выбранный',
+  },
+  'datasets.tableRejected': {
+    en: 'Rejected',
+    ko: '거부',
+    ja: '拒否',
+    ru: 'Отклонённый',
+  },
   'apps.category.data': {
     en: 'Data',
     ko: '데이터',
@@ -1500,10 +1548,10 @@ const translations: TranslationDictionary = {
     ru: 'Наборы данных для обучения',
   },
   'trainLlm.create.noDatasets': {
-    en: 'No datasets available. Create a dataset in the Datasets app first.',
-    ko: '사용 가능한 데이터셋이 없습니다. 먼저 데이터셋 앱에서 데이터셋을 만드세요.',
-    ja: '利用可能なデータセットがありません。まずデータセットアプリでデータセットを作成してください。',
-    ru: 'Нет доступных наборов данных. Сначала создайте набор данных в приложении «Наборы данных».',
+    en: 'No training datasets available. Create a dataset in the Datasets app first.',
+    ko: '사용 가능한 학습 데이터셋이 없습니다. 먼저 데이터셋 앱에서 데이터셋을 만드세요.',
+    ja: '利用可能なトレーニングデータセットがありません。まずデータセットアプリでデータセットを作成してください。',
+    ru: 'Нет доступных обучающих наборов данных. Сначала создайте набор данных в приложении «Наборы данных».',
   },
   'trainLlm.create.selectDataset': {
     en: '-- Select training datasets --',
@@ -1516,6 +1564,12 @@ const translations: TranslationDictionary = {
     ko: '후처리 훈련 데이터셋 (선택사항)',
     ja: 'ポストトレーニングデータセット（オプション）',
     ru: 'Наборы данных для пост-обучения (необязательно)',
+  },
+  'trainLlm.create.noPostTrainingDatasets': {
+    en: 'No post-training datasets available. Generate a post-training dataset in the Datasets app.',
+    ko: '사용 가능한 사후학습 데이터셋이 없습니다. 데이터셋 앱에서 사후학습 데이터셋을 생성하세요.',
+    ja: 'ポストトレーニングデータセットがありません。データセットアプリでポストトレーニングデータセットを生成してください。',
+    ru: 'Нет доступных наборов пост-обучения. Создайте набор пост-обучения в приложении «Наборы данных».',
   },
   'trainLlm.create.noPostDataset': {
     en: '-- None (skip post-training) --',

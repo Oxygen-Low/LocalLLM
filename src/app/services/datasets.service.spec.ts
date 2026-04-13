@@ -45,12 +45,13 @@ describe('DatasetsService', () => {
         retryOnFail: false,
         individualGeneration: false,
         numRows: 10,
+        datasetType: 'standard',
       });
       req.flush(mockResponse);
       const result = await promise;
       expect(result.success).toBe(true);
       expect(result.rows.length).toBe(1);
-      expect(result.rows[0].instruction).toBe('Do X');
+      expect((result.rows[0] as DatasetRow).instruction).toBe('Do X');
       expect(result.totalTokens).toBe(150);
     });
 
@@ -70,6 +71,7 @@ describe('DatasetsService', () => {
         retryOnFail: true,
         individualGeneration: false,
         numRows: 10,
+        datasetType: 'standard',
       });
       req.flush(mockResponse);
       const result = await promise;
@@ -122,6 +124,7 @@ describe('DatasetsService', () => {
         name: 'my-dataset',
         description: 'A test dataset',
         rows,
+        datasetType: 'standard',
       });
       req.flush(mockResponse);
       const result = await promise;
@@ -253,7 +256,7 @@ describe('DatasetsService', () => {
       const result = await promise;
       expect(result.success).toBe(true);
       expect(result.rows.length).toBe(1);
-      expect(result.rows[0].instruction).toBe('Improved instruction');
+      expect((result.rows[0] as DatasetRow).instruction).toBe('Improved instruction');
       expect(result.totalTokens).toBe(200);
       expect(result.originalName).toBe('my-dataset');
     });
@@ -336,7 +339,7 @@ describe('DatasetsService', () => {
       const result = await promise;
       expect(result.success).toBe(true);
       expect(result.rows.length).toBe(2);
-      expect(result.rows[0].instruction).toBe('Do X');
+      expect((result.rows[0] as DatasetRow).instruction).toBe('Do X');
     });
 
     it('should return error response on failure', async () => {

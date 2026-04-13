@@ -264,13 +264,13 @@ type PageView = 'queue' | 'create';
                 <label class="block text-sm font-medium text-secondary-700 mb-1.5">
                   {{ t.translate('trainLlm.create.dataset') }}
                 </label>
-                @if (datasets().length === 0) {
+                @if (trainingDatasets().length === 0) {
                   <p class="text-sm text-muted">
                     {{ t.translate('trainLlm.create.noDatasets') }}
                   </p>
                 } @else {
                   <div class="max-h-48 overflow-y-auto border border-secondary-200 rounded-lg divide-y divide-secondary-100">
-                    @for (ds of datasets(); track ds.id) {
+                    @for (ds of trainingDatasets(); track ds.id) {
                       <label class="flex items-center gap-3 px-3 py-2 hover:bg-secondary-50 cursor-pointer text-sm">
                         <input
                           type="checkbox"
@@ -291,20 +291,26 @@ type PageView = 'queue' | 'create';
                 <label class="block text-sm font-medium text-secondary-700 mb-1.5">
                   {{ t.translate('trainLlm.create.postDataset') }}
                 </label>
-                <div class="max-h-48 overflow-y-auto border border-secondary-200 rounded-lg divide-y divide-secondary-100">
-                  @for (ds of datasets(); track ds.id) {
-                    <label class="flex items-center gap-3 px-3 py-2 hover:bg-secondary-50 cursor-pointer text-sm">
-                      <input
-                        type="checkbox"
-                        [checked]="formPostDatasetIds.includes(ds.id)"
-                        (change)="toggleDataset(ds.id, 'post')"
-                        class="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
-                      />
-                      <span class="text-secondary-800">{{ ds.name }}</span>
-                      <span class="text-xs text-muted ml-auto">({{ ds.rowCount }} rows)</span>
-                    </label>
-                  }
-                </div>
+                @if (postTrainingDatasets().length === 0) {
+                  <p class="text-sm text-muted">
+                    {{ t.translate('trainLlm.create.noPostTrainingDatasets') }}
+                  </p>
+                } @else {
+                  <div class="max-h-48 overflow-y-auto border border-secondary-200 rounded-lg divide-y divide-secondary-100">
+                    @for (ds of postTrainingDatasets(); track ds.id) {
+                      <label class="flex items-center gap-3 px-3 py-2 hover:bg-secondary-50 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          [checked]="formPostDatasetIds.includes(ds.id)"
+                          (change)="toggleDataset(ds.id, 'post')"
+                          class="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span class="text-secondary-800">{{ ds.name }}</span>
+                        <span class="text-xs text-muted ml-auto">({{ ds.rowCount }} rows)</span>
+                      </label>
+                    }
+                  </div>
+                }
               </div>
 
               <!-- Training Parameters -->
@@ -403,6 +409,8 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
 
   models = signal<{ id: string; name: string }[]>([]);
   datasets = signal<DatasetEntry[]>([]);
+  trainingDatasets = signal<DatasetEntry[]>([]);
+  postTrainingDatasets = signal<DatasetEntry[]>([]);
 
   // Create form
   formName = '';
@@ -465,7 +473,10 @@ export class TrainLlmPageComponent implements OnInit, OnDestroy {
       ]);
       this.models.set(localModels.map(m => ({ id: m.id, name: m.name })));
       if (datasetRes.success) {
-        this.datasets.set(datasetRes.datasets.filter(d => d.status === 'active'));
+        const activeDatasets = datasetRes.datasets.filter(d => d.status === 'active');
+        this.datasets.set(activeDatasets);
+        this.trainingDatasets.set(activeDatasets.filter(d => d.datasetType !== 'post-training'));
+        this.postTrainingDatasets.set(activeDatasets.filter(d => d.datasetType === 'post-training'));
       }
     } catch (err) {
       console.error('Failed to load models/datasets:', err);
