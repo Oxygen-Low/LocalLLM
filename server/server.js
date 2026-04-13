@@ -5034,7 +5034,8 @@ function getMaxDatasetTokens() {
 // POST /api/datasets/generate – Generate dataset rows using an LLM (token-based)
 app.post('/api/datasets/generate', requireSession, async (req, res) => {
   try {
-    const { instructions, provider, model, numTokens, retryOnFail, individualGeneration, numRows } = req.body;
+    const { instructions, provider, model, numTokens, retryOnFail, individualGeneration, numRows, datasetType } = req.body;
+    const isPostTraining = datasetType === 'post-training';
 
     if (!instructions || typeof instructions !== 'string' || instructions.trim().length === 0) {
       return res.status(400).json({ success: false, error: 'Instructions are required' });
@@ -5107,7 +5108,19 @@ app.post('/api/datasets/generate', requireSession, async (req, res) => {
     // --- Individual generation mode (SSE streaming) ---
     if (isIndividual) {
       const totalRows = typeof numRows === 'number' ? numRows : Number(numRows);
-      const individualPrompt = `You are a dataset generator. Based on the following instructions, generate exactly ONE training data row.
+      const individualPrompt = isPostTraining
+        ? `You are a post-training dataset generator. Based on the following instructions, generate exactly ONE post-training data row for preference learning (teaching an LLM which responses are good vs bad).
+
+Instructions: ${instructions.trim()}
+
+Output a single JSON object with three fields: "prompt", "chosen", and "rejected".
+- "prompt": The user prompt or question
+- "chosen": The preferred/good response that the model should learn to produce
+- "rejected": The undesired/bad response that the model should learn to avoid
+
+Return ONLY valid JSON, no markdown, no explanation. Example format:
+{"prompt": "...", "chosen": "...", "rejected": "..."}`
+        : `You are a dataset generator. Based on the following instructions, generate exactly ONE training data row.
 
 Instructions: ${instructions.trim()}
 
@@ -5183,14 +5196,27 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
           if (parsed && Array.isArray(parsed)) parsed = parsed[0];
 
           if (parsed && typeof parsed === 'object') {
-            const row = {
-              instruction: typeof parsed.instruction === 'string' ? parsed.instruction.trim() : '',
-              input: typeof parsed.input === 'string' ? parsed.input.trim() : '',
-              output: typeof parsed.output === 'string' ? parsed.output.trim() : '',
-            };
-            if (row.instruction && row.output) {
-              rowParsed = row;
-              break; // success, move to next row
+            let row;
+            if (isPostTraining) {
+              row = {
+                prompt: typeof parsed.prompt === 'string' ? parsed.prompt.trim() : '',
+                chosen: typeof parsed.chosen === 'string' ? parsed.chosen.trim() : '',
+                rejected: typeof parsed.rejected === 'string' ? parsed.rejected.trim() : '',
+              };
+              if (row.prompt && row.chosen && row.rejected) {
+                rowParsed = row;
+                break;
+              }
+            } else {
+              row = {
+                instruction: typeof parsed.instruction === 'string' ? parsed.instruction.trim() : '',
+                input: typeof parsed.input === 'string' ? parsed.input.trim() : '',
+                output: typeof parsed.output === 'string' ? parsed.output.trim() : '',
+              };
+              if (row.instruction && row.output) {
+                rowParsed = row;
+                break; // success, move to next row
+              }
             }
           }
 
@@ -5213,6 +5239,9 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       }
 
       const totalTokens = collectedRows.reduce((sum, r) => {
+        if (isPostTraining) {
+          return sum + estimateTokenCount(r.prompt) + estimateTokenCount(r.chosen) + estimateTokenCount(r.rejected);
+        }
         return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
       }, 0);
 
@@ -5226,7 +5255,22 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
     // Estimate number of rows from token count
     const estimatedRows = Math.max(1, Math.min(Math.ceil(tokenCount / TOKENS_PER_ROW_ESTIMATE), MAX_ESTIMATED_ROWS));
 
-    const prompt = `You are a dataset generator. Based on the following instructions, generate training data rows. Target approximately ${tokenCount} tokens of total output (roughly ${estimatedRows} rows).
+    const prompt = isPostTraining
+      ? `You are a post-training dataset generator. Based on the following instructions, generate post-training data rows for preference learning (teaching an LLM which responses are good vs bad). Target approximately ${tokenCount} tokens of total output (roughly ${estimatedRows} rows).
+
+Instructions: ${instructions.trim()}
+
+Output a JSON array of objects, each with three fields: "prompt", "chosen", and "rejected".
+- "prompt": The user prompt or question
+- "chosen": The preferred/good response that the model should learn to produce
+- "rejected": The undesired/bad response that the model should learn to avoid
+
+Return ONLY valid JSON, no markdown, no explanation. Example format:
+[
+  {"prompt": "...", "chosen": "...", "rejected": "..."},
+  {"prompt": "...", "chosen": "...", "rejected": "..."}
+]`
+      : `You are a dataset generator. Based on the following instructions, generate training data rows. Target approximately ${tokenCount} tokens of total output (roughly ${estimatedRows} rows).
 
 Instructions: ${instructions.trim()}
 
@@ -5309,19 +5353,32 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
       }
 
       // Validate and sanitize rows
-      const sanitizedRows = rows.map(r => ({
-        instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
-        input: typeof r.input === 'string' ? r.input.trim() : '',
-        output: typeof r.output === 'string' ? r.output.trim() : '',
-      }));
-
-      const hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
+      let sanitizedRows;
+      let hasEmptyRequiredFields;
+      if (isPostTraining) {
+        sanitizedRows = rows.map(r => ({
+          prompt: typeof r.prompt === 'string' ? r.prompt.trim() : '',
+          chosen: typeof r.chosen === 'string' ? r.chosen.trim() : '',
+          rejected: typeof r.rejected === 'string' ? r.rejected.trim() : '',
+        }));
+        hasEmptyRequiredFields = sanitizedRows.some(r => !r.prompt || !r.chosen || !r.rejected);
+      } else {
+        sanitizedRows = rows.map(r => ({
+          instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
+          input: typeof r.input === 'string' ? r.input.trim() : '',
+          output: typeof r.output === 'string' ? r.output.trim() : '',
+        }));
+        hasEmptyRequiredFields = sanitizedRows.some(r => !r.instruction || !r.output);
+      }
       if (hasEmptyRequiredFields) {
         return res.status(502).json({ success: false, error: 'LLM returned rows with empty required fields. Please try again.' });
       }
 
       // Calculate total tokens generated
       const totalTokens = sanitizedRows.reduce((sum, r) => {
+        if (isPostTraining) {
+          return sum + estimateTokenCount(r.prompt) + estimateTokenCount(r.chosen) + estimateTokenCount(r.rejected);
+        }
         return sum + estimateTokenCount(r.instruction) + estimateTokenCount(r.input) + estimateTokenCount(r.output);
       }, 0);
 
@@ -5354,7 +5411,8 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
 // POST /api/datasets/save – Save generated dataset as a standalone dataset (not a repository)
 app.post('/api/datasets/save', requireSession, blockInDemo, async (req, res) => {
   try {
-    const { name, description, rows } = req.body;
+    const { name, description, rows, datasetType } = req.body;
+    const isPostTraining = datasetType === 'post-training';
 
     if (!name || typeof name !== 'string' || !REPO_NAME_REGEX.test(name)) {
       return res.status(400).json({ success: false, error: 'Invalid dataset name. Use letters, digits, hyphens, underscores, or dots (1–100 chars).' });
@@ -5364,12 +5422,22 @@ app.post('/api/datasets/save', requireSession, blockInDemo, async (req, res) => 
     }
 
     // Enforce token-based limit instead of row count
-    const totalTokens = rows.reduce((sum, r) => {
-      const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
-      const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
-      const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
-      return sum + instrTokens + inputTokens + outputTokens;
-    }, 0);
+    let totalTokens;
+    if (isPostTraining) {
+      totalTokens = rows.reduce((sum, r) => {
+        const promptTokens = typeof r.prompt === 'string' ? estimateTokenCount(r.prompt) : 0;
+        const chosenTokens = typeof r.chosen === 'string' ? estimateTokenCount(r.chosen) : 0;
+        const rejectedTokens = typeof r.rejected === 'string' ? estimateTokenCount(r.rejected) : 0;
+        return sum + promptTokens + chosenTokens + rejectedTokens;
+      }, 0);
+    } else {
+      totalTokens = rows.reduce((sum, r) => {
+        const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
+        const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
+        const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
+        return sum + instrTokens + inputTokens + outputTokens;
+      }, 0);
+    }
     const maxTokens = getMaxDatasetTokens();
     if (totalTokens > maxTokens) {
       const settings = readSettings();
@@ -5381,43 +5449,74 @@ app.post('/api/datasets/save', requireSession, blockInDemo, async (req, res) => 
       return res.status(409).json({ success: false, error: 'A dataset with this name already exists' });
     }
 
-    // Validate row schema: instruction and output are required non-empty strings
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      if (typeof r !== 'object' || r === null || Array.isArray(r)) {
-        return res.status(400).json({ success: false, error: `Row ${i + 1} is not a valid object` });
+    // Validate row schema based on dataset type
+    if (isPostTraining) {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (typeof r !== 'object' || r === null || Array.isArray(r)) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} is not a valid object` });
+        }
+        if (typeof r.prompt !== 'string' || !r.prompt.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "prompt" field` });
+        }
+        if (typeof r.chosen !== 'string' || !r.chosen.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "chosen" field` });
+        }
+        if (typeof r.rejected !== 'string' || !r.rejected.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "rejected" field` });
+        }
       }
-      if (typeof r.instruction !== 'string' || !r.instruction.trim()) {
-        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "instruction" field` });
-      }
-      if (typeof r.output !== 'string' || !r.output.trim()) {
-        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "output" field` });
+    } else {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (typeof r !== 'object' || r === null || Array.isArray(r)) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} is not a valid object` });
+        }
+        if (typeof r.instruction !== 'string' || !r.instruction.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "instruction" field` });
+        }
+        if (typeof r.output !== 'string' || !r.output.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "output" field` });
+        }
       }
     }
 
     // Build JSONL content
-    const jsonlContent = rows.map(r => JSON.stringify({
-      instruction: r.instruction.trim(),
-      input: typeof r.input === 'string' ? r.input.trim() : '',
-      output: r.output.trim(),
-    })).join('\n');
+    let jsonlContent;
+    if (isPostTraining) {
+      jsonlContent = rows.map(r => JSON.stringify({
+        prompt: r.prompt.trim(),
+        chosen: r.chosen.trim(),
+        rejected: r.rejected.trim(),
+      })).join('\n');
+    } else {
+      jsonlContent = rows.map(r => JSON.stringify({
+        instruction: r.instruction.trim(),
+        input: typeof r.input === 'string' ? r.input.trim() : '',
+        output: r.output.trim(),
+      })).join('\n');
+    }
 
     // Create dataset directory and write files
     const datasetId = crypto.randomUUID();
     const datasetDir = getUserDatasetDir(req.sessionUser, datasetId);
     fs.mkdirSync(datasetDir, { recursive: true });
     fs.writeFileSync(path.join(datasetDir, 'dataset.jsonl'), jsonlContent + '\n', { mode: 0o600 });
-    fs.writeFileSync(path.join(datasetDir, 'README.md'), `# ${name}\n\n${description || 'AI-generated dataset'}\n\nDataset containing ${rows.length} training data rows (~${totalTokens} tokens).\n`, { mode: 0o600 });
+    const defaultDesc = isPostTraining ? 'Post-training preference dataset' : 'AI-generated dataset';
+    const typeLabel = isPostTraining ? 'post-training' : 'training';
+    const readmeContent = `# ${name}\n\n${description || defaultDesc}\n\nDataset containing ${rows.length} ${typeLabel} data rows (~${totalTokens} tokens).\n`;
+    fs.writeFileSync(path.join(datasetDir, 'README.md'), readmeContent, { mode: 0o600 });
 
     const datasetEntry = {
       id: datasetId, name, description: description || '', status: 'active',
       username: req.sessionUser, rowCount: rows.length, totalTokens,
       createdAt: new Date().toISOString(), archivedAt: null,
+      datasetType: isPostTraining ? 'post-training' : 'standard',
     };
     datasets.push(datasetEntry);
     writeUserDatasets(req.sessionUser, datasets);
 
-    auditLog({ event: 'DATASET_CREATED', message: `Dataset "${name}" created with ${rows.length} rows (~${totalTokens} tokens)`, username: req.sessionUser, req });
+    auditLog({ event: 'DATASET_CREATED', message: `Dataset "${name}" created with ${rows.length} rows (~${totalTokens} tokens)${isPostTraining ? ' [post-training]' : ''}`, username: req.sessionUser, req });
     res.json({ success: true, datasetId, datasetName: name });
   } catch (err) {
     console.error('Dataset save error:', err);
@@ -5584,15 +5683,26 @@ app.get('/api/datasets/:id/rows', requireSession, (req, res) => {
     if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Dataset file not found' });
     const fileContent = fs.readFileSync(filePath, 'utf-8');
     const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
+    const isPostTraining = ds.datasetType === 'post-training';
     const rows = lines.map((line, idx) => {
       try {
         const parsed = JSON.parse(line);
+        if (isPostTraining) {
+          return {
+            prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
+            chosen: typeof parsed.chosen === 'string' ? parsed.chosen : '',
+            rejected: typeof parsed.rejected === 'string' ? parsed.rejected : '',
+          };
+        }
         return {
           instruction: typeof parsed.instruction === 'string' ? parsed.instruction : '',
           input: typeof parsed.input === 'string' ? parsed.input : '',
           output: typeof parsed.output === 'string' ? parsed.output : '',
         };
       } catch {
+        if (isPostTraining) {
+          return { prompt: '', chosen: '', rejected: `[Parse error on line ${idx + 1}]` };
+        }
         return { instruction: '', input: '', output: `[Parse error on line ${idx + 1}]` };
       }
     });
@@ -5611,37 +5721,60 @@ app.put('/api/datasets/:id/rows', requireSession, blockInDemo, (req, res) => {
       return res.status(400).json({ success: false, error: 'Dataset rows are required and must not be empty' });
     }
 
-    // Validate row schema
+    const datasets = readUserDatasets(req.sessionUser);
+    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
+    if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Active dataset not found' });
+    const ds = datasets[dsIdx];
+    const isPostTraining = ds.datasetType === 'post-training';
+
+    // Validate row schema based on dataset type
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       if (typeof r !== 'object' || r === null || Array.isArray(r)) {
         return res.status(400).json({ success: false, error: `Row ${i + 1} is not a valid object` });
       }
-      if (typeof r.instruction !== 'string' || !r.instruction.trim()) {
-        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "instruction" field` });
-      }
-      if (typeof r.output !== 'string' || !r.output.trim()) {
-        return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "output" field` });
+      if (isPostTraining) {
+        if (typeof r.prompt !== 'string' || !r.prompt.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "prompt" field` });
+        }
+        if (typeof r.chosen !== 'string' || !r.chosen.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "chosen" field` });
+        }
+        if (typeof r.rejected !== 'string' || !r.rejected.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "rejected" field` });
+        }
+      } else {
+        if (typeof r.instruction !== 'string' || !r.instruction.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "instruction" field` });
+        }
+        if (typeof r.output !== 'string' || !r.output.trim()) {
+          return res.status(400).json({ success: false, error: `Row ${i + 1} has an empty or missing "output" field` });
+        }
       }
     }
 
     // Enforce token-based limit
-    const totalTokens = rows.reduce((sum, r) => {
-      const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
-      const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
-      const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
-      return sum + instrTokens + inputTokens + outputTokens;
-    }, 0);
+    let totalTokens;
+    if (isPostTraining) {
+      totalTokens = rows.reduce((sum, r) => {
+        const promptTokens = typeof r.prompt === 'string' ? estimateTokenCount(r.prompt) : 0;
+        const chosenTokens = typeof r.chosen === 'string' ? estimateTokenCount(r.chosen) : 0;
+        const rejectedTokens = typeof r.rejected === 'string' ? estimateTokenCount(r.rejected) : 0;
+        return sum + promptTokens + chosenTokens + rejectedTokens;
+      }, 0);
+    } else {
+      totalTokens = rows.reduce((sum, r) => {
+        const instrTokens = typeof r.instruction === 'string' ? estimateTokenCount(r.instruction) : 0;
+        const inputTokens = typeof r.input === 'string' ? estimateTokenCount(r.input) : 0;
+        const outputTokens = typeof r.output === 'string' ? estimateTokenCount(r.output) : 0;
+        return sum + instrTokens + inputTokens + outputTokens;
+      }, 0);
+    }
     const maxTokens = getMaxDatasetTokens();
     if (totalTokens > maxTokens) {
       const settings = readSettings();
       return res.status(400).json({ success: false, error: `Dataset exceeds the maximum token limit of ${maxTokens} tokens (${settings.maxDatasetTokensGB} GB)` });
     }
-
-    const datasets = readUserDatasets(req.sessionUser);
-    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
-    if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Active dataset not found' });
-    const ds = datasets[dsIdx];
 
     const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
     const filePath = path.join(datasetDir, 'dataset.jsonl');
@@ -5649,12 +5782,21 @@ app.put('/api/datasets/:id/rows', requireSession, blockInDemo, (req, res) => {
       return res.status(404).json({ success: false, error: 'Dataset directory not found' });
     }
 
-    // Build JSONL content
-    const jsonlContent = rows.map(r => JSON.stringify({
-      instruction: r.instruction.trim(),
-      input: typeof r.input === 'string' ? r.input.trim() : '',
-      output: r.output.trim(),
-    })).join('\n');
+    // Build JSONL content based on dataset type
+    let jsonlContent;
+    if (isPostTraining) {
+      jsonlContent = rows.map(r => JSON.stringify({
+        prompt: r.prompt.trim(),
+        chosen: r.chosen.trim(),
+        rejected: r.rejected.trim(),
+      })).join('\n');
+    } else {
+      jsonlContent = rows.map(r => JSON.stringify({
+        instruction: r.instruction.trim(),
+        input: typeof r.input === 'string' ? r.input.trim() : '',
+        output: r.output.trim(),
+      })).join('\n');
+    }
     fs.writeFileSync(filePath, jsonlContent + '\n', { mode: 0o600 });
 
     // Update metadata
@@ -6572,6 +6714,9 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
       if (!ds) {
         return res.status(400).json({ success: false, error: `Training dataset not found: ${dsId}` });
       }
+      if (ds.datasetType === 'post-training') {
+        return res.status(400).json({ success: false, error: `"${ds.name}" is a post-training dataset and cannot be used as a main training dataset` });
+      }
       const dsDir = getUserDatasetDir(req.sessionUser, dsId);
       const dsPath = path.join(dsDir, 'dataset.jsonl');
       if (!fs.existsSync(dsPath)) {
@@ -6588,6 +6733,9 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
       const ds = datasets.find(d => d.id === dsId && d.status === 'active');
       if (!ds) {
         return res.status(400).json({ success: false, error: `Post-training dataset not found: ${dsId}` });
+      }
+      if (ds.datasetType !== 'post-training') {
+        return res.status(400).json({ success: false, error: `"${ds.name}" is a standard dataset and cannot be used as a post-training dataset` });
       }
       const dsDir = getUserDatasetDir(req.sessionUser, dsId);
       const dsPath = path.join(dsDir, 'dataset.jsonl');

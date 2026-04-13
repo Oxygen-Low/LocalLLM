@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslationService } from '../services/translation.service';
 import { LlmService, ProviderInfo } from '../services/llm.service';
-import { DatasetsService, DatasetRow, DatasetEntry } from '../services/datasets.service';
+import { DatasetsService, DatasetRow, PostTrainingRow, DatasetEntry, DatasetType } from '../services/datasets.service';
 import { AdminService } from '../services/admin.service';
 
 type WizardStep = 'configure' | 'generating' | 'results';
@@ -147,6 +147,11 @@ interface QueueItem {
                           [ngClass]="ds.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-secondary-100 text-secondary-600'">
                           {{ ds.status === 'active' ? t.translate('datasets.statusActive') : t.translate('datasets.statusArchived') }}
                         </span>
+                        @if (ds.datasetType === 'post-training') {
+                          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                            {{ t.translate('datasets.typePostTraining') }}
+                          </span>
+                        }
                       </div>
                       @if (ds.description) {
                         <p class="text-sm text-muted truncate mb-2">{{ ds.description }}</p>
@@ -295,9 +300,15 @@ interface QueueItem {
                     <thead class="bg-secondary-50 border-b border-secondary-200">
                       <tr>
                         <th class="px-3 py-3 text-left font-semibold text-secondary-700 w-10">#</th>
-                        <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInstruction') }}</th>
-                        <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInput') }}</th>
-                        <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableOutput') }}</th>
+                        @if (isViewingPostTraining()) {
+                          <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tablePrompt') }}</th>
+                          <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableChosen') }}</th>
+                          <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableRejected') }}</th>
+                        } @else {
+                          <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInstruction') }}</th>
+                          <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInput') }}</th>
+                          <th class="px-3 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableOutput') }}</th>
+                        }
                         <th class="px-3 py-3 text-right font-semibold text-secondary-700 w-16"></th>
                       </tr>
                     </thead>
@@ -305,30 +316,57 @@ interface QueueItem {
                       @for (row of viewRows(); track $index) {
                         <tr class="border-b border-secondary-100 align-top">
                           <td class="px-3 py-2 text-muted whitespace-nowrap">{{ $index + 1 }}</td>
-                          <td class="px-3 py-2">
-                            <textarea
-                              [ngModel]="row.instruction"
-                              (ngModelChange)="onViewRowChange($index, 'instruction', $event)"
-                              rows="2"
-                              class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
-                            ></textarea>
-                          </td>
-                          <td class="px-3 py-2">
-                            <textarea
-                              [ngModel]="row.input"
-                              (ngModelChange)="onViewRowChange($index, 'input', $event)"
-                              rows="2"
-                              class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
-                            ></textarea>
-                          </td>
-                          <td class="px-3 py-2">
-                            <textarea
-                              [ngModel]="row.output"
-                              (ngModelChange)="onViewRowChange($index, 'output', $event)"
-                              rows="2"
-                              class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
-                            ></textarea>
-                          </td>
+                          @if (isViewingPostTraining()) {
+                            <td class="px-3 py-2">
+                              <textarea
+                                [ngModel]="asPostTraining(row).prompt"
+                                (ngModelChange)="onViewRowChange($index, 'prompt', $event)"
+                                rows="2"
+                                class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                              ></textarea>
+                            </td>
+                            <td class="px-3 py-2">
+                              <textarea
+                                [ngModel]="asPostTraining(row).chosen"
+                                (ngModelChange)="onViewRowChange($index, 'chosen', $event)"
+                                rows="2"
+                                class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                              ></textarea>
+                            </td>
+                            <td class="px-3 py-2">
+                              <textarea
+                                [ngModel]="asPostTraining(row).rejected"
+                                (ngModelChange)="onViewRowChange($index, 'rejected', $event)"
+                                rows="2"
+                                class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                              ></textarea>
+                            </td>
+                          } @else {
+                            <td class="px-3 py-2">
+                              <textarea
+                                [ngModel]="asStandard(row).instruction"
+                                (ngModelChange)="onViewRowChange($index, 'instruction', $event)"
+                                rows="2"
+                                class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                              ></textarea>
+                            </td>
+                            <td class="px-3 py-2">
+                              <textarea
+                                [ngModel]="asStandard(row).input"
+                                (ngModelChange)="onViewRowChange($index, 'input', $event)"
+                                rows="2"
+                                class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                              ></textarea>
+                            </td>
+                            <td class="px-3 py-2">
+                              <textarea
+                                [ngModel]="asStandard(row).output"
+                                (ngModelChange)="onViewRowChange($index, 'output', $event)"
+                                rows="2"
+                                class="w-full px-2 py-1.5 rounded border border-secondary-200 focus:ring-2 focus:ring-primary-200 focus:border-primary-400 text-sm resize-y transition-colors"
+                              ></textarea>
+                            </td>
+                          }
                           <td class="px-3 py-2 text-right">
                             <button (click)="deleteViewRow($index)"
                               class="px-2 py-1 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs transition-colors"
@@ -424,6 +462,43 @@ interface QueueItem {
         @if (currentStep() === 'configure' && datasetMode() === 'generate') {
           <div class="max-w-2xl mx-auto">
             <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6 space-y-6">
+
+              <!-- Dataset Type Toggle -->
+              <div>
+                <label class="block text-sm font-semibold text-secondary-900 mb-2">
+                  {{ t.translate('datasets.datasetTypeLabel') }}
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                  <button
+                    (click)="generateDatasetType = 'standard'"
+                    class="text-left p-3 rounded-lg border-2 transition-all"
+                    [ngClass]="generateDatasetType === 'standard'
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-secondary-200 bg-white hover:border-secondary-300'"
+                  >
+                    <div class="font-medium text-sm" [ngClass]="generateDatasetType === 'standard' ? 'text-primary-700' : 'text-secondary-700'">
+                      📋 {{ t.translate('datasets.typeStandard') }}
+                    </div>
+                    <p class="text-xs mt-1" [ngClass]="generateDatasetType === 'standard' ? 'text-primary-600' : 'text-muted'">
+                      {{ t.translate('datasets.typeStandardDesc') }}
+                    </p>
+                  </button>
+                  <button
+                    (click)="generateDatasetType = 'post-training'"
+                    class="text-left p-3 rounded-lg border-2 transition-all"
+                    [ngClass]="generateDatasetType === 'post-training'
+                      ? 'border-purple-500 bg-purple-50'
+                      : 'border-secondary-200 bg-white hover:border-secondary-300'"
+                  >
+                    <div class="font-medium text-sm" [ngClass]="generateDatasetType === 'post-training' ? 'text-purple-700' : 'text-secondary-700'">
+                      🎯 {{ t.translate('datasets.typePostTraining') }}
+                    </div>
+                    <p class="text-xs mt-1" [ngClass]="generateDatasetType === 'post-training' ? 'text-purple-600' : 'text-muted'">
+                      {{ t.translate('datasets.typePostTrainingDesc') }}
+                    </p>
+                  </button>
+                </div>
+              </div>
 
               <!-- Instructions -->
               <div>
@@ -1204,18 +1279,30 @@ interface QueueItem {
                   <thead class="bg-secondary-50 border-b border-secondary-200">
                     <tr>
                       <th class="px-4 py-3 text-left font-semibold text-secondary-700">#</th>
-                      <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInstruction') }}</th>
-                      <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInput') }}</th>
-                      <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableOutput') }}</th>
+                      @if (generateDatasetType === 'post-training') {
+                        <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tablePrompt') }}</th>
+                        <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableChosen') }}</th>
+                        <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableRejected') }}</th>
+                      } @else {
+                        <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInstruction') }}</th>
+                        <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableInput') }}</th>
+                        <th class="px-4 py-3 text-left font-semibold text-secondary-700">{{ t.translate('datasets.tableOutput') }}</th>
+                      }
                     </tr>
                   </thead>
                   <tbody>
                     @for (row of generatedRows(); track $index) {
                       <tr class="border-b border-secondary-100 hover:bg-secondary-50/50">
                         <td class="px-4 py-3 text-muted whitespace-nowrap">{{ $index + 1 }}</td>
-                        <td class="px-4 py-3 max-w-xs truncate" [title]="row.instruction">{{ row.instruction }}</td>
-                        <td class="px-4 py-3 max-w-xs truncate" [title]="row.input">{{ row.input }}</td>
-                        <td class="px-4 py-3 max-w-xs truncate" [title]="row.output">{{ row.output }}</td>
+                        @if (generateDatasetType === 'post-training') {
+                          <td class="px-4 py-3 max-w-xs truncate" [title]="asPostTraining(row).prompt">{{ asPostTraining(row).prompt }}</td>
+                          <td class="px-4 py-3 max-w-xs truncate" [title]="asPostTraining(row).chosen">{{ asPostTraining(row).chosen }}</td>
+                          <td class="px-4 py-3 max-w-xs truncate" [title]="asPostTraining(row).rejected">{{ asPostTraining(row).rejected }}</td>
+                        } @else {
+                          <td class="px-4 py-3 max-w-xs truncate" [title]="asStandard(row).instruction">{{ asStandard(row).instruction }}</td>
+                          <td class="px-4 py-3 max-w-xs truncate" [title]="asStandard(row).input">{{ asStandard(row).input }}</td>
+                          <td class="px-4 py-3 max-w-xs truncate" [title]="asStandard(row).output">{{ asStandard(row).output }}</td>
+                        }
                       </tr>
                     }
                   </tbody>
@@ -1331,6 +1418,7 @@ export class DatasetsPageComponent implements OnInit {
   retryOnFail = false;
   individualGeneration = false;
   numRows = 10;
+  generateDatasetType: DatasetType = 'standard';
 
   // Providers
   isLoadingProviders = signal(false);
@@ -1338,7 +1426,7 @@ export class DatasetsPageComponent implements OnInit {
   selectedProvider = signal<ProviderInfo | null>(null);
 
   // Results
-  generatedRows = signal<DatasetRow[]>([]);
+  generatedRows = signal<(DatasetRow | PostTrainingRow)[]>([]);
   generationError = signal('');
   generationRowsCompleted = signal(0);
   generationRowsTotal = signal(0);
@@ -1382,8 +1470,8 @@ export class DatasetsPageComponent implements OnInit {
 
   // View/Edit
   viewingDataset = signal<DatasetEntry | null>(null);
-  viewRows = signal<DatasetRow[]>([]);
-  private viewOriginalRows: DatasetRow[] = [];
+  viewRows = signal<(DatasetRow | PostTrainingRow)[]>([]);
+  private viewOriginalRows: (DatasetRow | PostTrainingRow)[] = [];
   isLoadingViewRows = signal(false);
   isSavingView = signal(false);
   viewSaveSuccess = signal(false);
@@ -1494,7 +1582,8 @@ export class DatasetsPageComponent implements OnInit {
         this.retryOnFail,
         this.individualGeneration,
         this.numRows,
-        onProgress
+        onProgress,
+        this.generateDatasetType
       );
       if (res.success && res.rows) {
         this.generatedRows.set(res.rows);
@@ -1550,7 +1639,8 @@ export class DatasetsPageComponent implements OnInit {
       const res = await this.datasetsService.save(
         this.saveDatasetName.trim(),
         this.saveDatasetDescription.trim(),
-        this.generatedRows()
+        this.generatedRows(),
+        this.generateDatasetType
       );
       if (res.success) {
         this.saveSuccess.set(true);
@@ -1687,7 +1777,7 @@ export class DatasetsPageComponent implements OnInit {
     }
   }
 
-  onViewRowChange(index: number, field: 'instruction' | 'input' | 'output', value: string): void {
+  onViewRowChange(index: number, field: string, value: string): void {
     this.viewRows.update(rows => {
       const updated = [...rows];
       updated[index] = { ...updated[index], [field]: value };
@@ -1697,7 +1787,11 @@ export class DatasetsPageComponent implements OnInit {
   }
 
   addViewRow(): void {
-    this.viewRows.update(rows => [...rows, { instruction: '', input: '', output: '' }]);
+    if (this.isViewingPostTraining()) {
+      this.viewRows.update(rows => [...rows, { prompt: '', chosen: '', rejected: '' } as PostTrainingRow]);
+    } else {
+      this.viewRows.update(rows => [...rows, { instruction: '', input: '', output: '' } as DatasetRow]);
+    }
     this.checkViewChanges();
   }
 
@@ -1746,9 +1840,7 @@ export class DatasetsPageComponent implements OnInit {
       return;
     }
     for (let i = 0; i < current.length; i++) {
-      if (current[i].instruction !== original[i].instruction ||
-          current[i].input !== original[i].input ||
-          current[i].output !== original[i].output) {
+      if (JSON.stringify(current[i]) !== JSON.stringify(original[i])) {
         this.viewHasChanges.set(true);
         return;
       }
@@ -2043,5 +2135,19 @@ export class DatasetsPageComponent implements OnInit {
     this.queueItems.update(items =>
       items.map(item => (item.id === id ? { ...item, ...update } : item))
     );
+  }
+
+  // --- Type helpers for templates ---
+
+  isViewingPostTraining(): boolean {
+    return this.viewingDataset()?.datasetType === 'post-training';
+  }
+
+  asPostTraining(row: DatasetRow | PostTrainingRow): PostTrainingRow {
+    return row as PostTrainingRow;
+  }
+
+  asStandard(row: DatasetRow | PostTrainingRow): DatasetRow {
+    return row as DatasetRow;
   }
 }

@@ -817,12 +817,21 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
         # Format rows into text for causal LM training
         def _format_row(row):
             parts = []
-            if row.get("instruction"):
-                parts.append(f"### Instruction:\n{row['instruction']}")
-            if row.get("input"):
-                parts.append(f"### Input:\n{row['input']}")
-            if row.get("output"):
-                parts.append(f"### Response:\n{row['output']}")
+            # Post-training format (prompt/chosen/rejected) — mutually exclusive with standard format
+            if row.get("prompt") or row.get("chosen") or row.get("rejected"):
+                if row.get("prompt"):
+                    parts.append(f"### Prompt:\n{row['prompt']}")
+                if row.get("chosen"):
+                    parts.append(f"### Chosen Response:\n{row['chosen']}")
+                if row.get("rejected"):
+                    parts.append(f"### Rejected Response:\n{row['rejected']}")
+            else:
+                if row.get("instruction"):
+                    parts.append(f"### Instruction:\n{row['instruction']}")
+                if row.get("input"):
+                    parts.append(f"### Input:\n{row['input']}")
+                if row.get("output"):
+                    parts.append(f"### Response:\n{row['output']}")
             return "\n\n".join(parts) if parts else ""
 
         texts = [_format_row(r) for r in raw_rows]
