@@ -1407,10 +1407,11 @@ function setupGracefulShutdown(server) {
 }
 
 function timingSafeCompare(a, b) {
-  const bufA = Buffer.from(String(a));
-  const bufB = Buffer.from(String(b));
+  // Hash both values to normalize length, preventing length-based timing leaks.
   try {
-    return crypto.timingSafeEqual(bufA, bufB);
+    const hashA = crypto.createHash('sha256').update(String(a)).digest();
+    const hashB = crypto.createHash('sha256').update(String(b)).digest();
+    return crypto.timingSafeEqual(hashA, hashB);
   } catch {
     return false;
   }
@@ -2762,6 +2763,8 @@ app.post('/api/mcp-servers/:id/tools', requireSession, async (req, res) => {
         '--network=none',
         '--memory=256m',
         '--cpus=0.5',
+        '--pids-limit=128',
+        '--security-opt', 'no-new-privileges',
         ...envArgs,
         server.image,
       ], {
@@ -2789,7 +2792,7 @@ app.post('/api/mcp-servers/:id/tools', requireSession, async (req, res) => {
       return res.json({ success: true, tools });
     } catch (execErr) {
       console.error('MCP tools list error for %s: %s', server.name, execErr.message);
-      return res.status(502).json({ success: false, error: `Failed to list tools from MCP server: ${execErr.message?.substring(0, 200)}` });
+      return res.status(502).json({ success: false, error: 'Failed to list tools from MCP server' });
     }
   } catch (err) {
     console.error('MCP tools error:', err);
@@ -2850,6 +2853,8 @@ app.post('/api/mcp-servers/:id/call', requireSession, async (req, res) => {
         '--network=bridge',
         '--memory=256m',
         '--cpus=0.5',
+        '--pids-limit=128',
+        '--security-opt', 'no-new-privileges',
         ...envArgs,
         server.image,
       ], {
@@ -2884,7 +2889,7 @@ app.post('/api/mcp-servers/:id/call', requireSession, async (req, res) => {
       return res.json({ success: true, result });
     } catch (execErr) {
       console.error('MCP tool call error for %s/%s: %s', server.name, toolName, execErr.message);
-      return res.status(502).json({ success: false, error: `Failed to call tool: ${String(execErr.message || '').substring(0, 200)}` });
+      return res.status(502).json({ success: false, error: 'Failed to call tool on MCP server' });
     }
   } catch (err) {
     console.error('MCP tool call error:', err);
@@ -3016,7 +3021,7 @@ app.post('/api/admin/auto-sync/import', async (req, res) => {
     return res.json({ success: true, importedDate: remoteDate });
   } catch (err) {
     console.error('Auto-sync import error:', err);
-    return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+    return res.status(500).json({ success: false, error: 'Auto-sync import failed' });
   }
 });
 
@@ -3361,7 +3366,7 @@ Respond ONLY with a JSON array of objects: { characterId, content, replyToPostId
 app.post('/api/roleplay/sessions/:id/post', requireSession, (req, res) => {
   try {
     const { content } = req.body;
-    if (!content) return res.status(400).json({ success: false, error: 'Content is required' });
+    if (!content || typeof content !== 'string' || content.length > 5000) return res.status(400).json({ success: false, error: 'Content is required (max 5000 chars)' });
 
     const sessions = readRoleplaySessions(req.sessionUser);
     const index = sessions.findIndex(s => s.id === req.params.id);
@@ -3399,7 +3404,7 @@ app.post('/api/roleplay/sessions/:id/post', requireSession, (req, res) => {
 app.post('/api/roleplay/sessions/:id/reply', requireSession, (req, res) => {
   try {
     const { postId, content } = req.body;
-    if (!postId || !content) return res.status(400).json({ success: false, error: 'Post ID and Content are required' });
+    if (!postId || typeof postId !== 'string' || !content || typeof content !== 'string' || content.length > 5000) return res.status(400).json({ success: false, error: 'Valid post ID and content are required (max 5000 chars)' });
 
     const sessions = readRoleplaySessions(req.sessionUser);
     const index = sessions.findIndex(s => s.id === req.params.id);
@@ -4365,6 +4370,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
           '--name', containerName,
           '--memory=512m',
           '--cpus=1',
+          '--pids-limit=256',
+          '--security-opt', 'no-new-privileges',
           '--network=bridge',
           '-v', `${bareDir}:/bare-repo.git:rw`,
           'node:20-slim',
@@ -4481,6 +4488,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         '--name', containerName,
         '--memory=512m',
         '--cpus=1',
+        '--pids-limit=256',
+        '--security-opt', 'no-new-privileges',
         '--network=bridge',
         ...(gitToken ? ['-e', `GIT_TOKEN=${gitToken}`] : []),
         'node:20-slim',
@@ -4685,8 +4694,8 @@ app.get('/api/coding-agent/containers/:id/files', requireSession, (req, res) => 
     }
 
     const dirPath = typeof req.query.path === 'string' ? req.query.path : '.';
-    // Sanitize path: block traversal and absolute paths
-    if (dirPath.includes('..') || path.isAbsolute(dirPath)) {
+    // Sanitize path: block traversal, absolute paths, null bytes, and shell metacharacters
+    if (dirPath.includes('..') || path.isAbsolute(dirPath) || dirPath.includes('\0') || /[`$;"'\\|&!><]/.test(dirPath)) {
       return res.status(400).json({ success: false, error: 'Invalid path' });
     }
 
@@ -4726,7 +4735,7 @@ app.get('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
     }
 
     const filePath = typeof req.query.path === 'string' ? req.query.path : '';
-    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath)) {
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || filePath.includes('\0') || /[`$;"'\\|&!><]/.test(filePath)) {
       return res.status(400).json({ success: false, error: 'Invalid file path' });
     }
 
@@ -4758,7 +4767,7 @@ app.put('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
     }
 
     const { path: filePath, content } = req.body;
-    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || typeof content !== 'string') {
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || filePath.includes('\0') || /[`$;"'\\|&!><]/.test(filePath) || typeof content !== 'string') {
       return res.status(400).json({ success: false, error: 'Invalid file path or content' });
     }
 
@@ -5540,8 +5549,7 @@ Return ONLY valid JSON, no markdown, no explanation. Example format:
     return res.status(500).json({ success: false, error: lastError || 'Failed to generate dataset after multiple attempts.' });
   } catch (err) {
     console.error('Dataset generate error:', err);
-    const message = err.message || 'Internal server error';
-    res.status(500).json({ success: false, error: message });
+    res.status(500).json({ success: false, error: 'Failed to generate dataset' });
   }
 });
 
@@ -5752,7 +5760,7 @@ app.post('/api/datasets/import-huggingface', requireSession, blockInDemo, async 
       if (downloadErr.name === 'AbortError') {
         return res.status(504).json({ success: false, error: 'Dataset download timed out. Try a smaller dataset or fewer rows.' });
       }
-      return res.status(500).json({ success: false, error: `Failed to import dataset: ${downloadErr.message}` });
+      return res.status(500).json({ success: false, error: 'Failed to import dataset from HuggingFace' });
     }
   } catch (err) {
     console.error('Dataset import error:', err);
@@ -5969,7 +5977,7 @@ app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, (req, res) 
 });
 
 // POST /api/datasets/:id/refine – Refine an existing dataset row-by-row using an LLM
-app.post('/api/datasets/:id/refine', requireSession, async (req, res) => {
+app.post('/api/datasets/:id/refine', requireSession, blockInDemo, async (req, res) => {
   try {
     const { provider, model, instructions } = req.body;
     const datasetId = req.params.id;
@@ -6108,8 +6116,7 @@ Do not include any markdown, explanation, or extra text. Return raw JSON only.`;
     return res.json({ success: true, rows: refinedRows, totalTokens, originalName: ds.name });
   } catch (err) {
     console.error('Dataset refine error:', err);
-    const message = err.message || 'Internal server error';
-    res.status(500).json({ success: false, error: message });
+    res.status(500).json({ success: false, error: 'Failed to refine dataset' });
   }
 });
 
@@ -6187,8 +6194,16 @@ app.post('/api/local-fix/sessions', requireSession, blockInDemo, (req, res) => {
   try {
     const { instanceUrl, userId, issueDescription, allowCommands } = req.body;
 
-    if (!instanceUrl || typeof instanceUrl !== 'string' || instanceUrl.trim().length === 0) {
-      return res.status(400).json({ success: false, error: 'Instance URL is required' });
+    if (!instanceUrl || typeof instanceUrl !== 'string' || instanceUrl.trim().length === 0 || instanceUrl.trim().length > 2000) {
+      return res.status(400).json({ success: false, error: 'Instance URL is required (max 2000 chars)' });
+    }
+    try {
+      const parsedInstanceUrl = new URL(instanceUrl.trim());
+      if (parsedInstanceUrl.protocol !== 'http:' && parsedInstanceUrl.protocol !== 'https:') {
+        return res.status(400).json({ success: false, error: 'Only HTTP/HTTPS instance URLs are supported' });
+      }
+    } catch {
+      return res.status(400).json({ success: false, error: 'Invalid instance URL format' });
     }
     if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
       return res.status(400).json({ success: false, error: 'User ID is required' });
@@ -6312,13 +6327,18 @@ app.get('/api/local-fix/sessions/:id/script', requireSession, (req, res) => {
     const instanceUrl = session.instanceUrl;
     const sessionId = session.id;
 
+    // Sanitize instanceUrl for safe shell/batch interpolation (defense-in-depth).
+    // instanceUrl was validated as a proper HTTP(S) URL at session creation, but
+    // we strip any remaining shell-dangerous characters as an extra precaution.
+    const safeInstanceUrl = instanceUrl.replace(/[^a-zA-Z0-9:/.?&=_~%-]/g, '');
+
     const bat = `@echo off
 echo ============================================
 echo   Local Fix - Diagnostic Agent Setup
 echo ============================================
 echo.
 echo Connecting to Local.LLM instance...
-echo Instance: ${instanceUrl}
+echo Instance: ${safeInstanceUrl}
 echo Session ID: ${sessionId}
 echo.
 echo This script connects your computer to a
@@ -6330,7 +6350,7 @@ echo ============================================
 echo.
 
 REM Verify connectivity
-curl -s -o nul -w "%%{http_code}" "${instanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" > nul 2>&1
+curl -s -o nul -w "%%{http_code}" "${safeInstanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" > nul 2>&1
 if %errorlevel% neq 0 (
     echo ERROR: Cannot connect to Local.LLM instance.
     echo Please verify the URL and try again.
@@ -6356,7 +6376,7 @@ echo "  Local Fix - Diagnostic Agent Setup"
 echo "============================================"
 echo ""
 echo "Connecting to Local.LLM instance..."
-echo "Instance: ${instanceUrl}"
+echo "Instance: ${safeInstanceUrl}"
 echo "Session ID: ${sessionId}"
 echo ""
 echo "This script connects your computer to a"
@@ -6368,7 +6388,7 @@ echo "============================================"
 echo ""
 
 # Verify connectivity
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${instanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" 2>/dev/null)
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${safeInstanceUrl}/api/local-fix/sessions/${sessionId}/heartbeat" 2>/dev/null)
 if [ "$?" -ne 0 ] || [ "$HTTP_CODE" != "200" ]; then
     echo "ERROR: Cannot connect to Local.LLM instance."
     echo "Please verify the URL and try again."
@@ -7269,12 +7289,21 @@ app.get('/api/web-seo/apps', requireSession, (req, res) => {
 });
 
 // POST /api/web-seo/apps - Create a new SEO app
-app.post('/api/web-seo/apps', requireSession, async (req, res) => {
+app.post('/api/web-seo/apps', requireSession, blockInDemo, async (req, res) => {
   try {
     const { name, type, url, repoFullName, cloneUrl, buildCommand, startCommand } = req.body;
 
-    if (!name || !type) {
-      return res.status(400).json({ success: false, error: 'Name and type are required' });
+    if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 200) {
+      return res.status(400).json({ success: false, error: 'Name is required (max 200 chars)' });
+    }
+    if (!type || !['url', 'repo'].includes(type)) {
+      return res.status(400).json({ success: false, error: 'Type must be "url" or "repo"' });
+    }
+    if (buildCommand && (typeof buildCommand !== 'string' || buildCommand.length > 1000)) {
+      return res.status(400).json({ success: false, error: 'Invalid build command (max 1000 chars)' });
+    }
+    if (startCommand && (typeof startCommand !== 'string' || startCommand.length > 1000)) {
+      return res.status(400).json({ success: false, error: 'Invalid start command (max 1000 chars)' });
     }
 
     if (type === 'url') {
@@ -7338,7 +7367,7 @@ app.delete('/api/web-seo/apps/:id', requireSession, (req, res) => {
 });
 
 // POST /api/web-seo/check/:id - Run SEO check for an app
-app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
+app.post('/api/web-seo/check/:id', requireSession, blockInDemo, async (req, res) => {
   let containerName = null;
   try {
     const apps = readUserWebSeo(req.sessionUser);
@@ -7372,6 +7401,8 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
       '--name', containerName,
       '--memory=1.5g',
       '--cpus=1',
+      '--pids-limit=512',
+      '--security-opt', 'no-new-privileges',
       '--network=bridge',
       'mcr.microsoft.com/playwright:v1.45.0-jammy',
       'bash', '-c', 'mkdir -p /workspace && tail -f /dev/null'
@@ -8400,10 +8431,18 @@ app.post('/api/repositories/:id/export-github', requireSession, async (req, res)
 
     try {
       const { execFileSync } = require('child_process');
+      const os = require('os');
       const bareDir = getUserRepoBareDir(req.sessionUser, repo.id);
-      // Embed token in URL for one-shot mirror push (not persisted anywhere)
-      const pushUrl = ghRepoData.clone_url.replace('https://', `https://x:${github.token}@`);
-      execFileSync('git', ['-C', bareDir, 'push', '--mirror', pushUrl], { timeout: 300000 });
+      // Use GIT_ASKPASS to avoid embedding token in process arguments (visible in /proc)
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localllm-push-'));
+      const pushTmpAskPass = path.join(tmpDir, 'askpass.sh');
+      fs.writeFileSync(pushTmpAskPass, `#!/bin/sh\necho "$GIT_TOKEN"\n`, { mode: 0o700 });
+      const pushEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: pushTmpAskPass, GIT_TOKEN: github.token };
+      try {
+        execFileSync('git', ['-C', bareDir, 'push', '--mirror', ghRepoData.clone_url], { timeout: 300000, env: pushEnv });
+      } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
     } catch (pushErr) {
       console.error('Git mirror push error:', pushErr.message);
       return res.status(500).json({ success: false, error: 'Failed to push to GitHub' });
@@ -10106,7 +10145,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     const errorId = crypto.randomUUID();
     console.error(`Chat send error [${errorId}]:`, err);
     if (processedMessages && processedMessages.length > 0) {
-      console.log(`[${errorId}] PROCESSED MESSAGES:`, JSON.stringify(processedMessages, null, 2));
+      console.log(`[${errorId}] Message count: ${processedMessages.length}`);
     }
     // If headers already sent (SSE started), send error as SSE event
     if (res.headersSent) {
@@ -10141,6 +10180,8 @@ async function performWebSearch(query, username) {
       '--name', containerName,
       '--memory=1g',
       '--cpus=1',
+      '--pids-limit=256',
+      '--security-opt', 'no-new-privileges',
       '--network=bridge',
       'mcr.microsoft.com/playwright:v1.45.0-jammy',
       'bash', '-c', `npm install playwright-core@1.45.0 > /dev/null 2>&1 && echo '${b64Script}' | base64 -d > /tmp/search.js && echo '${b64Query}' | base64 -d | node /tmp/search.js`

@@ -464,7 +464,7 @@ def _get_model(model_dir):
 
     if gguf_filename:
         print(f"Loading GGUF model from {model_dir}/{gguf_filename} via transformers (device_map={device_map}) ...", flush=True)
-        tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
+        tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename, trust_remote_code=False)
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             gguf_file=gguf_filename,
@@ -472,15 +472,17 @@ def _get_model(model_dir):
             device_map=device_map,
             low_cpu_mem_usage=True,
             ignore_mismatched_sizes=True,
+            trust_remote_code=False,
         )
     else:
         print(f"Loading model from {model_dir} (device_map={device_map}) ...", flush=True)
-        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=False)
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             torch_dtype="auto",
             device_map=device_map,
             low_cpu_mem_usage=True,
+            trust_remote_code=False,
         )
 
     if tokenizer.pad_token is None:
@@ -774,13 +776,13 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
             }
 
             if gguf_filename:
-                tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
+                tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename, trust_remote_code=False)
                 model = AutoModelForCausalLM.from_pretrained(
-                    model_dir, gguf_file=gguf_filename, ignore_mismatched_sizes=True, **load_kwargs
+                    model_dir, gguf_file=gguf_filename, ignore_mismatched_sizes=True, trust_remote_code=False, **load_kwargs
                 )
             else:
-                tokenizer = AutoTokenizer.from_pretrained(model_dir)
-                model = AutoModelForCausalLM.from_pretrained(model_dir, **load_kwargs)
+                tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=False)
+                model = AutoModelForCausalLM.from_pretrained(model_dir, trust_remote_code=False, **load_kwargs)
 
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
@@ -1204,6 +1206,23 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "output_dir is required"})
             return
 
+        # Validate numeric training parameters
+        import math as _math
+        try:
+            lr_val = float(learning_rate)
+            if _math.isnan(lr_val) or _math.isinf(lr_val) or lr_val <= 0 or lr_val > 1.0:
+                self._send_json(400, {"error": "learning_rate must be a finite positive number <= 1.0"})
+                return
+        except (TypeError, ValueError):
+            self._send_json(400, {"error": "learning_rate must be a number"})
+            return
+        if not isinstance(epochs, int) or epochs < 1 or epochs > 100:
+            self._send_json(400, {"error": "epochs must be an integer between 1 and 100"})
+            return
+        if not isinstance(batch_size, int) or batch_size < 1 or batch_size > 128:
+            self._send_json(400, {"error": "batch_size must be an integer between 1 and 128"})
+            return
+
         # Validate model_dir is within allowed directory (required for fine-tune)
         resolved_model_dir = None
         if model_dir:
@@ -1426,7 +1445,7 @@ class _Handler(BaseHTTPRequestHandler):
             _log(f"GGUF conversion failed: {exc}")
             import traceback
             traceback.print_exc()
-            self._send_json(500, {"error": f"GGUF conversion failed: {exc}"})
+            self._send_json(500, {"error": "GGUF conversion failed"})
 
     # --------------------------------------------------------------------- #
     # POST /download-dataset  (synchronous – returns rows)
@@ -1447,8 +1466,8 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(split, str) or not split.strip():
             self._send_json(400, {"error": "split must be a non-empty string"})
             return
-        if not isinstance(max_rows, int) or max_rows < 1:
-            self._send_json(400, {"error": "max_rows must be a positive integer"})
+        if not isinstance(max_rows, int) or max_rows < 1 or max_rows > 50000:
+            self._send_json(400, {"error": "max_rows must be a positive integer (max 50000)"})
             return
         if hf_token is not None and not isinstance(hf_token, str):
             self._send_json(400, {"error": "hf_token must be a string"})
@@ -1546,7 +1565,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif "401" in error_msg or "403" in error_msg:
                 self._send_json(403, {"error": f"Access denied for dataset '{dataset_id}'. It may be private or gated. Try adding a HuggingFace token."})
             else:
-                self._send_json(500, {"error": f"Failed to load dataset: {error_msg}"})
+                _log(f"Failed to load dataset: {error_msg}")
+                self._send_json(500, {"error": "Failed to load dataset"})
 
     # --------------------------------------------------------------------- #
     # POST /chat
@@ -1559,6 +1579,10 @@ class _Handler(BaseHTTPRequestHandler):
         model_dir = data.get("model_dir", "")
         messages = data.get("messages", [])
         max_tokens = data.get("max_tokens", 2048)
+
+        if not isinstance(max_tokens, int) or max_tokens < 1 or max_tokens > 16384:
+            self._send_json(400, {"error": "max_tokens must be an integer between 1 and 16384"})
+            return
 
         if not model_dir or not isinstance(model_dir, str):
             self._send_json(400, {"error": "model_dir is required"})
@@ -1589,7 +1613,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             model, tokenizer = _get_model(resolved_model_dir)
         except Exception as exc:
-            self._send_json(500, {"error": f"Failed to load model: {exc}"})
+            _log(f"Failed to load model: {exc}")
+            self._send_json(500, {"error": "Failed to load model"})
             return
 
         # Prepare messages
