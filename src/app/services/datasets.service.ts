@@ -4,10 +4,18 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 
+export type DatasetType = 'standard' | 'post-training';
+
 export interface DatasetRow {
   instruction: string;
   input: string;
   output: string;
+}
+
+export interface PostTrainingRow {
+  prompt: string;
+  chosen: string;
+  rejected: string;
 }
 
 export interface DatasetEntry {
@@ -21,6 +29,7 @@ export interface DatasetEntry {
   createdAt: string;
   archivedAt: string | null;
   size?: number;
+  datasetType?: DatasetType;
 }
 
 export interface DatasetListResponse {
@@ -31,7 +40,7 @@ export interface DatasetListResponse {
 
 export interface GenerateDatasetResponse {
   success: boolean;
-  rows: DatasetRow[];
+  rows: (DatasetRow | PostTrainingRow)[];
   totalTokens?: number;
   error?: string;
 }
@@ -54,7 +63,7 @@ export interface ImportDatasetResponse {
 
 export interface RefineDatasetResponse {
   success: boolean;
-  rows: DatasetRow[];
+  rows: (DatasetRow | PostTrainingRow)[];
   totalTokens?: number;
   originalName?: string;
   error?: string;
@@ -62,7 +71,7 @@ export interface RefineDatasetResponse {
 
 export interface DatasetRowsResponse {
   success: boolean;
-  rows: DatasetRow[];
+  rows: (DatasetRow | PostTrainingRow)[];
   error?: string;
 }
 
@@ -88,16 +97,17 @@ export class DatasetsService {
     retryOnFail: boolean = false,
     individualGeneration: boolean = false,
     numRows: number = 10,
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    datasetType: DatasetType = 'standard'
   ): Promise<GenerateDatasetResponse> {
     // Use SSE streaming for individual generation to get progress updates
     if (individualGeneration && onProgress) {
-      return this.generateWithProgress(instructions, provider, model, numTokens, retryOnFail, numRows, onProgress);
+      return this.generateWithProgress(instructions, provider, model, numTokens, retryOnFail, numRows, onProgress, datasetType);
     }
     const res = await firstValueFrom(
       this.http.post<GenerateDatasetResponse>(
         `${environment.apiUrl}/api/datasets/generate`,
-        { instructions, provider, model, numTokens, retryOnFail, individualGeneration, numRows }
+        { instructions, provider, model, numTokens, retryOnFail, individualGeneration, numRows, datasetType }
       )
     );
     return res;
@@ -110,7 +120,8 @@ export class DatasetsService {
     numTokens: number,
     retryOnFail: boolean,
     numRows: number,
-    onProgress: (completed: number, total: number) => void
+    onProgress: (completed: number, total: number) => void,
+    datasetType: DatasetType = 'standard'
   ): Promise<GenerateDatasetResponse> {
     const token = this.authService.getSessionToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -123,7 +134,7 @@ export class DatasetsService {
       headers,
       body: JSON.stringify({
         instructions, provider, model, numTokens,
-        retryOnFail, individualGeneration: true, numRows,
+        retryOnFail, individualGeneration: true, numRows, datasetType,
       }),
     });
 
@@ -179,12 +190,13 @@ export class DatasetsService {
   async save(
     name: string,
     description: string,
-    rows: DatasetRow[]
+    rows: (DatasetRow | PostTrainingRow)[],
+    datasetType: DatasetType = 'standard'
   ): Promise<SaveDatasetResponse> {
     const res = await firstValueFrom(
       this.http.post<SaveDatasetResponse>(
         `${environment.apiUrl}/api/datasets/save`,
-        { name, description, rows }
+        { name, description, rows, datasetType }
       )
     );
     return res;
@@ -247,7 +259,7 @@ export class DatasetsService {
     return res;
   }
 
-  async updateDatasetRows(id: string, rows: DatasetRow[]): Promise<UpdateDatasetRowsResponse> {
+  async updateDatasetRows(id: string, rows: (DatasetRow | PostTrainingRow)[]): Promise<UpdateDatasetRowsResponse> {
     const res = await firstValueFrom(
       this.http.put<UpdateDatasetRowsResponse>(
         `${environment.apiUrl}/api/datasets/${id}/rows`,
