@@ -471,6 +471,7 @@ def _get_model(model_dir):
             torch_dtype="auto",
             device_map=device_map,
             low_cpu_mem_usage=True,
+            ignore_mismatched_sizes=True,
         )
     else:
         print(f"Loading model from {model_dir} (device_map={device_map}) ...", flush=True)
@@ -775,7 +776,7 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
             if gguf_filename:
                 tokenizer = AutoTokenizer.from_pretrained(model_dir, gguf_file=gguf_filename)
                 model = AutoModelForCausalLM.from_pretrained(
-                    model_dir, gguf_file=gguf_filename, **load_kwargs
+                    model_dir, gguf_file=gguf_filename, ignore_mismatched_sizes=True, **load_kwargs
                 )
             else:
                 tokenizer = AutoTokenizer.from_pretrained(model_dir)
