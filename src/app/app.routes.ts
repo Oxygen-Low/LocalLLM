@@ -93,6 +93,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/local-fix.page').then(m => m.LocalFixPageComponent),
         canActivate: [authGuard, demoGuard],
       },
+      {
+        path: 'app/pentesting',
+        loadComponent: () => import('./pages/pentesting.page').then(m => m.PentestingPageComponent),
+        canActivate: [authGuard, riskyAppsGuard, demoGuard],
+      },
     ],
   },
   {

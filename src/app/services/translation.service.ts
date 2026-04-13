@@ -1169,6 +1169,24 @@ const translations: TranslationDictionary = {
     ja: '診断',
     ru: 'Диагностика',
   },
+  'apps.pentesting.name': {
+    en: 'Pentesting',
+    ko: '침투 테스트',
+    ja: 'ペネトレーションテスト',
+    ru: 'Пентестинг',
+  },
+  'apps.pentesting.description': {
+    en: 'Deploy a repository into an isolated Docker environment and let an AI ethical hacker find vulnerabilities. Generates a detailed security report when done.',
+    ko: '격리된 Docker 환경에 저장소를 배포하고 AI 윤리적 해커가 취약점을 찾도록 합니다. 완료 시 자세한 보안 보고서를 생성합니다.',
+    ja: '隔離されたDocker環境にリポジトリをデプロイし、AI倫理的ハッカーに脆弱性を見つけさせます。完了時に詳細なセキュリティレポートを生成します。',
+    ru: 'Развёртывайте репозиторий в изолированной среде Docker и позвольте ИИ-этичному хакеру находить уязвимости. По завершении генерируется подробный отчёт по безопасности.',
+  },
+  'apps.category.security': {
+    en: 'Security',
+    ko: '보안',
+    ja: 'セキュリティ',
+    ru: 'Безопасность',
+  },
   'localFix.title': {
     en: '🔧 Local Fix',
     ko: '🔧 로컬 수리',

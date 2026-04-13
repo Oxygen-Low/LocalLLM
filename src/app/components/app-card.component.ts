@@ -9,7 +9,7 @@ export interface AIApp {
   description: string;
   icon: string;
   category: string;
-  color: 'blue' | 'purple' | 'orange' | 'green' | 'pink' | 'cyan';
+  color: 'blue' | 'purple' | 'orange' | 'green' | 'pink' | 'cyan' | 'red';
   risky?: boolean;
 }
 
@@ -83,6 +83,7 @@ export class AppCardComponent {
       green: 'bg-green-100 text-green-600',
       pink: 'bg-pink-100 text-pink-600',
       cyan: 'bg-cyan-100 text-cyan-600',
+      red: 'bg-red-100 text-red-600',
     };
     return colors[color] || colors['blue'];
   }

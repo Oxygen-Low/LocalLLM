@@ -137,6 +137,15 @@ export class DashboardPageComponent implements OnInit {
       category: 'apps.category.diagnostic',
       color: 'green',
     },
+    {
+      id: 'pentesting',
+      name: 'apps.pentesting.name',
+      description: 'apps.pentesting.description',
+      icon: '🛡️',
+      category: 'apps.category.security',
+      color: 'red',
+      risky: true,
+    },
   ];
 
   sortedApps = signal<AIApp[]>([]);
