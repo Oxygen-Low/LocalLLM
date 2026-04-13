@@ -7347,6 +7347,23 @@ app.post('/api/web-seo/check/:id', requireSession, async (req, res) => {
       return res.status(404).json({ success: false, error: 'SEO app not found' });
     }
 
+    // SSRF verification before using the URL/cloneUrl
+    if (appEntry.type === 'url' && appEntry.url) {
+      const ssrfCheck = await ssrfSafeUrlValidation(appEntry.url);
+      if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
+        return res.status(400).json({ success: false, error: `Invalid URL: ${reason}` });
+      }
+    }
+
+    if (appEntry.type === 'repo' && appEntry.cloneUrl) {
+      const ssrfCheck = await ssrfSafeUrlValidation(appEntry.cloneUrl);
+      if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
+        return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
+      }
+    }
+
     if (!isDockerAvailable()) {
       return res.status(503).json({ success: false, error: 'Docker is not available' });
     }
