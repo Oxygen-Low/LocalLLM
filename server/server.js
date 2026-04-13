@@ -5502,7 +5502,10 @@ app.post('/api/datasets/save', requireSession, blockInDemo, async (req, res) => 
     const datasetDir = getUserDatasetDir(req.sessionUser, datasetId);
     fs.mkdirSync(datasetDir, { recursive: true });
     fs.writeFileSync(path.join(datasetDir, 'dataset.jsonl'), jsonlContent + '\n', { mode: 0o600 });
-    fs.writeFileSync(path.join(datasetDir, 'README.md'), `# ${name}\n\n${description || (isPostTraining ? 'Post-training preference dataset' : 'AI-generated dataset')}\n\nDataset containing ${rows.length} ${isPostTraining ? 'post-training' : 'training'} data rows (~${totalTokens} tokens).\n`, { mode: 0o600 });
+    const defaultDesc = isPostTraining ? 'Post-training preference dataset' : 'AI-generated dataset';
+    const typeLabel = isPostTraining ? 'post-training' : 'training';
+    const readmeContent = `# ${name}\n\n${description || defaultDesc}\n\nDataset containing ${rows.length} ${typeLabel} data rows (~${totalTokens} tokens).\n`;
+    fs.writeFileSync(path.join(datasetDir, 'README.md'), readmeContent, { mode: 0o600 });
 
     const datasetEntry = {
       id: datasetId, name, description: description || '', status: 'active',
