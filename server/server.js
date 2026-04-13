@@ -7727,6 +7727,606 @@ Ensure the JSON is valid and only return the JSON block.`;
   }
 });
 
+// ---------------------------------------------------------------------------
+// Pentesting
+// ---------------------------------------------------------------------------
+const PENTESTING_DIR = path.join(DATA_DIR, 'pentesting');
+if (!fs.existsSync(PENTESTING_DIR)) fs.mkdirSync(PENTESTING_DIR, { recursive: true });
+
+const pentestRegistry = new Map();
+const PENTEST_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+
+function getUserPentestFile(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(PENTESTING_DIR, `${safeUsername}.json`);
+  return ensureWithinDir(PENTESTING_DIR, filePath);
+}
+
+function readUserPentestSessions(username) {
+  const file = getUserPentestFile(username);
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch { return []; }
+}
+
+function writeUserPentestSessions(username, sessions) {
+  const file = getUserPentestFile(username);
+  fs.writeFileSync(file, JSON.stringify(sessions, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+function cleanupPentestSession(sessionId) {
+  const entry = pentestRegistry.get(sessionId);
+  if (!entry) return;
+  clearTimeout(entry.inactivityTimer);
+  const { execFileSync } = require('child_process');
+  // Remove containers
+  try { execFileSync('docker', ['rm', '-f', entry.targetContainerName], { timeout: 30000 }); } catch {}
+  try { execFileSync('docker', ['rm', '-f', entry.agentContainerName], { timeout: 30000 }); } catch {}
+  // Remove network
+  try { execFileSync('docker', ['network', 'rm', entry.networkName], { timeout: 15000 }); } catch {}
+  pentestRegistry.delete(sessionId);
+}
+
+// POST /api/pentesting/sessions - Create a pentesting session (two containers + network)
+app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, res) => {
+  try {
+    const { repoSource, cloneUrl, localRepoId, repoFullName, branch } = req.body;
+
+    if (!repoFullName || !repoSource) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available on this server' });
+    }
+
+    // Limit to 2 active pentest sessions per user
+    const existing = readUserPentestSessions(req.sessionUser);
+    const active = existing.filter(s => s.status !== 'stopped' && s.status !== 'completed' && s.status !== 'failed');
+    if (active.length >= 2) {
+      return res.status(409).json({ success: false, error: 'Maximum 2 active pentesting sessions reached' });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const safeUser = sanitizeUsernameForPath(req.sessionUser);
+    const shortId = sessionId.slice(0, 8);
+    const networkName = `pentest-net-${safeUser}-${shortId}`;
+    const targetContainerName = `pentest-target-${safeUser}-${shortId}`;
+    const agentContainerName = `pentest-agent-${safeUser}-${shortId}`;
+
+    const { execFileSync } = require('child_process');
+
+    // Create Docker network
+    execFileSync('docker', ['network', 'create', networkName], { timeout: 15000 });
+
+    // Build init script for target container
+    let targetDockerArgs;
+
+    if (repoSource === 'local' && localRepoId) {
+      // Local repo - mount bare repo
+      const repos = readUserRepos(req.sessionUser);
+      const localRepo = repos.find(r => r.id === localRepoId && r.status === 'active');
+      if (!localRepo) {
+        try { execFileSync('docker', ['network', 'rm', networkName], { timeout: 15000 }); } catch {}
+        return res.status(404).json({ success: false, error: 'Local repository not found or not active' });
+      }
+
+      let bareDir;
+      try { bareDir = getUserRepoBareDir(req.sessionUser, localRepoId); }
+      catch {
+        try { execFileSync('docker', ['network', 'rm', networkName], { timeout: 15000 }); } catch {}
+        return res.status(400).json({ success: false, error: 'Invalid local repo ID' });
+      }
+
+      const initScript = [
+        'set -e',
+        'mkdir -p /workspace',
+        'apt-get update -qq && apt-get install -y -qq git curl net-tools > /dev/null 2>&1',
+        'git config --global user.email "localllm@local"',
+        'git config --global user.name "LocalLLM"',
+        'git clone /bare-repo.git /workspace || true',
+        'cd /workspace',
+        'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
+        'tail -f /dev/null',
+      ].join(' && ');
+
+      targetDockerArgs = [
+        'run', '-d',
+        '--name', targetContainerName,
+        '--network', networkName,
+        '--network-alias', 'target',
+        '--memory=512m',
+        '--cpus=1',
+        '--pids-limit=256',
+        '--security-opt', 'no-new-privileges',
+        '-v', `${bareDir}:/bare-repo.git:ro`,
+        'node:20-slim',
+        'bash', '-c', initScript,
+      ];
+    } else {
+      // GitHub repo
+      if (!cloneUrl) {
+        try { execFileSync('docker', ['network', 'rm', networkName], { timeout: 15000 }); } catch {}
+        return res.status(400).json({ success: false, error: 'cloneUrl is required for GitHub repos' });
+      }
+
+      const ssrfCheck = await ssrfSafeUrlValidation(cloneUrl);
+      if (!ssrfCheck.valid || (ssrfCheck.parsed.protocol !== 'http:' && ssrfCheck.parsed.protocol !== 'https:')) {
+        try { execFileSync('docker', ['network', 'rm', networkName], { timeout: 15000 }); } catch {}
+        const reason = !ssrfCheck.valid ? ssrfCheck.reason : 'Only HTTP/HTTPS URLs are supported';
+        return res.status(400).json({ success: false, error: `Invalid clone URL: ${reason}` });
+      }
+
+      const integrations = readUserIntegrations(req.sessionUser);
+      const gitToken = integrations.github?.token || null;
+      const branchName = (branch || 'main').replace(/[^a-zA-Z0-9._/-]/g, '');
+      const b64Branch = Buffer.from(branchName).toString('base64');
+      const b64CloneUrl = Buffer.from(cloneUrl).toString('base64');
+
+      const credentialHelperStep = gitToken
+        ? 'git config --global credential.helper \'!f() { echo "password=$GIT_TOKEN"; }; f\''
+        : null;
+
+      const initScript = [
+        'set -e',
+        'mkdir -p /workspace',
+        'apt-get update -qq && apt-get install -y -qq git curl net-tools > /dev/null 2>&1',
+        ...(credentialHelperStep ? [credentialHelperStep] : []),
+        `git clone --branch "$(echo '${b64Branch}' | base64 -d)" --single-branch "$(echo '${b64CloneUrl}' | base64 -d)" /workspace 2>/dev/null || (echo "ERROR: Clone failed" >&2 && exit 1)`,
+        'unset GIT_TOKEN',
+        'cd /workspace',
+        'if [ -f package.json ]; then npm install --silent 2>/dev/null || true; fi',
+        'tail -f /dev/null',
+      ].join(' && ');
+
+      targetDockerArgs = [
+        'run', '-d',
+        '--name', targetContainerName,
+        '--network', networkName,
+        '--network-alias', 'target',
+        '--memory=512m',
+        '--cpus=1',
+        '--pids-limit=256',
+        '--security-opt', 'no-new-privileges',
+        ...(gitToken ? ['-e', `GIT_TOKEN=${gitToken}`] : []),
+        'node:20-slim',
+        'bash', '-c', initScript,
+      ];
+    }
+
+    // Create agent container (lightweight, connected to same network)
+    const agentInitScript = [
+      'set -e',
+      'mkdir -p /work',
+      'apt-get update -qq && apt-get install -y -qq curl nmap netcat-openbsd dnsutils git > /dev/null 2>&1 || true',
+      'tail -f /dev/null',
+    ].join(' && ');
+
+    const agentDockerArgs = [
+      'run', '-d',
+      '--name', agentContainerName,
+      '--network', networkName,
+      '--network-alias', 'agent',
+      '--memory=512m',
+      '--cpus=1',
+      '--pids-limit=256',
+      '--security-opt', 'no-new-privileges',
+      'node:20-slim',
+      'bash', '-c', agentInitScript,
+    ];
+
+    try {
+      // Start both containers
+      const targetDockerId = execFileSync('docker', targetDockerArgs, { timeout: 120000, encoding: 'utf-8' }).trim();
+      const agentDockerId = execFileSync('docker', agentDockerArgs, { timeout: 120000, encoding: 'utf-8' }).trim();
+
+      const sessionEntry = {
+        id: sessionId,
+        repoSource,
+        repoFullName,
+        targetContainerId: targetDockerId.slice(0, 12),
+        targetContainerName,
+        agentContainerId: agentDockerId.slice(0, 12),
+        agentContainerName,
+        networkName,
+        status: 'preparing',
+        appDetails: null,
+        report: null,
+        createdAt: new Date().toISOString(),
+        lastActivity: Date.now(),
+      };
+
+      pentestRegistry.set(sessionId, {
+        ...sessionEntry,
+        inactivityTimer: setTimeout(() => cleanupPentestSession(sessionId), PENTEST_INACTIVITY_TIMEOUT_MS),
+      });
+
+      const sessions = readUserPentestSessions(req.sessionUser);
+      sessions.push(sessionEntry);
+      writeUserPentestSessions(req.sessionUser, sessions);
+
+      auditLog({ event: 'PENTEST_SESSION_CREATED', message: `Pentesting session created for "${repoFullName}"`, username: req.sessionUser, req });
+      res.json({ success: true, session: sessionEntry });
+    } catch (dockerErr) {
+      // Cleanup on failure
+      try { execFileSync('docker', ['rm', '-f', targetContainerName], { timeout: 15000 }); } catch {}
+      try { execFileSync('docker', ['rm', '-f', agentContainerName], { timeout: 15000 }); } catch {}
+      try { execFileSync('docker', ['network', 'rm', networkName], { timeout: 15000 }); } catch {}
+      console.error('Pentest Docker create error:', dockerErr.message);
+      res.status(500).json({ success: false, error: 'Failed to create pentesting environment' });
+    }
+  } catch (err) {
+    console.error('Create pentest session error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/pentesting/sessions - List user's sessions
+app.get('/api/pentesting/sessions', requireSession, (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    res.json({ success: true, sessions });
+  } catch (err) {
+    console.error('List pentest sessions error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/pentesting/sessions/:id - Get session details
+app.get('/api/pentesting/sessions/:id', requireSession, (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    const session = sessions.find(s => s.id === req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+    res.json({ success: true, session });
+  } catch (err) {
+    console.error('Get pentest session error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/pentesting/sessions/:id/exec - Execute command in target container
+app.post('/api/pentesting/sessions/:id/exec', requireSession, (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    const session = sessions.find(s => s.id === req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const { command } = req.body;
+    if (!command || typeof command !== 'string' || command.length > 2000) {
+      return res.status(400).json({ success: false, error: 'Invalid command' });
+    }
+
+    // Refresh inactivity timer
+    const entry = pentestRegistry.get(session.id);
+    if (entry) {
+      clearTimeout(entry.inactivityTimer);
+      entry.lastActivity = Date.now();
+      entry.inactivityTimer = setTimeout(() => cleanupPentestSession(session.id), PENTEST_INACTIVITY_TIMEOUT_MS);
+    }
+
+    const { execFileSync } = require('child_process');
+    const b64Cmd = Buffer.from(command).toString('base64');
+    try {
+      const output = execFileSync('docker', [
+        'exec', session.targetContainerName,
+        'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
+      ], { timeout: 30000, encoding: 'utf-8', maxBuffer: 1024 * 1024 });
+      res.json({ success: true, output });
+    } catch (execErr) {
+      res.json({ success: true, output: execErr.stderr || execErr.stdout || execErr.message, exitCode: execErr.status || 1 });
+    }
+  } catch (err) {
+    console.error('Pentest exec error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/pentesting/sessions/:id/ready - Mark session as ready with app details
+app.post('/api/pentesting/sessions/:id/ready', requireSession, (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    const idx = sessions.findIndex(s => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const { port, appType, description } = req.body;
+    if (!port || !appType) {
+      return res.status(400).json({ success: false, error: 'port and appType are required' });
+    }
+
+    sessions[idx].status = 'ready';
+    sessions[idx].appDetails = { port: Number(port), appType, description: description || '' };
+    sessions[idx].lastActivity = Date.now();
+    writeUserPentestSessions(req.sessionUser, sessions);
+
+    // Refresh in-memory
+    const entry = pentestRegistry.get(sessions[idx].id);
+    if (entry) {
+      entry.status = 'ready';
+      entry.appDetails = sessions[idx].appDetails;
+      clearTimeout(entry.inactivityTimer);
+      entry.inactivityTimer = setTimeout(() => cleanupPentestSession(sessions[idx].id), PENTEST_INACTIVITY_TIMEOUT_MS);
+    }
+
+    res.json({ success: true, session: sessions[idx] });
+  } catch (err) {
+    console.error('Pentest ready error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/pentesting/sessions/:id/run - Start the pentesting agent (SSE stream)
+app.post('/api/pentesting/sessions/:id/run', requireSession, blockInDemo, async (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    const idx = sessions.findIndex(s => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    const session = sessions[idx];
+    if (!session.appDetails) {
+      return res.status(400).json({ success: false, error: 'Session not ready - provide app details first' });
+    }
+
+    // Update status
+    sessions[idx].status = 'running';
+    sessions[idx].lastActivity = Date.now();
+    writeUserPentestSessions(req.sessionUser, sessions);
+
+    // Start SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendProgress = (step, message, status = 'running') => {
+      sendSSE(res, 'progress', { step, message, status });
+    };
+
+    const sendCommand = (command, output) => {
+      sendSSE(res, 'command', { command, output });
+    };
+
+    const sendFinding = (message) => {
+      sendSSE(res, 'finding', { message });
+    };
+
+    const { execFileSync } = require('child_process');
+
+    const execInAgent = (cmd) => {
+      const b64Cmd = Buffer.from(cmd).toString('base64');
+      try {
+        return execFileSync('docker', [
+          'exec', session.agentContainerName,
+          'bash', '-c', `echo '${b64Cmd}' | base64 -d | bash`,
+        ], { timeout: 60000, encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 });
+      } catch (e) {
+        return e.stderr || e.stdout || e.message;
+      }
+    };
+
+    sendProgress('reconnaissance', 'Starting reconnaissance...');
+
+    // Step 1: Reconnaissance from agent container
+    const targetHost = 'target';
+    const targetPort = session.appDetails.port;
+    const appType = session.appDetails.appType;
+    const appDesc = session.appDetails.description || 'No additional description';
+
+    // Port scan
+    sendProgress('port-scan', `Scanning target on port ${targetPort}...`);
+    const portScan = execInAgent(`curl -s -o /dev/null -w "%{http_code}" http://${targetHost}:${targetPort}/ 2>&1 || echo "Connection failed"`);
+    sendCommand(`curl -s -o /dev/null -w "%{http_code}" http://target:${targetPort}/`, portScan);
+
+    // Grab headers
+    sendProgress('headers', 'Checking HTTP headers...');
+    const headers = execInAgent(`curl -sI http://${targetHost}:${targetPort}/ 2>&1 | head -30`);
+    sendCommand(`curl -sI http://target:${targetPort}/`, headers);
+
+    // Grab homepage content
+    sendProgress('content', 'Fetching page content...');
+    const content = execInAgent(`curl -s http://${targetHost}:${targetPort}/ 2>&1 | head -200`);
+    sendCommand(`curl -s http://target:${targetPort}/`, content.slice(0, 2000));
+
+    // Common path discovery
+    sendProgress('discovery', 'Discovering common paths...');
+    const commonPaths = ['/api', '/admin', '/login', '/health', '/robots.txt', '/.env', '/.git/config', '/swagger.json', '/api-docs', '/graphql'];
+    const pathResults = [];
+    for (const p of commonPaths) {
+      const result = execInAgent(`curl -s -o /dev/null -w "%{http_code}" http://${targetHost}:${targetPort}${p} 2>&1`);
+      const code = result.trim();
+      if (code !== '000' && code !== '404') {
+        pathResults.push(`${p} -> ${code}`);
+        sendCommand(`curl http://target:${targetPort}${p}`, `HTTP ${code}`);
+        if (p === '/.env' || p === '/.git/config') {
+          sendFinding(`Sensitive path accessible: ${p} returned HTTP ${code}`);
+        }
+      }
+    }
+
+    // Step 2: Ask LLM for analysis plan
+    sendProgress('analysis', 'AI agent analyzing findings...');
+
+    const reconSummary = [
+      `Target: ${appType} application on port ${targetPort}`,
+      `Description: ${appDesc}`,
+      `HTTP Status: ${portScan.trim()}`,
+      `Headers:\n${headers.slice(0, 1000)}`,
+      `Homepage content (first 2000 chars):\n${content.slice(0, 2000)}`,
+      `Path discovery:\n${pathResults.join('\n') || 'No interesting paths found'}`,
+    ].join('\n\n');
+
+    const analysisPrompt = `You are an expert ethical hacker / penetration tester. You have been given access to a ${appType} application running on a target container at http://target:${targetPort}/.
+
+Here is the reconnaissance data collected so far:
+
+${reconSummary}
+
+Based on this information, provide a list of specific security tests to run. For each test, provide the exact curl/wget command that should be run FROM the agent container (the target is reachable at hostname "target" on port ${targetPort}).
+
+Focus on:
+1. SQL Injection testing on any discovered endpoints
+2. XSS testing
+3. Directory traversal
+4. Authentication bypass attempts
+5. Security header analysis
+6. Information disclosure
+7. CORS misconfiguration
+8. Rate limiting checks
+9. Input validation issues
+
+Return your response as a JSON array of objects with format:
+[{"test": "Test Name", "command": "exact command to run", "description": "what this tests for"}]
+
+Return ONLY the JSON array, no other text.`;
+
+    let testPlan;
+    try {
+      const llmResponse = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: analysisPrompt }], { max_tokens: 4096, temperature: 0.3 });
+      const jsonMatch = llmResponse.match(/\[[\s\S]*\]/);
+      testPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+    } catch (llmErr) {
+      console.error('LLM analysis plan error:', llmErr.message);
+      // Fallback to basic tests
+      testPlan = [
+        { test: 'SQL Injection', command: `curl -s "http://target:${targetPort}/?id=1' OR '1'='1"`, description: 'Basic SQL injection test' },
+        { test: 'XSS', command: `curl -s "http://target:${targetPort}/?q=<script>alert(1)</script>"`, description: 'Basic XSS test' },
+        { test: 'Directory Traversal', command: `curl -s "http://target:${targetPort}/../../../etc/passwd"`, description: 'Path traversal test' },
+        { test: 'Security Headers', command: `curl -sI http://target:${targetPort}/`, description: 'Check for missing security headers' },
+      ];
+    }
+
+    // Step 3: Execute tests
+    sendProgress('testing', `Running ${testPlan.length} security tests...`);
+    const testResults = [];
+
+    for (const test of testPlan.slice(0, 20)) { // Limit to 20 tests
+      sendProgress('testing', `Running: ${test.test}`);
+      const cmd = typeof test.command === 'string' ? test.command : '';
+      if (!cmd) continue;
+
+      const output = execInAgent(cmd);
+      sendCommand(cmd, output.slice(0, 2000));
+
+      testResults.push({
+        test: test.test,
+        command: cmd,
+        description: test.description,
+        output: output.slice(0, 3000),
+      });
+    }
+
+    // Step 4: Generate final report with LLM
+    sendProgress('report', 'Generating security report...');
+
+    const reportPrompt = `You are an expert penetration tester writing a professional security assessment report.
+
+Target Application: ${appType} running on port ${targetPort}
+Description: ${appDesc}
+
+Reconnaissance Summary:
+${reconSummary}
+
+Test Results:
+${testResults.map(t => `### ${t.test}\nCommand: ${t.command}\nDescription: ${t.description}\nOutput:\n\`\`\`\n${t.output}\n\`\`\``).join('\n\n')}
+
+Write a comprehensive Markdown security report with the following sections:
+
+# Penetration Test Report
+
+## Executive Summary
+Brief overview of findings and overall risk assessment.
+
+## Scope
+What was tested and how.
+
+## Findings
+For each vulnerability found, include:
+- **Severity**: Critical/High/Medium/Low/Informational
+- **Description**: What the vulnerability is
+- **Evidence**: The specific test output that demonstrates it
+- **Impact**: What an attacker could do
+- **Recommendation**: How to fix it
+
+## Security Headers Analysis
+Review of HTTP security headers.
+
+## Recommendations
+Prioritized list of security improvements.
+
+## Conclusion
+Overall security posture assessment.
+
+If no major vulnerabilities were found, note that the application appears reasonably secure based on the tests performed, but recommend further manual testing.`;
+
+    let report;
+    try {
+      report = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: reportPrompt }], { max_tokens: 8192, temperature: 0.3 });
+    } catch (reportErr) {
+      console.error('LLM report generation error:', reportErr.message);
+      report = `# Penetration Test Report\n\n## Error\n\nFailed to generate AI report: ${reportErr.message}\n\n## Raw Test Results\n\n${testResults.map(t => `### ${t.test}\n${t.output}`).join('\n\n')}`;
+    }
+
+    // Save report
+    sessions[idx].status = 'completed';
+    sessions[idx].report = report;
+    sessions[idx].lastActivity = Date.now();
+    writeUserPentestSessions(req.sessionUser, sessions);
+
+    sendSSE(res, 'report', { report });
+    sendSSE(res, 'done', { report });
+    res.end();
+
+    auditLog({ event: 'PENTEST_COMPLETED', message: `Pentesting completed for "${session.repoFullName}"`, username: req.sessionUser, req });
+  } catch (err) {
+    console.error('Pentest run error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      sendSSE(res, 'error', { error: err.message });
+      res.end();
+    }
+  }
+});
+
+// POST /api/pentesting/sessions/:id/stop - Stop a session and clean up
+app.post('/api/pentesting/sessions/:id/stop', requireSession, (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    const idx = sessions.findIndex(s => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    cleanupPentestSession(sessions[idx].id);
+    sessions[idx].status = 'stopped';
+    sessions[idx].lastActivity = Date.now();
+    writeUserPentestSessions(req.sessionUser, sessions);
+
+    auditLog({ event: 'PENTEST_STOPPED', message: `Pentesting session stopped for "${sessions[idx].repoFullName}"`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Stop pentest session error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/pentesting/sessions/:id - Delete a session and clean up
+app.delete('/api/pentesting/sessions/:id', requireSession, (req, res) => {
+  try {
+    const sessions = readUserPentestSessions(req.sessionUser);
+    const idx = sessions.findIndex(s => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Session not found' });
+
+    cleanupPentestSession(sessions[idx].id);
+    sessions.splice(idx, 1);
+    writeUserPentestSessions(req.sessionUser, sessions);
+
+    auditLog({ event: 'PENTEST_DELETED', message: `Pentesting session deleted`, username: req.sessionUser, req });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete pentest session error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // In-memory registry: repoId -> { archiveTimer, lastActivity, username }
 const repoRegistry = new Map();
 
@@ -10417,4 +11017,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT, PENTESTING_DIR, readUserPentestSessions, writeUserPentestSessions, pentestRegistry };
