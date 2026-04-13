@@ -797,8 +797,13 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
         _log(f"Job {job_id[:8]}... loading dataset ({len(_dataset_paths)} file(s))")
 
-        # Load JSONL dataset
-        def _load_jsonl(fpath):
+        # Load dataset file (parquet or JSONL)
+        def _load_dataset_file(fpath):
+            if fpath.endswith('.parquet'):
+                import pyarrow.parquet as pq
+                table = pq.read_table(fpath)
+                return table.to_pylist()
+            # JSONL fallback
             rows = []
             with open(fpath, "r", encoding="utf-8") as f:
                 for line in f:
@@ -807,10 +812,10 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
                         rows.append(json.loads(line))
             return rows
 
-        # Load JSONL rows from all training datasets
+        # Load rows from all training datasets
         raw_rows = []
         for _ds_path in _dataset_paths:
-            raw_rows.extend(_load_jsonl(_ds_path))
+            raw_rows.extend(_load_dataset_file(_ds_path))
         if not raw_rows:
             raise ValueError("Dataset is empty")
 
@@ -923,7 +928,7 @@ def _train_worker(job_id, model_dir, dataset_path, output_dir, post_dataset_path
 
             post_rows = []
             for _pp in _valid_post_paths:
-                post_rows.extend(_load_jsonl(_pp))
+                post_rows.extend(_load_dataset_file(_pp))
             if post_rows:
                 post_texts = [_format_row(r) for r in post_rows]
                 post_texts = [t for t in post_texts if t.strip()]

@@ -12,6 +12,7 @@ const dns = require('dns');
 const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
 const multer = require('multer');
+const parquet = require('@dsnp/parquetjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -5003,6 +5004,142 @@ function deleteAllUserDatasets(username) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Parquet helpers for dataset storage
+// ---------------------------------------------------------------------------
+
+const PARQUET_STANDARD_SCHEMA = new parquet.ParquetSchema({
+  instruction: { type: 'UTF8' },
+  input: { type: 'UTF8' },
+  output: { type: 'UTF8' },
+});
+
+const PARQUET_POST_TRAINING_SCHEMA = new parquet.ParquetSchema({
+  prompt: { type: 'UTF8' },
+  chosen: { type: 'UTF8' },
+  rejected: { type: 'UTF8' },
+});
+
+/**
+ * Write rows to a parquet file.
+ * @param {string} filePath - Absolute path to write the parquet file
+ * @param {Array<Object>} rows - Array of row objects
+ * @param {boolean} isPostTraining - Whether the dataset is post-training format
+ */
+async function writeDatasetParquet(filePath, rows, isPostTraining) {
+  const schema = isPostTraining ? PARQUET_POST_TRAINING_SCHEMA : PARQUET_STANDARD_SCHEMA;
+  const writer = await parquet.ParquetWriter.openFile(schema, filePath);
+  for (const r of rows) {
+    if (isPostTraining) {
+      await writer.appendRow({
+        prompt: (r.prompt || '').trim(),
+        chosen: (r.chosen || '').trim(),
+        rejected: (r.rejected || '').trim(),
+      });
+    } else {
+      await writer.appendRow({
+        instruction: (r.instruction || '').trim(),
+        input: typeof r.input === 'string' ? r.input.trim() : '',
+        output: (r.output || '').trim(),
+      });
+    }
+  }
+  await writer.close();
+  fs.chmodSync(filePath, 0o600);
+}
+
+/**
+ * Read rows from a parquet file.
+ * @param {string} filePath - Absolute path to the parquet file
+ * @param {boolean} isPostTraining - Whether the dataset is post-training format
+ * @returns {Promise<Array<Object>>} Array of row objects
+ */
+async function readDatasetParquet(filePath, isPostTraining) {
+  const reader = await parquet.ParquetReader.openFile(filePath);
+  try {
+    const cursor = reader.getCursor();
+    const rows = [];
+    let record;
+    while ((record = await cursor.next())) {
+      if (isPostTraining) {
+        rows.push({
+          prompt: typeof record.prompt === 'string' ? record.prompt : '',
+          chosen: typeof record.chosen === 'string' ? record.chosen : '',
+          rejected: typeof record.rejected === 'string' ? record.rejected : '',
+        });
+      } else {
+        rows.push({
+          instruction: typeof record.instruction === 'string' ? record.instruction : '',
+          input: typeof record.input === 'string' ? record.input : '',
+          output: typeof record.output === 'string' ? record.output : '',
+        });
+      }
+    }
+    return rows;
+  } finally {
+    await reader.close();
+  }
+}
+
+/**
+ * Get the dataset file path, preferring parquet but falling back to JSONL
+ * for backward compatibility with existing datasets.
+ * @param {string} datasetDir - Path to the dataset directory
+ * @returns {{ filePath: string, format: 'parquet'|'jsonl' }}
+ */
+function getDatasetFilePath(datasetDir) {
+  const parquetPath = path.join(datasetDir, 'dataset.parquet');
+  if (fs.existsSync(parquetPath)) {
+    return { filePath: parquetPath, format: 'parquet' };
+  }
+  const jsonlPath = path.join(datasetDir, 'dataset.jsonl');
+  if (fs.existsSync(jsonlPath)) {
+    return { filePath: jsonlPath, format: 'jsonl' };
+  }
+  return { filePath: parquetPath, format: 'parquet' };
+}
+
+/**
+ * Read dataset rows from either parquet or JSONL format.
+ * @param {string} datasetDir - Path to the dataset directory
+ * @param {boolean} isPostTraining - Whether the dataset is post-training format
+ * @returns {Promise<Array<Object>>} Array of row objects
+ */
+async function readDatasetRows(datasetDir, isPostTraining) {
+  const { filePath, format } = getDatasetFilePath(datasetDir);
+  if (!fs.existsSync(filePath)) {
+    throw new Error('Dataset file not found');
+  }
+  if (format === 'parquet') {
+    return readDatasetParquet(filePath, isPostTraining);
+  }
+  // JSONL fallback for backward compatibility
+  const fileContent = fs.readFileSync(filePath, 'utf-8');
+  const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
+  return lines.map((line, idx) => {
+    try {
+      const parsed = JSON.parse(line);
+      if (isPostTraining) {
+        return {
+          prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
+          chosen: typeof parsed.chosen === 'string' ? parsed.chosen : '',
+          rejected: typeof parsed.rejected === 'string' ? parsed.rejected : '',
+        };
+      }
+      return {
+        instruction: typeof parsed.instruction === 'string' ? parsed.instruction : '',
+        input: typeof parsed.input === 'string' ? parsed.input : '',
+        output: typeof parsed.output === 'string' ? parsed.output : '',
+      };
+    } catch {
+      if (isPostTraining) {
+        return { prompt: '', chosen: '', rejected: `[Parse error on line ${idx + 1}]` };
+      }
+      return { instruction: '', input: '', output: `[Parse error on line ${idx + 1}]` };
+    }
+  });
+}
+
 const MAX_DATASET_INSTRUCTIONS_LENGTH = 5000;
 const BYTES_PER_TOKEN = 4; // standard approximation: 1 token ≈ 4 bytes
 const TOKENS_PER_ROW_ESTIMATE = 100; // average tokens per dataset row
@@ -5481,27 +5618,11 @@ app.post('/api/datasets/save', requireSession, blockInDemo, async (req, res) => 
       }
     }
 
-    // Build JSONL content
-    let jsonlContent;
-    if (isPostTraining) {
-      jsonlContent = rows.map(r => JSON.stringify({
-        prompt: r.prompt.trim(),
-        chosen: r.chosen.trim(),
-        rejected: r.rejected.trim(),
-      })).join('\n');
-    } else {
-      jsonlContent = rows.map(r => JSON.stringify({
-        instruction: r.instruction.trim(),
-        input: typeof r.input === 'string' ? r.input.trim() : '',
-        output: r.output.trim(),
-      })).join('\n');
-    }
-
-    // Create dataset directory and write files
+    // Create dataset directory and write parquet file
     const datasetId = crypto.randomUUID();
     const datasetDir = getUserDatasetDir(req.sessionUser, datasetId);
     fs.mkdirSync(datasetDir, { recursive: true });
-    fs.writeFileSync(path.join(datasetDir, 'dataset.jsonl'), jsonlContent + '\n', { mode: 0o600 });
+    await writeDatasetParquet(path.join(datasetDir, 'dataset.parquet'), rows, isPostTraining);
     const defaultDesc = isPostTraining ? 'Post-training preference dataset' : 'AI-generated dataset';
     const typeLabel = isPostTraining ? 'post-training' : 'training';
     const readmeContent = `# ${name}\n\n${description || defaultDesc}\n\nDataset containing ${rows.length} ${typeLabel} data rows (~${totalTokens} tokens).\n`;
@@ -5612,16 +5733,9 @@ app.post('/api/datasets/import-huggingface', requireSession, blockInDemo, async 
       const datasetDir = getUserDatasetDir(req.sessionUser, dsId);
       fs.mkdirSync(datasetDir, { recursive: true });
 
-      // Build JSONL content
-      const jsonlContent = rows.map(r => JSON.stringify({
-        instruction: typeof r.instruction === 'string' ? r.instruction.trim() : '',
-        input: typeof r.input === 'string' ? r.input.trim() : '',
-        output: typeof r.output === 'string' ? r.output.trim() : '',
-      })).join('\n');
-
       const description = `Imported from HuggingFace: ${trimmedDatasetId} (split: ${safeSplit})`;
 
-      fs.writeFileSync(path.join(datasetDir, 'dataset.jsonl'), jsonlContent + '\n', { mode: 0o600 });
+      await writeDatasetParquet(path.join(datasetDir, 'dataset.parquet'), rows, false);
       fs.writeFileSync(path.join(datasetDir, 'README.md'), `# ${datasetName}\n\n${description}\n\nDataset containing ${rows.length} imported rows (~${totalTokens} tokens).\n\nSource: [${trimmedDatasetId}](https://huggingface.co/datasets/${trimmedDatasetId})\n`, { mode: 0o600 });
 
       const datasetEntry = {
@@ -5672,40 +5786,17 @@ app.get('/api/datasets/:id', requireSession, async (req, res) => {
   }
 });
 
-// GET /api/datasets/:id/rows – Get dataset rows from JSONL file
-app.get('/api/datasets/:id/rows', requireSession, (req, res) => {
+// GET /api/datasets/:id/rows – Get dataset rows from parquet file (with JSONL fallback)
+app.get('/api/datasets/:id/rows', requireSession, async (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const ds = datasets.find(d => d.id === req.params.id && d.status === 'active');
     if (!ds) return res.status(404).json({ success: false, error: 'Active dataset not found' });
     const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
-    const filePath = path.join(datasetDir, 'dataset.jsonl');
-    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Dataset file not found' });
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
-    const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
     const isPostTraining = ds.datasetType === 'post-training';
-    const rows = lines.map((line, idx) => {
-      try {
-        const parsed = JSON.parse(line);
-        if (isPostTraining) {
-          return {
-            prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
-            chosen: typeof parsed.chosen === 'string' ? parsed.chosen : '',
-            rejected: typeof parsed.rejected === 'string' ? parsed.rejected : '',
-          };
-        }
-        return {
-          instruction: typeof parsed.instruction === 'string' ? parsed.instruction : '',
-          input: typeof parsed.input === 'string' ? parsed.input : '',
-          output: typeof parsed.output === 'string' ? parsed.output : '',
-        };
-      } catch {
-        if (isPostTraining) {
-          return { prompt: '', chosen: '', rejected: `[Parse error on line ${idx + 1}]` };
-        }
-        return { instruction: '', input: '', output: `[Parse error on line ${idx + 1}]` };
-      }
-    });
+    const { filePath, format } = getDatasetFilePath(datasetDir);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Dataset file not found' });
+    const rows = await readDatasetRows(datasetDir, isPostTraining);
     res.json({ success: true, rows });
   } catch (err) {
     console.error('Get dataset rows error:', err);
@@ -5714,7 +5805,7 @@ app.get('/api/datasets/:id/rows', requireSession, (req, res) => {
 });
 
 // PUT /api/datasets/:id/rows – Update all rows in a dataset
-app.put('/api/datasets/:id/rows', requireSession, blockInDemo, (req, res) => {
+app.put('/api/datasets/:id/rows', requireSession, blockInDemo, async (req, res) => {
   try {
     const { rows } = req.body;
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -5777,27 +5868,17 @@ app.put('/api/datasets/:id/rows', requireSession, blockInDemo, (req, res) => {
     }
 
     const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
-    const filePath = path.join(datasetDir, 'dataset.jsonl');
     if (!fs.existsSync(datasetDir)) {
       return res.status(404).json({ success: false, error: 'Dataset directory not found' });
     }
 
-    // Build JSONL content based on dataset type
-    let jsonlContent;
-    if (isPostTraining) {
-      jsonlContent = rows.map(r => JSON.stringify({
-        prompt: r.prompt.trim(),
-        chosen: r.chosen.trim(),
-        rejected: r.rejected.trim(),
-      })).join('\n');
-    } else {
-      jsonlContent = rows.map(r => JSON.stringify({
-        instruction: r.instruction.trim(),
-        input: typeof r.input === 'string' ? r.input.trim() : '',
-        output: r.output.trim(),
-      })).join('\n');
+    // Write parquet file (remove old JSONL if it exists)
+    const parquetPath = path.join(datasetDir, 'dataset.parquet');
+    const oldJsonlPath = path.join(datasetDir, 'dataset.jsonl');
+    await writeDatasetParquet(parquetPath, rows, isPostTraining);
+    if (fs.existsSync(oldJsonlPath)) {
+      fs.unlinkSync(oldJsonlPath);
     }
-    fs.writeFileSync(filePath, jsonlContent + '\n', { mode: 0o600 });
 
     // Update metadata
     ds.rowCount = rows.length;
@@ -5938,29 +6019,27 @@ app.post('/api/datasets/:id/refine', requireSession, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Active dataset not found' });
     }
 
-    // Read existing JSONL rows
+    // Read existing dataset rows (parquet or JSONL)
     const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
-    const filePath = path.join(datasetDir, 'dataset.jsonl');
+    const { filePath } = getDatasetFilePath(datasetDir);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ success: false, error: 'Dataset file not found' });
-    }
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
-    const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
-    if (lines.length === 0) {
-      return res.status(400).json({ success: false, error: 'Dataset has no rows to refine' });
     }
 
     let originalRows;
     try {
-      originalRows = lines.map((line, idx) => {
-        const parsed = JSON.parse(line);
-        if (typeof parsed.instruction !== 'string' || typeof parsed.output !== 'string') {
+      const allRows = await readDatasetRows(datasetDir, false);
+      if (allRows.length === 0) {
+        return res.status(400).json({ success: false, error: 'Dataset has no rows to refine' });
+      }
+      originalRows = allRows.map((row, idx) => {
+        if (typeof row.instruction !== 'string' || typeof row.output !== 'string') {
           throw new Error(`Row ${idx + 1} is missing required fields`);
         }
         return {
-          instruction: parsed.instruction,
-          input: typeof parsed.input === 'string' ? parsed.input : '',
-          output: parsed.output,
+          instruction: row.instruction,
+          input: typeof row.input === 'string' ? row.input : '',
+          output: row.output,
         };
       });
     } catch (parseErr) {
@@ -6034,17 +6113,22 @@ Do not include any markdown, explanation, or extra text. Return raw JSON only.`;
   }
 });
 
-// GET /api/datasets/:id/download – Download the dataset.jsonl file
+// GET /api/datasets/:id/download – Download the dataset file (parquet with JSONL fallback)
 app.get('/api/datasets/:id/download', requireSession, (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const ds = datasets.find(d => d.id === req.params.id && d.status === 'active');
     if (!ds) return res.status(404).json({ success: false, error: 'Active dataset not found' });
     const datasetDir = getUserDatasetDir(req.sessionUser, ds.id);
-    const filePath = path.join(datasetDir, 'dataset.jsonl');
+    const { filePath, format } = getDatasetFilePath(datasetDir);
     if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Dataset file not found' });
-    res.setHeader('Content-Disposition', `attachment; filename="${ds.name}.jsonl"`);
-    res.setHeader('Content-Type', 'application/x-ndjson');
+    if (format === 'parquet') {
+      res.setHeader('Content-Disposition', `attachment; filename="${ds.name}.parquet"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+    } else {
+      res.setHeader('Content-Disposition', `attachment; filename="${ds.name}.jsonl"`);
+      res.setHeader('Content-Type', 'application/x-ndjson');
+    }
     fs.createReadStream(filePath).pipe(res);
   } catch (err) {
     console.error('Download dataset error:', err);
@@ -6718,7 +6802,7 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
         return res.status(400).json({ success: false, error: `"${ds.name}" is a post-training dataset and cannot be used as a main training dataset` });
       }
       const dsDir = getUserDatasetDir(req.sessionUser, dsId);
-      const dsPath = path.join(dsDir, 'dataset.jsonl');
+      const { filePath: dsPath } = getDatasetFilePath(dsDir);
       if (!fs.existsSync(dsPath)) {
         return res.status(400).json({ success: false, error: `Training dataset file not found: ${ds.name}` });
       }
@@ -6738,7 +6822,7 @@ app.post('/api/train-llm/jobs', requireSession, blockInDemo, async (req, res) =>
         return res.status(400).json({ success: false, error: `"${ds.name}" is a standard dataset and cannot be used as a post-training dataset` });
       }
       const dsDir = getUserDatasetDir(req.sessionUser, dsId);
-      const dsPath = path.join(dsDir, 'dataset.jsonl');
+      const { filePath: dsPath } = getDatasetFilePath(dsDir);
       if (!fs.existsSync(dsPath)) {
         return res.status(400).json({ success: false, error: `Post-training dataset file not found: ${ds.name}` });
       }
