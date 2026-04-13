@@ -1408,9 +1408,13 @@ function setupGracefulShutdown(server) {
 
 function timingSafeCompare(a, b) {
   // Hash both values to normalize length, preventing length-based timing leaks.
-  const hashA = crypto.createHash('sha256').update(String(a)).digest();
-  const hashB = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(hashA, hashB);
+  try {
+    const hashA = crypto.createHash('sha256').update(String(a)).digest();
+    const hashB = crypto.createHash('sha256').update(String(b)).digest();
+    return crypto.timingSafeEqual(hashA, hashB);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -4691,7 +4695,7 @@ app.get('/api/coding-agent/containers/:id/files', requireSession, (req, res) => 
 
     const dirPath = typeof req.query.path === 'string' ? req.query.path : '.';
     // Sanitize path: block traversal, absolute paths, null bytes, and shell metacharacters
-    if (dirPath.includes('..') || path.isAbsolute(dirPath) || dirPath.includes('\0') || /[`$;"'\\|&!{}()><]/.test(dirPath)) {
+    if (dirPath.includes('..') || path.isAbsolute(dirPath) || dirPath.includes('\0') || /[`$;"'\\|&!><]/.test(dirPath)) {
       return res.status(400).json({ success: false, error: 'Invalid path' });
     }
 
@@ -4731,7 +4735,7 @@ app.get('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
     }
 
     const filePath = typeof req.query.path === 'string' ? req.query.path : '';
-    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || filePath.includes('\0') || /[`$;"'\\|&!{}()><]/.test(filePath)) {
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || filePath.includes('\0') || /[`$;"'\\|&!><]/.test(filePath)) {
       return res.status(400).json({ success: false, error: 'Invalid file path' });
     }
 
@@ -4763,7 +4767,7 @@ app.put('/api/coding-agent/containers/:id/file', requireSession, (req, res) => {
     }
 
     const { path: filePath, content } = req.body;
-    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || filePath.includes('\0') || /[`$;"'\\|&!{}()><]/.test(filePath) || typeof content !== 'string') {
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath) || filePath.includes('\0') || /[`$;"'\\|&!><]/.test(filePath) || typeof content !== 'string') {
       return res.status(400).json({ success: false, error: 'Invalid file path or content' });
     }
 
@@ -8430,13 +8434,14 @@ app.post('/api/repositories/:id/export-github', requireSession, async (req, res)
       const os = require('os');
       const bareDir = getUserRepoBareDir(req.sessionUser, repo.id);
       // Use GIT_ASKPASS to avoid embedding token in process arguments (visible in /proc)
-      const pushTmpAskPass = path.join(os.tmpdir(), `localllm-push-askpass-${repo.id}.sh`);
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localllm-push-'));
+      const pushTmpAskPass = path.join(tmpDir, 'askpass.sh');
       fs.writeFileSync(pushTmpAskPass, `#!/bin/sh\necho "$GIT_TOKEN"\n`, { mode: 0o700 });
       const pushEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: pushTmpAskPass, GIT_TOKEN: github.token };
       try {
         execFileSync('git', ['-C', bareDir, 'push', '--mirror', ghRepoData.clone_url], { timeout: 300000, env: pushEnv });
       } finally {
-        try { fs.unlinkSync(pushTmpAskPass); } catch {}
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
       }
     } catch (pushErr) {
       console.error('Git mirror push error:', pushErr.message);
