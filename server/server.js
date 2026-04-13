@@ -5056,26 +5056,29 @@ async function writeDatasetParquet(filePath, rows, isPostTraining) {
  */
 async function readDatasetParquet(filePath, isPostTraining) {
   const reader = await parquet.ParquetReader.openFile(filePath);
-  const cursor = reader.getCursor();
-  const rows = [];
-  let record;
-  while ((record = await cursor.next())) {
-    if (isPostTraining) {
-      rows.push({
-        prompt: typeof record.prompt === 'string' ? record.prompt : '',
-        chosen: typeof record.chosen === 'string' ? record.chosen : '',
-        rejected: typeof record.rejected === 'string' ? record.rejected : '',
-      });
-    } else {
-      rows.push({
-        instruction: typeof record.instruction === 'string' ? record.instruction : '',
-        input: typeof record.input === 'string' ? record.input : '',
-        output: typeof record.output === 'string' ? record.output : '',
-      });
+  try {
+    const cursor = reader.getCursor();
+    const rows = [];
+    let record;
+    while ((record = await cursor.next())) {
+      if (isPostTraining) {
+        rows.push({
+          prompt: typeof record.prompt === 'string' ? record.prompt : '',
+          chosen: typeof record.chosen === 'string' ? record.chosen : '',
+          rejected: typeof record.rejected === 'string' ? record.rejected : '',
+        });
+      } else {
+        rows.push({
+          instruction: typeof record.instruction === 'string' ? record.instruction : '',
+          input: typeof record.input === 'string' ? record.input : '',
+          output: typeof record.output === 'string' ? record.output : '',
+        });
+      }
     }
+    return rows;
+  } finally {
+    await reader.close();
   }
-  await reader.close();
-  return rows;
 }
 
 /**
