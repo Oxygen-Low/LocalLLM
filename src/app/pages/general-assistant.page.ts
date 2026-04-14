@@ -50,7 +50,7 @@ import { VoiceService } from '../services/voice.service';
               <button
                 type="button"
                 (click)="deleteExistingChat(chat.id, $event)"
-                class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 hover:text-red-400 transition-all"
+                class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 hover:text-red-400 transition-all outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded"
                 aria-label="Delete chat"
                 title="Delete chat"
               >
@@ -206,7 +206,7 @@ import { VoiceService } from '../services/voice.service';
                               type="button"
                               (click)="retryAssistantMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
-                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-secondary-400"
                               aria-label="Retry response"
                               title="Retry response"
                             >
@@ -220,7 +220,7 @@ import { VoiceService } from '../services/voice.service';
                               type="button"
                               (click)="startEditUserMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
-                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-secondary-400"
                               aria-label="Edit message"
                               title="Edit message"
                             >
@@ -234,7 +234,7 @@ import { VoiceService } from '../services/voice.service';
                               type="button"
                               (click)="deleteMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
-                              class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                              class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                               aria-label="Delete message"
                               title="Delete message"
                             >
