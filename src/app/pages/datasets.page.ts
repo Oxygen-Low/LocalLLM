@@ -472,6 +472,7 @@ interface QueueItem {
                   <button
                     (click)="generateDatasetType = 'standard'"
                     class="text-left p-3 rounded-lg border-2 transition-all"
+                    [attr.aria-pressed]="generateDatasetType === 'standard'"
                     [ngClass]="generateDatasetType === 'standard'
                       ? 'border-primary-500 bg-primary-50'
                       : 'border-secondary-200 bg-white hover:border-secondary-300'"
@@ -486,6 +487,7 @@ interface QueueItem {
                   <button
                     (click)="generateDatasetType = 'post-training'"
                     class="text-left p-3 rounded-lg border-2 transition-all"
+                    [attr.aria-pressed]="generateDatasetType === 'post-training'"
                     [ngClass]="generateDatasetType === 'post-training'
                       ? 'border-purple-500 bg-purple-50'
                       : 'border-secondary-200 bg-white hover:border-secondary-300'"
@@ -531,6 +533,7 @@ interface QueueItem {
                       <button
                         (click)="selectProvider(p)"
                         class="text-left p-3 rounded-lg border transition-all"
+                        [attr.aria-pressed]="selectedProvider()?.id === p.id"
                         [ngClass]="selectedProvider()?.id === p.id
                           ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
                           : 'border-secondary-200 hover:border-primary-300 bg-white'"
@@ -771,6 +774,7 @@ interface QueueItem {
                       <button
                         (click)="selectQueueProvider(p)"
                         class="text-left p-3 rounded-lg border transition-all"
+                        [attr.aria-pressed]="queueSelectedProvider()?.id === p.id"
                         [ngClass]="queueSelectedProvider()?.id === p.id
                           ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
                           : 'border-secondary-200 hover:border-primary-300 bg-white'"
@@ -1049,6 +1053,7 @@ interface QueueItem {
                       <button
                         (click)="selectRefineProvider(p)"
                         class="text-left p-3 rounded-lg border transition-all"
+                        [attr.aria-pressed]="refineSelectedProvider()?.id === p.id"
                         [ngClass]="refineSelectedProvider()?.id === p.id
                           ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
                           : 'border-secondary-200 hover:border-primary-300 bg-white'"
