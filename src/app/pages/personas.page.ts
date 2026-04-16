@@ -105,11 +105,11 @@ type PageView = 'list' | 'create' | 'edit';
                         </button>
                       </div>
                       @if (defaultPersonaId() !== persona.id) {
-                        <button type="button" (click)="makeDefault(persona.id)" class="text-[11px] font-medium text-primary-600 hover:text-primary-800 transition-colors text-right opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:underline">
+                        <button type="button" (click)="makeDefault(persona.id)" class="text-[11px] font-medium text-primary-600 hover:text-primary-800 transition-colors text-right opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-primary-400 rounded px-1 -mx-1">
                           Set as default
                         </button>
                       } @else {
-                        <button type="button" (click)="makeDefault(null)" class="text-[11px] font-medium text-secondary-400 hover:text-secondary-600 transition-colors text-right opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:underline">
+                        <button type="button" (click)="makeDefault(null)" class="text-[11px] font-medium text-secondary-400 hover:text-secondary-600 transition-colors text-right opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-secondary-400 rounded px-1 -mx-1">
                           Clear default
                         </button>
                       }
