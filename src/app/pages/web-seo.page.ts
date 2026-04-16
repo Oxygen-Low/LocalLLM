@@ -135,6 +135,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
               <div class="grid grid-cols-2 gap-4">
                 <button
                   (click)="newApp.type = 'url'"
+                  [attr.aria-pressed]="newApp.type === 'url'"
                   [ngClass]="newApp.type === 'url' ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-secondary-200 hover:border-secondary-300 text-secondary-600'"
                   class="flex flex-col items-center p-4 rounded-xl border-2 transition-all"
                 >
@@ -143,6 +144,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                 </button>
                 <button
                   (click)="newApp.type = 'repo'"
+                  [attr.aria-pressed]="newApp.type === 'repo'"
                   [ngClass]="newApp.type === 'repo' ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-secondary-200 hover:border-secondary-300 text-secondary-600'"
                   class="flex flex-col items-center p-4 rounded-xl border-2 transition-all"
                 >
@@ -170,6 +172,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                       @for (repo of repos(); track repo.id) {
                         <button
                           (click)="selectRepo(repo)"
+                          [attr.aria-pressed]="newApp.repoFullName === repo.fullName"
                           [ngClass]="newApp.repoFullName === repo.fullName ? 'border-primary-600 bg-primary-50' : 'border-secondary-200 hover:border-secondary-300'"
                           class="w-full text-left p-3 rounded-lg border text-sm transition-all"
                         >
