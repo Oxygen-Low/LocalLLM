@@ -42,7 +42,7 @@ type RoleplayView = 'list' | 'create' | 'session';
         @if (errorMessage()) {
           <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center justify-between">
             <span>{{ errorMessage() }}</span>
-            <button (click)="errorMessage.set('')" class="text-red-500 hover:text-red-700" aria-label="Dismiss error">✕</button>
+            <button type="button" (click)="errorMessage.set('')" class="text-red-500 hover:text-red-700" aria-label="Dismiss error" title="Dismiss error">✕</button>
           </div>
         }
 
