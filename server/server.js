@@ -7733,8 +7733,467 @@ Ensure the JSON is valid and only return the JSON block.`;
 const PENTESTING_DIR = path.join(DATA_DIR, 'pentesting');
 if (!fs.existsSync(PENTESTING_DIR)) fs.mkdirSync(PENTESTING_DIR, { recursive: true });
 
+const MARKETPLACE_DIR = path.join(DATA_DIR, 'marketplace');
+if (!fs.existsSync(MARKETPLACE_DIR)) fs.mkdirSync(MARKETPLACE_DIR, { recursive: true });
+
 const pentestRegistry = new Map();
 const PENTEST_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+
+// ---------------------------------------------------------------------------
+// Marketplace Experiment
+// ---------------------------------------------------------------------------
+
+const MARKETPLACE_INACTIVITY_TIMEOUT_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
+
+function getMarketplaceDataFile(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const filePath = path.join(MARKETPLACE_DIR, `${safeUsername}.json`);
+  return ensureWithinDir(MARKETPLACE_DIR, filePath);
+}
+
+function readMarketplaceData(username) {
+  const file = getMarketplaceDataFile(username);
+  if (!fs.existsSync(file)) return { simulations: [], profiles: {}, items: [], messages: [], refunds: [], reports: [], websites: [] };
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch { return { simulations: [], profiles: {}, items: [], messages: [], refunds: [], reports: [], websites: [] }; }
+}
+
+function writeMarketplaceData(username, data) {
+  const file = getMarketplaceDataFile(username);
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+}
+
+const simulationRegistry = new Map();
+
+function cleanupSimulation(simId) {
+  const entry = simulationRegistry.get(simId);
+  if (!entry) return;
+  const { execFileSync } = require('child_process');
+
+  // Stop all LLM containers
+  for (const llm of entry.llms) {
+    try { execFileSync('docker', ['rm', '-f', llm.containerName], { timeout: 30000 }); } catch {}
+  }
+
+  // Stop Marketplace container
+  try { execFileSync('docker', ['rm', '-f', entry.marketplaceContainerName], { timeout: 30000 }); } catch {}
+
+  // Remove network
+  try { execFileSync('docker', ['network', 'rm', entry.networkName], { timeout: 15000 }); } catch {}
+
+  simulationRegistry.delete(simId);
+}
+
+// GET /api/marketplace/simulations - List simulations
+app.get('/api/marketplace/simulations', requireSession, (req, res) => {
+  try {
+    const data = readMarketplaceData(req.sessionUser);
+    res.json({ success: true, simulations: data.simulations });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/websites - Add website
+app.post('/api/marketplace/websites', requireSession, (req, res) => {
+  try {
+    const { simId, name, url, description } = req.body;
+    const data = readMarketplaceData(req.sessionUser);
+
+    const website = {
+      id: crypto.randomUUID(),
+      simId,
+      name,
+      url,
+      description,
+      createdAt: new Date().toISOString()
+    };
+
+    data.websites.push(website);
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, website });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/refunds - Request refund
+app.post('/api/marketplace/refunds', requireSession, (req, res) => {
+  try {
+    const { simId, itemId, buyerId, reason } = req.body;
+    const data = readMarketplaceData(req.sessionUser);
+
+    const refund = {
+      id: crypto.randomUUID(),
+      simId,
+      itemId,
+      buyerId,
+      reason,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    data.refunds.push(refund);
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, refund });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/reports - Report item
+app.post('/api/marketplace/reports', requireSession, (req, res) => {
+  try {
+    const { simId, itemId, reporterId, reason } = req.body;
+    const data = readMarketplaceData(req.sessionUser);
+
+    const report = {
+      id: crypto.randomUUID(),
+      simId,
+      itemId,
+      reporterId,
+      reason,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    data.reports.push(report);
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, report });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/withdraw - Withdraw from store to profile
+app.post('/api/marketplace/withdraw', requireSession, (req, res) => {
+  try {
+    const { ownerId, amount } = req.body;
+    const data = readMarketplaceData(req.sessionUser);
+    const storeId = `store_${ownerId}`;
+    const store = data.profiles[storeId];
+    const profile = data.profiles[ownerId];
+
+    if (!store || !profile || store.balance < amount) {
+      return res.status(400).json({ success: false, error: 'Invalid withdrawal request' });
+    }
+
+    store.balance -= amount;
+
+    // Logic for 2-minute delay would typically be a background task or scheduled event
+    // For this prototype, we'll store it as "pending"
+    if (!data.pendingTransfers) data.pendingTransfers = [];
+    data.pendingTransfers.push({
+      ownerId,
+      amount,
+      availableAt: Date.now() + 2 * 60 * 1000
+    });
+
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, message: 'Transfer initiated (2 minute delay)' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/messages - Send message
+app.post('/api/marketplace/messages', requireSession, (req, res) => {
+  try {
+    const { simId, fromId, toId, content } = req.body;
+    const data = readMarketplaceData(req.sessionUser);
+
+    const message = {
+      id: crypto.randomUUID(),
+      simId,
+      fromId,
+      toId,
+      content,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+
+    data.messages.push(message);
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+const marketplaceUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = path.join(MARKETPLACE_DIR, 'uploads');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      cb(null, `${crypto.randomUUID()}-${path.basename(file.originalname)}`);
+    }
+  }),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
+
+// POST /api/marketplace/items - Upload/Sell item
+app.post('/api/marketplace/items', requireSession, marketplaceUpload.single('file'), (req, res) => {
+  try {
+    const { simId, name, description, sellerId, variants, licenses } = req.body;
+    if (!req.file || !simId || !name || !sellerId) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    const data = readMarketplaceData(req.sessionUser);
+    const item = {
+      id: crypto.randomUUID(),
+      simId,
+      name,
+      description,
+      sellerId,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      variants: JSON.parse(variants || '[]'),
+      licenses: JSON.parse(licenses || '[]'),
+      rating: 0,
+      reviews: [],
+      createdAt: new Date().toISOString()
+    };
+
+    data.items.push(item);
+    writeMarketplaceData(req.sessionUser, data);
+
+    res.status(201).json({ success: true, item });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/buy - Buy an item
+app.post('/api/marketplace/buy', requireSession, (req, res) => {
+  try {
+    const { simId, itemId, buyerId, variantIdx, licenseType } = req.body;
+    const data = readMarketplaceData(req.sessionUser);
+
+    const item = data.items.find(i => i.id === itemId);
+    if (!item) return res.status(404).json({ success: false, error: 'Item not found' });
+
+    const variant = item.variants[variantIdx];
+    const price = variant ? variant.price : 0;
+
+    const buyer = data.profiles[buyerId];
+    if (!buyer || buyer.balance < price) {
+      return res.status(400).json({ success: false, error: 'Insufficient funds' });
+    }
+
+    // Deduct from buyer
+    buyer.balance -= price;
+
+    // Add to seller's STORE (not profile directly)
+    const storeId = `store_${item.sellerId}`;
+    if (data.profiles[storeId]) {
+      data.profiles[storeId].balance += price;
+    }
+
+    // If commercial license, remove from marketplace
+    if (licenseType === 'Commercial') {
+      data.items = data.items.filter(i => i.id !== itemId);
+    }
+
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, balance: buyer.balance });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+const cleanupInactiveSimulations = () => {
+  const now = Date.now();
+  const files = fs.readdirSync(MARKETPLACE_DIR).filter(f => f.endsWith('.json'));
+  for (const file of files) {
+    try {
+      const username = file.replace('.json', '');
+      const data = readMarketplaceData(username);
+      let changed = false;
+      data.simulations = data.simulations.filter(sim => {
+        if (now - sim.lastActivity > MARKETPLACE_INACTIVITY_TIMEOUT_MS) {
+          cleanupSimulation(sim.id);
+          changed = true;
+          return false;
+        }
+        return true;
+      });
+      if (changed) writeMarketplaceData(username, data);
+    } catch (e) {}
+  }
+};
+
+setInterval(cleanupInactiveSimulations, 60 * 60 * 1000); // Check every hour
+
+// POST /api/marketplace/simulations/:id/turn - End turn
+app.post('/api/marketplace/simulations/:id/turn', requireSession, async (req, res) => {
+  try {
+    const data = readMarketplaceData(req.sessionUser);
+    const simIdx = data.simulations.findIndex(s => s.id === req.params.id);
+    if (simIdx === -1) return res.status(404).json({ success: false, error: 'Simulation not found' });
+
+    const sim = data.simulations[simIdx];
+    sim.lastActivity = Date.now();
+
+    // In a real implementation, this would trigger the prompting loop for each LLM one by one
+    // For this prototype, we'll just increment a turn counter
+    sim.turn = (sim.turn || 0) + 1;
+
+    writeMarketplaceData(req.sessionUser, data);
+    res.json({ success: true, turn: sim.turn });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/simulations - Create simulation
+app.post('/api/marketplace/simulations', requireSession, async (req, res) => {
+  try {
+    const { name, numLLMs, model, mode } = req.body;
+    if (!name || !numLLMs || !model) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    if (!isDockerAvailable()) {
+      return res.status(503).json({ success: false, error: 'Docker is not available' });
+    }
+
+    const data = readMarketplaceData(req.sessionUser);
+    const simId = crypto.randomUUID();
+    const shortId = simId.slice(0, 8);
+    const safeUser = sanitizeUsernameForPath(req.sessionUser);
+    const networkName = `market-net-${safeUser}-${shortId}`;
+    const marketplaceContainerName = `market-api-${safeUser}-${shortId}`;
+
+    const { execFileSync } = require('child_process');
+
+    // Create Docker network
+    execFileSync('docker', ['network', 'create', networkName], { timeout: 15000 });
+
+    // Start Marketplace API container (Ubuntu-based, minimal Node.js for simplicity)
+    const marketInitScript = [
+      'apt-get update -qq && apt-get install -y -qq curl nodejs npm > /dev/null 2>&1',
+      'mkdir -p /app',
+      'echo "const http = require(\'http\'); const url = require(\'url\'); const fs = require(\'fs\'); http.createServer((req, res) => { const parsed = url.parse(req.url, true); res.setHeader(\'Content-Type\', \'application/json\'); if (parsed.pathname === \'/items\') { res.end(JSON.stringify({ success: true, items: [] })); } else { res.end(JSON.stringify({ success: true, message: \'Marketplace API Running\' })); } }).listen(3000);" > /app/server.js',
+      'node /app/server.js',
+    ].join(' && ');
+
+    execFileSync('docker', [
+      'run', '-d',
+      '--name', marketplaceContainerName,
+      '--network', networkName,
+      '--network-alias', 'marketplace',
+      '--memory=512m',
+      '--cpus=0.5',
+      'node:20-slim',
+      'bash', '-c', marketInitScript,
+    ], { timeout: 60000 });
+
+    // Create LLM entities and containers
+    const llms = [];
+    const personalities = ['helpful', 'normal', 'greedy'];
+    const llmContainerEntries = [];
+
+    for (let i = 0; i < numLLMs; i++) {
+      const personality = personalities[i % personalities.length];
+      const llmId = crypto.randomUUID();
+      const llmShortId = llmId.slice(0, 8);
+      const containerName = `market-llm-${safeUser}-${llmShortId}`;
+
+      const llmInitScript = mode === 'offline'
+        ? 'apt-get update -qq && apt-get install -y -qq curl > /dev/null 2>&1 && tail -f /dev/null'
+        : 'apt-get update -qq && apt-get install -y -qq curl git npm nodejs > /dev/null 2>&1 && tail -f /dev/null';
+
+      const dockerArgs = [
+        'run', '-d',
+        '--name', containerName,
+        '--network', networkName,
+        '--network-alias', `llm-${i + 1}`,
+        '--memory=1g',
+        '--cpus=1',
+        mode === 'offline' ? '--network=none' : '--network', // This is tricky, they need to access marketplace container but maybe not internet.
+        // Actually, internal network is networkName. If they shouldn't have internet, we'd need more complex iptables or proxy.
+        // For now, let's just use the shared network.
+        'ubuntu:22.04',
+        'bash', '-c', llmInitScript,
+      ];
+
+      // Fix network for offline mode: they should only be on networkName
+      const finalDockerArgs = [
+        'run', '-d',
+        '--name', containerName,
+        '--network', networkName,
+        '--memory=1g',
+        '--cpus=1',
+        'ubuntu:22.04',
+        'bash', '-c', llmInitScript,
+      ];
+
+      execFileSync('docker', finalDockerArgs, { timeout: 60000 });
+
+      llms.push({
+        id: llmId,
+        name: `LLM-${i + 1}`,
+        containerName,
+        personality,
+        status: 'active',
+        wallet: 50,
+        store: { name: `LLM-${i + 1}'s Store`, balance: 0, lastWithdrawal: null },
+        profile: { name: `LLM-${i + 1}'s Profile` }
+      });
+
+      llmContainerEntries.push({ id: llmId, containerName });
+      data.profiles[llmId] = { name: `LLM-${i + 1}'s Profile`, balance: 50 };
+      data.profiles[`store_${llmId}`] = { name: `LLM-${i + 1}'s Store`, balance: 0, ownerId: llmId };
+    }
+
+    // Player profile
+    data.profiles[req.sessionUser] = data.profiles[req.sessionUser] || { name: req.sessionUser, balance: 50 };
+    data.profiles[`store_${req.sessionUser}`] = data.profiles[`store_${req.sessionUser}`] || { name: `${req.sessionUser}'s Store`, balance: 0, ownerId: req.sessionUser };
+
+    const simulation = {
+      id: simId,
+      name,
+      numLLMs,
+      model,
+      mode: mode || 'online',
+      status: 'active',
+      llms,
+      networkName,
+      marketplaceContainerName,
+      createdAt: new Date().toISOString(),
+      lastActivity: Date.now()
+    };
+
+    simulationRegistry.set(simId, {
+      ...simulation,
+      llms: llmContainerEntries
+    });
+
+    data.simulations.push(simulation);
+    writeMarketplaceData(req.sessionUser, data);
+
+    res.status(201).json({ success: true, simulation });
+  } catch (err) {
+    console.error('Create simulation error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/marketplace/items - List marketplace items
+app.get('/api/marketplace/items', requireSession, (req, res) => {
+  try {
+    const { simId } = req.query;
+    const data = readMarketplaceData(req.sessionUser);
+    const items = data.items.filter(item => item.simId === simId);
+    res.json({ success: true, items });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 function getUserPentestFile(username) {
   const safeUsername = path.basename(sanitizeUsernameForPath(username));

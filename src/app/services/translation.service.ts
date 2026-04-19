@@ -389,6 +389,24 @@ const translations: TranslationDictionary = {
     ja: 'SEO',
     ru: 'SEO',
   },
+  'apps.category.experiment': {
+    en: 'Experiment',
+    ko: '실험',
+    ja: '実験',
+    ru: 'Эксперимент',
+  },
+  'apps.marketplace-experiment.name': {
+    en: 'Marketplace Experiment',
+    ko: '마켓플레이스 실험',
+    ja: 'マーケットプレイス実験',
+    ru: 'Эксперимент с маркетплейсом',
+  },
+  'apps.marketplace-experiment.description': {
+    en: 'Simulate multiple LLMs in their own Docker VMs interacting with a marketplace. Buy, sell, and manage items in a controlled economy.',
+    ko: '자체 Docker VM에서 마켓플레이스와 상호 작용하는 여러 LLM을 시뮬레이션합니다. 통제된 경제에서 아이템을 사고팔고 관리하세요.',
+    ja: '独自のDocker VMでマーケットプレイスと相互作用する複数のLLMをシミュレートします。制御された経済の中でアイテムを売買し、管理します。',
+    ru: 'Симулируйте работу нескольких LLM в их собственных Docker VM, взаимодействующих с маркетплейсом. Покупайте, продавайте и управляйте предметами в контролируемой экономике.',
+  },
   'apps.datasets.name': {
     en: 'Datasets',
     ko: '데이터셋',

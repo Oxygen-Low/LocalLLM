@@ -146,6 +146,15 @@ export class DashboardPageComponent implements OnInit {
       color: 'red',
       risky: true,
     },
+    {
+      id: 'marketplace-experiment',
+      name: 'apps.marketplace-experiment.name',
+      description: 'apps.marketplace-experiment.description',
+      icon: '🏪',
+      category: 'apps.category.experiment',
+      color: 'purple',
+      risky: true,
+    },
   ];
 
   sortedApps = signal<AIApp[]>([]);

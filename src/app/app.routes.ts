@@ -98,6 +98,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/pentesting.page').then(m => m.PentestingPageComponent),
         canActivate: [authGuard, riskyAppsGuard, demoGuard],
       },
+      {
+        path: 'app/marketplace-experiment',
+        loadComponent: () => import('./pages/marketplace-experiment.page').then(m => m.MarketplaceExperimentPageComponent),
+        canActivate: [authGuard, riskyAppsGuard, demoGuard],
+      },
     ],
   },
   {
