@@ -755,7 +755,7 @@ let autoSyncStatus = { lastSync: null, lastError: null, syncing: false };
 
 /**
  * Validate that a sync directory path is safe to use.
- * Must not overlap with the application data directory.
+ * Must be contained within a dedicated safe root and must not overlap with the application data directory.
  */
 function validateSyncDirectory(directory) {
   if (typeof directory !== 'string') {
@@ -766,6 +766,13 @@ function validateSyncDirectory(directory) {
   }
   const resolved = path.resolve(directory);
   const dataResolved = path.resolve(DATA_DIR);
+  const syncRoot = path.resolve(DATA_DIR, 'sync-imports');
+
+  // Ensure user-supplied directory is confined to a safe root.
+  if (!(resolved === syncRoot || resolved.startsWith(syncRoot + path.sep))) {
+    return { valid: false, error: `Sync directory must be within ${syncRoot}` };
+  }
+
   // Prevent syncing into the data directory itself (would cause infinite loops)
   if (resolved === dataResolved || resolved.startsWith(dataResolved + path.sep) || dataResolved.startsWith(resolved + path.sep)) {
     return { valid: false, error: 'Sync directory must not overlap with the application data directory' };
