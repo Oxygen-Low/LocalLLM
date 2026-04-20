@@ -1351,7 +1351,12 @@ function stopPythonProcess() {
   }
 }
 
-// Register SIGTERM / SIGINT handlers so all data is persisted before exit
+/**
+ * Register SIGTERM and SIGINT handlers that persist application state and perform an orderly shutdown of the provided server.
+ *
+ * On signal receipt this saves all data, clears repo/container timers, optionally runs a configured auto-sync, stops the managed Python process, closes the server to allow in-flight requests to complete, and forces process exit after 10 seconds if shutdown does not finish.
+ * @param {import('http').Server} server - The HTTP(S) server instance to close so in-flight requests can complete before exit.
+ */
 function setupGracefulShutdown(server) {
   let shuttingDown = false;
 
@@ -1406,6 +1411,12 @@ function setupGracefulShutdown(server) {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
+/**
+ * Perform a timing-safe equality check of two values suitable for comparing secret material.
+ * @param {string|Buffer|any} a - First value to compare; will be converted to a UTF-8 byte sequence.
+ * @param {string|Buffer|any} b - Second value to compare; will be converted to a UTF-8 byte sequence.
+ * @returns {boolean} `true` if the resulting byte sequences are equal, `false` otherwise.
+ */
 function timingSafeCompare(a, b) {
   // Compare values in constant time without using a fast hash on secret material.
   try {
