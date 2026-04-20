@@ -38,6 +38,7 @@ GET /health
 
 import json
 import os
+import re
 import signal
 import sys
 import datetime
@@ -47,6 +48,8 @@ import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
+
+_SAFE_GGUF_FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.gguf$")
 
 # Disable tokenizers parallelism to prevent deadlocks when the Rust-based
 # tokenizers library is used from a Python thread inside this multi-threaded
@@ -263,8 +266,12 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
         raise ValueError("output_path is outside the allowed directory")
     # Reconstruct output path from validated parent and sanitized basename
     output_basename = os.path.basename(output_path)
-    if not output_basename or output_basename in ('.', '..'):
-        raise ValueError("output_path has an invalid filename")
+    if (
+        not output_basename
+        or output_basename in ('.', '..')
+        or not _SAFE_GGUF_FILENAME_RE.fullmatch(output_basename)
+    ):
+        raise ValueError("output_path must be a safe filename ending in .gguf")
     validated_output_path = os.path.join(validated_output_parent, output_basename)
     import numpy as np
     from gguf import GGUFWriter, GGUFValueType  # noqa: E402
@@ -1423,8 +1430,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         # Reconstruct from validated parent + sanitized basename
         output_basename = os.path.basename(output_path)
-        if not output_basename or output_basename in ('.', '..'):
-            self._send_json(400, {"error": "output_path has an invalid filename"})
+        if (
+            not output_basename
+            or output_basename in ('.', '..')
+            or not _SAFE_GGUF_FILENAME_RE.fullmatch(output_basename)
+        ):
+            self._send_json(400, {"error": "output_path must be a safe filename ending in .gguf"})
             return
         resolved_output_path = os.path.join(resolved_output_parent, output_basename)
 
