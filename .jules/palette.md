@@ -21,3 +21,7 @@
 ## 2026-04-15 - [Accessibility] Added missing aria-pressed to custom toggle buttons
 **Learning:** Custom toggle buttons and selector tabs that use `ngClass` to visually indicate their active state do not automatically announce their state to screen readers. This makes it impossible for visually impaired users to know which option is currently selected.
 **Action:** Always ensure that custom button controls acting as toggles or segmented tabs have an `[attr.aria-pressed]="condition"` attribute alongside their `ngClass` visual updates so screen readers correctly announce them as pressed/selected.
+
+## 2024-05-15 - [Accessibility] Added missing aria-pressed to activeTab and showAgentTerminal toggle buttons
+**Learning:** In `coding-agent.page.ts`, tab toggle buttons (like "Editor", "Terminal", "Preview") and other toggle buttons (like "Agent Terminal", "Memories") were using `ngClass` to visually indicate their active state, but lacked the `[attr.aria-pressed]` attribute, failing to communicate their state to screen readers.
+**Action:** Applied `[attr.aria-pressed]` to the relevant buttons alongside their visual `ngClass` toggles so screen readers will announce their currently pressed state correctly.

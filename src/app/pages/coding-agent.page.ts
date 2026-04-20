@@ -562,6 +562,7 @@ interface ToolCall {
                 <button
                   (click)="toggleAgentTerminal()"
                   class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                  [attr.aria-pressed]="showAgentTerminal()"
                   [ngClass]="showAgentTerminal() ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-secondary-200 text-secondary-700 hover:bg-secondary-50'"
                 >
                   🤖 Agent Terminal
@@ -635,6 +636,7 @@ interface ToolCall {
                   <button
                     (click)="activeTab.set('editor')"
                     class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                    [attr.aria-pressed]="activeTab() === 'editor'"
                     [ngClass]="activeTab() === 'editor' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
                     Editor
@@ -642,6 +644,7 @@ interface ToolCall {
                   <button
                     (click)="activeTab.set('terminal')"
                     class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                    [attr.aria-pressed]="activeTab() === 'terminal'"
                     [ngClass]="activeTab() === 'terminal' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
                     Terminal
@@ -649,6 +652,7 @@ interface ToolCall {
                   <button
                     (click)="activeTab.set('preview')"
                     class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                    [attr.aria-pressed]="activeTab() === 'preview'"
                     [ngClass]="activeTab() === 'preview' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
                     Preview
@@ -728,6 +732,7 @@ interface ToolCall {
                     <button
                       (click)="showMemoriesPanel.set(!showMemoriesPanel())"
                       class="text-xs px-2 py-1 rounded transition-colors"
+                      [attr.aria-pressed]="showMemoriesPanel()"
                       [ngClass]="showMemoriesPanel() ? 'bg-purple-100 text-purple-700' : 'text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100'"
                     >
                       🧠 {{ memories().length }}
