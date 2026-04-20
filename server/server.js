@@ -764,9 +764,21 @@ function validateSyncDirectory(directory) {
   if (directory.includes('\0')) {
     return { valid: false, error: 'Invalid directory path' };
   }
-  const resolved = path.resolve(directory);
-  const dataResolved = path.resolve(DATA_DIR);
-  const syncRoot = path.resolve(DATA_DIR, 'sync-imports');
+
+  const requestedPath = path.resolve(directory);
+  const dataResolvedPath = path.resolve(DATA_DIR);
+  const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
+
+  let resolved;
+  let dataResolved;
+  let syncRoot;
+  try {
+    resolved = fs.realpathSync(requestedPath);
+    dataResolved = fs.realpathSync(dataResolvedPath);
+    syncRoot = fs.realpathSync(syncRootPath);
+  } catch (err) {
+    return { valid: false, error: 'Invalid directory path' };
+  }
 
   // Ensure user-supplied directory is confined to a safe root.
   if (!(resolved === syncRoot || resolved.startsWith(syncRoot + path.sep))) {
