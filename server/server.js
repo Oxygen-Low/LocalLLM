@@ -1420,8 +1420,8 @@ function setupGracefulShutdown(server) {
 function timingSafeCompare(a, b) {
   // Compare values in constant time without using a fast hash on secret material.
   try {
-    const bufA = Buffer.from(String(a), 'utf8');
-    const bufB = Buffer.from(String(b), 'utf8');
+    const bufA = Buffer.isBuffer(a) ? a : Buffer.from(String(a), 'utf8');
+    const bufB = Buffer.isBuffer(b) ? b : Buffer.from(String(b), 'utf8');
 
     if (bufA.length !== bufB.length) {
       // Perform a dummy constant-time compare to avoid obvious timing differences.
