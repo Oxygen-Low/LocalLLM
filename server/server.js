@@ -1425,8 +1425,9 @@ function timingSafeCompare(a, b) {
 
     if (bufA.length !== bufB.length) {
       // Perform a dummy constant-time compare to avoid obvious timing differences.
-      const dummy = Buffer.alloc(bufA.length);
-      crypto.timingSafeEqual(bufA, dummy);
+      const minLen = Math.min(bufA.length, bufB.length);
+      const dummy = Buffer.alloc(minLen);
+      crypto.timingSafeEqual(bufA.slice(0, minLen), dummy);
       return false;
     }
 
