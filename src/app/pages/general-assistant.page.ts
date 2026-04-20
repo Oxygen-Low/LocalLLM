@@ -358,6 +358,8 @@ import { VoiceService } from '../services/voice.service';
                 <button
                   type="button"
                   (click)="toggleProviderDropdown($event)"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="showProviderDropdown()"
                   class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-sm transition-colors"
                 >
                   <span class="w-2 h-2 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
@@ -437,6 +439,8 @@ import { VoiceService } from '../services/voice.service';
                 <button
                   type="button"
                   (click)="toggleMcpDropdown($event)"
+                  aria-haspopup="menu"
+                  [attr.aria-expanded]="showMcpDropdown()"
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                   [ngClass]="webSearchEnabled() || enabledMcpServerIds().length > 0
                     ? 'border-primary-300 bg-primary-50 text-primary-700'
@@ -524,6 +528,8 @@ import { VoiceService } from '../services/voice.service';
                   <button
                     type="button"
                     (click)="toggleCharacterDropdown($event)"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="showCharacterDropdown()"
                     class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                     [ngClass]="selectedCharacter()
                       ? 'border-purple-300 bg-purple-50 text-purple-700'
@@ -574,6 +580,8 @@ import { VoiceService } from '../services/voice.service';
                 <button
                   type="button"
                   (click)="togglePersonaDropdown($event)"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="showPersonaDropdown()"
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                   [ngClass]="selectedPersona()
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
@@ -738,6 +746,8 @@ import { VoiceService } from '../services/voice.service';
           <div class="mt-8 relative" #voicePickerDropdown>
             <button
               (click)="showVoicePicker.set(!showVoicePicker())"
+              aria-haspopup="listbox"
+              [attr.aria-expanded]="showVoicePicker()"
               class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
