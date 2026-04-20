@@ -47,7 +47,7 @@ type PageView = 'list' | 'create' | 'edit';
         @if (errorMessage()) {
           <div class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center justify-between">
             <span>{{ errorMessage() }}</span>
-            <button (click)="errorMessage.set('')" class="text-red-500 hover:text-red-700" aria-label="Dismiss error">✕</button>
+            <button type="button" (click)="errorMessage.set('')" class="text-red-500 hover:text-red-700" aria-label="Dismiss error" title="Dismiss error">✕</button>
           </div>
         }
 
@@ -55,7 +55,7 @@ type PageView = 'list' | 'create' | 'edit';
         @if (successMessage()) {
           <div class="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm flex items-center justify-between">
             <span>{{ successMessage() }}</span>
-            <button (click)="successMessage.set('')" class="text-green-500 hover:text-green-700" aria-label="Dismiss success message">✕</button>
+            <button type="button" (click)="successMessage.set('')" class="text-green-500 hover:text-green-700" aria-label="Dismiss success message" title="Dismiss success message">✕</button>
           </div>
         }
 
