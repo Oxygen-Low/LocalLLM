@@ -1428,17 +1428,28 @@ class _Handler(BaseHTTPRequestHandler):
             return
         resolved_output_path = os.path.join(resolved_output_parent, output_basename)
 
+        # Final canonical path validation (defense in depth): ensure the exact
+        # output path still resolves inside an allowed root and is not a symlink.
+        canonical_output_path = os.path.realpath(resolved_output_path)
+        allowed_roots = [d for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
+        if not any(os.path.commonpath([canonical_output_path, root]) == root for root in allowed_roots):
+            self._send_json(403, {"error": "output_path resolves outside the allowed directory"})
+            return
+        if os.path.islink(resolved_output_path):
+            self._send_json(400, {"error": "output_path cannot be a symlink"})
+            return
+
         # Validate model_name is safe
         if not isinstance(model_name, str) or len(model_name) > 200:
             self._send_json(400, {"error": "model_name must be a string (max 200 chars)"})
             return
 
         try:
-            _convert_model_to_gguf(resolved_model_dir, resolved_output_path, model_name=model_name)
-            file_size = os.path.getsize(resolved_output_path)
+            _convert_model_to_gguf(resolved_model_dir, canonical_output_path, model_name=model_name)
+            file_size = os.path.getsize(canonical_output_path)
             self._send_json(200, {
                 "success": True,
-                "path": resolved_output_path,
+                "path": canonical_output_path,
                 "size": file_size,
             })
         except Exception as exc:
