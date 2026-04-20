@@ -273,6 +273,17 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     ):
         raise ValueError("output_path must be a safe filename ending in .gguf")
     validated_output_path = os.path.join(validated_output_parent, output_basename)
+
+    # Canonicalize and enforce allowlist at point-of-use so this function stays
+    # safe even if called from another code path.
+    canonical_output_path = os.path.realpath(validated_output_path)
+    allowed_roots = [d for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
+    if not allowed_roots:
+        raise ValueError("No allowed output directory configured")
+    if not any(os.path.commonpath([canonical_output_path, root]) == root for root in allowed_roots):
+        raise ValueError("output_path resolves outside the allowed directory")
+    validated_output_path = canonical_output_path
+
     import numpy as np
     from gguf import GGUFWriter, GGUFValueType  # noqa: E402
 
