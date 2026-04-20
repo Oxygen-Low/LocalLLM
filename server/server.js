@@ -1407,11 +1407,19 @@ function setupGracefulShutdown(server) {
 }
 
 function timingSafeCompare(a, b) {
-  // Hash both values to normalize length, preventing length-based timing leaks.
+  // Compare values in constant time without using a fast hash on secret material.
   try {
-    const hashA = crypto.createHash('sha256').update(String(a)).digest();
-    const hashB = crypto.createHash('sha256').update(String(b)).digest();
-    return crypto.timingSafeEqual(hashA, hashB);
+    const bufA = Buffer.from(String(a), 'utf8');
+    const bufB = Buffer.from(String(b), 'utf8');
+
+    if (bufA.length !== bufB.length) {
+      // Perform a dummy constant-time compare to avoid obvious timing differences.
+      const dummy = Buffer.alloc(bufA.length);
+      crypto.timingSafeEqual(bufA, dummy);
+      return false;
+    }
+
+    return crypto.timingSafeEqual(bufA, bufB);
   } catch {
     return false;
   }
