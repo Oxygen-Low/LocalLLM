@@ -887,7 +887,7 @@ function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
   const resolvedDest = path.resolve(dest);
 
   // Security: Ensure src is within the allowed sync imports directory
-  const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
+  const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
   if (resolvedSrc !== syncRootPath && !resolvedSrc.startsWith(syncRootPath + path.sep)) {
     console.error(`[restoreDirSync] Blocked out-of-bounds access: ${resolvedSrc}`);
     return;
@@ -944,7 +944,7 @@ function detectSyncEncryption(syncDataDir) {
   try {
     const resolved = path.resolve(syncDataDir);
     // Security: Ensure syncDataDir is within the allowed sync imports directory
-    const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
+    const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
     if (resolved !== syncRootPath && !resolved.startsWith(syncRootPath + path.sep)) {
       return false;
     }
@@ -2477,7 +2477,7 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
       resolvedDir = dirValidation.resolved;
 
       // Re-verify resolvedDir is within syncRootPath for CodeQL
-      const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
+      const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
       if (resolvedDir !== syncRootPath && !resolvedDir.startsWith(syncRootPath + path.sep)) {
         return res.status(400).json({ success: false, error: 'Invalid sync directory' });
       }
@@ -3052,7 +3052,7 @@ app.post('/api/admin/auto-sync/import', async (req, res) => {
     const resolvedDir = dirValidation.resolved;
 
     // Re-verify resolvedDir is within syncRootPath for CodeQL
-    const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
+    const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
     if (resolvedDir !== syncRootPath && !resolvedDir.startsWith(syncRootPath + path.sep)) {
       return res.status(400).json({ success: false, error: 'Invalid sync directory' });
     }
