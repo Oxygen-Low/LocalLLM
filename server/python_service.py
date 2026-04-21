@@ -427,6 +427,12 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     writer.write_tensors_to_file()
     writer.close()
 
+    # Re-validate validated_output_path before os.path.getsize for CodeQL
+    canonical_check = os.path.realpath(validated_output_path)
+    allowed_roots_check = [d for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
+    if not any(os.path.commonpath([canonical_check, root]) == root for root in allowed_roots_check):
+        raise ValueError("output_path resolves outside the allowed directory")
+
     file_size = os.path.getsize(validated_output_path)
     _log(f"GGUF conversion: completed – {validated_output_path} ({file_size / (1024*1024):.1f} MB)")
     return validated_output_path
@@ -1449,6 +1455,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "output_path must be a safe filename ending in .gguf"})
             return
         resolved_output_path = os.path.join(resolved_output_parent, output_basename)
+        # Security: ensure resolved_output_path is within resolved_output_parent for CodeQL
+        if not os.path.abspath(resolved_output_path).startswith(os.path.abspath(resolved_output_parent) + os.sep):
+            self._send_json(400, {"error": "Invalid output path"})
+            return
 
         # Final canonical path validation (defense in depth): ensure the exact
         # output path still resolves inside an allowed root and is not a symlink.
@@ -1468,6 +1478,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         try:
             _convert_model_to_gguf(resolved_model_dir, canonical_output_path, model_name=model_name)
+            # Re-verify canonical_output_path before getsize for CodeQL
+            canonical_recheck = os.path.realpath(canonical_output_path)
+            allowed_roots_recheck = [d for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
+            if not any(os.path.commonpath([canonical_recheck, root]) == root for root in allowed_roots_recheck):
+                raise ValueError("output_path resolves outside the allowed directory")
             file_size = os.path.getsize(canonical_output_path)
             self._send_json(200, {
                 "success": True,
