@@ -10,6 +10,7 @@ import { TranslationService, type Language } from '../services/translation.servi
   template: `
     <div class="relative">
       <button
+        type="button"
         (click)="toggleDropdown()"
         class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors shadow-sm"
         aria-haspopup="listbox"
@@ -43,6 +44,7 @@ import { TranslationService, type Language } from '../services/translation.servi
         >
           @for (lang of languages; track lang.code) {
             <button
+              type="button"
               (click)="selectLanguage(lang)"
               class="w-full text-left px-4 py-2 text-sm text-secondary-700 hover:bg-secondary-50 transition-colors first:rounded-t-lg last:rounded-b-lg flex items-center justify-between"
               role="option"

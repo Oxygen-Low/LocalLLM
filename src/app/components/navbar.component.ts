@@ -65,6 +65,7 @@ import { AuthService } from '../services/auth.service';
                   Settings
                 </a>
                 <button
+                  type="button"
                   (click)="onLogout()"
                   class="text-sm text-secondary-700 hover:text-red-600 font-medium transition-colors"
                 >
@@ -83,6 +84,7 @@ import { AuthService } from '../services/auth.service';
 
           <!-- Mobile Menu Button -->
           <button
+            type="button"
             (click)="toggleMobileMenu()"
             class="md:hidden p-2 rounded-lg hover:bg-secondary-100 transition-colors"
             [attr.aria-label]="mobileMenuOpen() ? 'Close menu' : 'Open menu'"
@@ -161,6 +163,7 @@ import { AuthService } from '../services/auth.service';
                   Settings
                 </a>
                 <button
+                  type="button"
                   (click)="onLogout(); mobileMenuOpen.set(false)"
                   class="block w-full text-left px-4 py-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors font-medium"
                 >

@@ -25,3 +25,7 @@
 ## 2024-05-15 - [Accessibility] Added missing aria-pressed to activeTab and showAgentTerminal toggle buttons
 **Learning:** In `coding-agent.page.ts`, tab toggle buttons (like "Editor", "Terminal", "Preview") and other toggle buttons (like "Agent Terminal", "Memories") were using `ngClass` to visually indicate their active state, but lacked the `[attr.aria-pressed]` attribute, failing to communicate their state to screen readers.
 **Action:** Applied `[attr.aria-pressed]` to the relevant buttons alongside their visual `ngClass` toggles so screen readers will announce their currently pressed state correctly.
+
+## 2024-05-20 - [Accessibility] Added missing type="button" attributes to interactive buttons
+**Learning:** By default, HTML `<button>` elements have a `type` of `"submit"`. If these buttons are ever nested within a form or if the DOM structure changes to include one, clicking them will inadvertently trigger a form submission, leading to unexpected page reloads or broken state. This was observed across multiple custom components like `language-selector.component.ts`, `app-card.component.ts`, and `navbar.component.ts`.
+**Action:** Always explicitly declare `type="button"` on all interactive button elements that are meant to trigger JavaScript actions (e.g., toggling a dropdown or navigating) rather than submitting a form.

@@ -60,6 +60,7 @@ export interface AIApp {
       } @else {
         <!-- Button -->
         <button
+          type="button"
           [routerLink]="['/app', app().id]"
           class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
         >
