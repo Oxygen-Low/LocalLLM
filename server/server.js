@@ -883,33 +883,40 @@ function copyDirSync(src, dest, shouldEncrypt, excludeDirs) {
  * @param {string[]} excludeDirs - directory names to skip
  */
 function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
-  const resolvedSrc = path.resolve(src);
-  const resolvedDest = path.resolve(dest);
+  // Security: Canonicalize paths to resolve symlinks
+  const canonicalSrc = fs.realpathSync(src);
+  const canonicalDest = fs.existsSync(dest) ? fs.realpathSync(dest) : path.resolve(dest);
+  const canonicalSyncRoot = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
+  const canonicalDataRoot = fs.realpathSync(DATA_DIR);
 
   // Security: Ensure src is within the allowed sync imports directory
-  const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
-  if (resolvedSrc !== syncRootPath && !resolvedSrc.startsWith(syncRootPath + path.sep)) {
-    console.error(`[restoreDirSync] Blocked out-of-bounds access: ${resolvedSrc}`);
-    return;
+  if (canonicalSrc !== canonicalSyncRoot && !canonicalSrc.startsWith(canonicalSyncRoot + path.sep)) {
+    throw new Error(`Blocked out-of-bounds access: ${canonicalSrc}`);
   }
   // Security: Ensure dest is within the application data directory
-  const dataRootPath = path.resolve(DATA_DIR);
-  if (resolvedDest !== dataRootPath && !resolvedDest.startsWith(dataRootPath + path.sep)) {
-    console.error(`[restoreDirSync] Blocked out-of-bounds access: ${resolvedDest}`);
-    return;
+  if (canonicalDest !== canonicalDataRoot && !canonicalDest.startsWith(canonicalDataRoot + path.sep)) {
+    throw new Error(`Blocked out-of-bounds access: ${canonicalDest}`);
   }
 
-  if (!fs.existsSync(resolvedDest)) {
-    fs.mkdirSync(resolvedDest, { recursive: true });
+  if (!fs.existsSync(canonicalDest)) {
+    fs.mkdirSync(canonicalDest, { recursive: true });
   }
-  const entries = fs.readdirSync(resolvedSrc, { withFileTypes: true });
+  const entries = fs.readdirSync(canonicalSrc, { withFileTypes: true });
   for (const entry of entries) {
     if (excludeDirs.includes(entry.name)) continue;
-    const srcPath = path.join(resolvedSrc, entry.name);
-    const destPath = path.join(resolvedDest, entry.name);
+    const srcPath = path.join(canonicalSrc, entry.name);
+    const destPath = path.join(canonicalDest, entry.name);
+
+    // Security: Reject symbolic links to prevent escape
+    const srcStat = fs.lstatSync(srcPath);
+    if (srcStat.isSymbolicLink()) {
+      console.warn(`[restoreDirSync] Skipping symbolic link: ${srcPath}`);
+      continue;
+    }
+
     // Defense-in-depth: verify paths remain within boundaries
-    const srcRel = path.relative(resolvedSrc, srcPath);
-    const destRel = path.relative(resolvedDest, destPath);
+    const srcRel = path.relative(canonicalSrc, srcPath);
+    const destRel = path.relative(canonicalDest, destPath);
     if (srcRel.startsWith('..') || path.isAbsolute(srcRel)) continue;
     if (destRel.startsWith('..') || path.isAbsolute(destRel)) continue;
     if (entry.isDirectory()) {
@@ -942,13 +949,23 @@ function buildSyncExcludeDirs(syncConfig) {
  */
 function detectSyncEncryption(syncDataDir) {
   try {
-    const resolved = path.resolve(syncDataDir);
+    // Security: Canonicalize paths to resolve symlinks
+    const canonical = fs.realpathSync(syncDataDir);
+    const canonicalSyncRoot = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
+
     // Security: Ensure syncDataDir is within the allowed sync imports directory
-    const syncRootPath = path.resolve(DATA_DIR, 'sync-imports');
-    if (resolved !== syncRootPath && !resolved.startsWith(syncRootPath + path.sep)) {
-      return false;
+    if (canonical !== canonicalSyncRoot && !canonical.startsWith(canonicalSyncRoot + path.sep)) {
+      throw new Error(`Blocked out-of-bounds access: ${canonical}`);
     }
-    return fs.readdirSync(resolved).some(f => f.endsWith('.enc'));
+
+    // Check for encrypted files, skipping symbolic links
+    const entries = fs.readdirSync(canonical, { withFileTypes: true });
+    return entries.some(entry => {
+      if (entry.isSymbolicLink()) {
+        return false;
+      }
+      return entry.name.endsWith('.enc');
+    });
   } catch {
     return false;
   }

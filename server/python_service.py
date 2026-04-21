@@ -433,7 +433,7 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     if not any(os.path.commonpath([canonical_check, root]) == root for root in allowed_roots_check):
         raise ValueError("output_path resolves outside the allowed directory")
 
-    file_size = os.path.getsize(validated_output_path)
+    file_size = os.path.getsize(canonical_check)
     _log(f"GGUF conversion: completed – {validated_output_path} ({file_size / (1024*1024):.1f} MB)")
     return validated_output_path
 
@@ -1483,7 +1483,7 @@ class _Handler(BaseHTTPRequestHandler):
             allowed_roots_recheck = [d for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
             if not any(os.path.commonpath([canonical_recheck, root]) == root for root in allowed_roots_recheck):
                 raise ValueError("output_path resolves outside the allowed directory")
-            file_size = os.path.getsize(canonical_output_path)
+            file_size = os.path.getsize(canonical_recheck)
             self._send_json(200, {
                 "success": True,
                 "path": canonical_output_path,
