@@ -39,6 +39,7 @@ GET /health
 import json
 import os
 import re
+from pathlib import Path
 import signal
 import sys
 import datetime
@@ -428,21 +429,25 @@ def _convert_model_to_gguf(model_dir, output_path, model_name="model"):
     writer.close()
 
     # Re-validate validated_output_path before os.path.getsize for CodeQL.
-    # Pattern: abspath + startswith is a known sanitizer for many static analyzers.
-    abs_path = os.path.abspath(validated_output_path)
-    allowed_roots = [os.path.abspath(d) for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
-    is_safe = False
-    for root in allowed_roots:
-        if abs_path == root or abs_path.startswith(root + os.sep):
-            is_safe = True
-            break
-    if not is_safe:
-        raise ValueError("output_path resolves outside the allowed directory")
+    # Pattern: Path.resolve() + startswith is a known sanitizer for CodeQL.
+    try:
+        resolved_path = Path(validated_output_path).resolve()
+        allowed_roots = [Path(d).resolve() for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
+        is_safe = False
+        for root in allowed_roots:
+            if str(resolved_path) == str(root) or str(resolved_path).startswith(str(root) + os.sep):
+                is_safe = True
+                break
+        if not is_safe:
+            raise ValueError("output_path resolves outside the allowed directory")
 
-    # Use the validated path directly in the sink
-    file_size = os.path.getsize(abs_path)
-    _log(f"GGUF conversion: completed – {abs_path} ({file_size / (1024*1024):.1f} MB)")
-    return abs_path
+        # Use the validated path directly in the sink
+        file_size = os.path.getsize(str(resolved_path))
+        _log(f"GGUF conversion: completed – {resolved_path} ({file_size / (1024*1024):.1f} MB)")
+        return str(resolved_path)
+    except Exception as exc:
+        _log(f"GGUF path validation failed: {exc}")
+        raise ValueError(f"Invalid output path: {exc}")
 
 
 def _get_device_map():
@@ -1486,21 +1491,21 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             _convert_model_to_gguf(resolved_model_dir, canonical_output_path, model_name=model_name)
             # Re-verify canonical_output_path before getsize for CodeQL
-            abs_recheck = os.path.abspath(canonical_output_path)
-            allowed_roots_recheck = [os.path.abspath(d) for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
+            resolved_recheck = Path(canonical_output_path).resolve()
+            allowed_roots_recheck = [Path(d).resolve() for d in (_allowed_models_dir, _allowed_training_outputs_dir) if d]
             is_safe = False
             for root in allowed_roots_recheck:
-                if abs_recheck == root or abs_recheck.startswith(root + os.sep):
+                if str(resolved_recheck) == str(root) or str(resolved_recheck).startswith(str(root) + os.sep):
                     is_safe = True
                     break
             if not is_safe:
                 raise ValueError("output_path resolves outside the allowed directory")
 
             # Use the validated path directly in the sink
-            file_size = os.path.getsize(abs_recheck)
+            file_size = os.path.getsize(str(resolved_recheck))
             self._send_json(200, {
                 "success": True,
-                "path": abs_recheck,
+                "path": str(resolved_recheck),
                 "size": file_size,
             })
         except Exception as exc:
