@@ -48,7 +48,7 @@
   },
   "devDependencies": {
     "@angular/build": "^21.2.7",
-    "@angular/cli": "^21.2.7",
+    "@angular/cli": "^21.2.8",
     "@angular/compiler-cli": "^21.2.9",
     "@tailwindcss/typography": "^0.5.16",
     "autoprefixer": "^10.5.0",
