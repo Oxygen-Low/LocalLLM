@@ -319,7 +319,7 @@ import { LlmService } from '../services/llm.service';
                                           class="flex-1 px-2 py-1 rounded border border-secondary-200 text-xs"
                                         />
                                         <button
-                                          (click)="newCharacterRelationships[universe.id] = (newCharacterRelationships[universe.id] || []); newCharacterRelationships[universe.id].push({ targetName: newRelName.value, type: 'Friend' }); newRelName.value = ''"
+                                          (click)="addCharacterRelationship(newRelName.value, universe.id); newRelName.value = ''"
                                           class="px-2 py-1 rounded bg-secondary-200 text-xs"
                                         >Add</button>
                                       </div>
@@ -1150,18 +1150,19 @@ export class AdminPageComponent implements OnDestroy {
   filteredCharactersForRelationship = computed(() => {
     const query = this.relationshipSearchQuery().toLowerCase().trim();
     const mode = this.relationshipSearchMode();
+    const editingId = this.editingCharacterId();
     const currentUniverseId = this.universes().find(u =>
-      u.characters.some(c => c.id === this.editingCharacterId())
+      u.characters.some(c => c.id === editingId)
     )?.id;
 
-    let pool: { char: Character; universeName: string }[] = [];
+    const pool: { char: Character; universeName: string }[] = [];
 
     this.universes().forEach(u => {
       if (mode === 'same' && u.id !== currentUniverseId) return;
       if (mode === 'other' && u.id === currentUniverseId) return;
 
       u.characters.forEach(c => {
-        if (c.id !== this.editingCharacterId()) {
+        if (c.id !== editingId) {
           pool.push({ char: c, universeName: u.name });
         }
       });
@@ -1441,7 +1442,7 @@ export class AdminPageComponent implements OnDestroy {
     this.editingCharacterId.set(character.id);
     this.editingCharacterName = character.name;
     this.editingCharacterDesc = character.description || '';
-    this.editingCharacterRelationships.set(JSON.parse(JSON.stringify(character.relationships || [])));
+    this.editingCharacterRelationships.set(structuredClone(character.relationships || []) as Relationship[]);
     this.relationshipSearchQuery.set('');
     this.relationshipsExpanded.set(false);
   }
@@ -1471,28 +1472,35 @@ export class AdminPageComponent implements OnDestroy {
     const rels = this.editingCharacterRelationships();
     const query = this.relationshipSearchQuery().trim();
 
+    let newRel: Relationship | null = null;
+
     if (target) {
       if (rels.some(r => r.targetId === target.char.id)) return;
-      rels.push({
+      newRel = {
         targetId: target.char.id,
         targetName: target.char.name,
         type: 'Friend',
-      });
+      };
     } else if (query) {
-      rels.push({
+      if (rels.some(r => !r.targetId && r.targetName === query)) return;
+      newRel = {
         targetName: query,
         type: 'Friend',
-      });
+      };
     }
 
-    this.editingCharacterRelationships.set([...rels]);
+    if (newRel) {
+      const newRels = [...rels, newRel];
+      this.editingCharacterRelationships.set(newRels);
+    }
+
     this.relationshipSearchQuery.set('');
   }
 
   removeRelationship(index: number): void {
     const rels = this.editingCharacterRelationships();
-    rels.splice(index, 1);
-    this.editingCharacterRelationships.set([...rels]);
+    const newRels = rels.filter((_, i) => i !== index);
+    this.editingCharacterRelationships.set(newRels);
   }
 
   addRelationshipNew(universeId: string, target?: { char: Character; universeName: string }): void {
@@ -1504,19 +1512,34 @@ export class AdminPageComponent implements OnDestroy {
     // but I'll add the logic just in case.
     if (target) {
       if (rels.some(r => r.targetId === target.char.id)) return;
-      rels.push({
+      const newRel: Relationship = {
         targetId: target.char.id,
         targetName: target.char.name,
         type: 'Friend',
-      });
+      };
+      this.newCharacterRelationships[universeId] = [...rels, newRel];
     }
   }
 
   removeRelationshipNew(universeId: string, index: number): void {
     const rels = this.newCharacterRelationships[universeId];
     if (rels) {
-      rels.splice(index, 1);
+      this.newCharacterRelationships[universeId] = rels.filter((_, i) => i !== index);
     }
+  }
+
+  addCharacterRelationship(targetName: string, universeId: string): void {
+    const trimmedName = targetName.trim();
+    if (!trimmedName) return;
+
+    if (!this.newCharacterRelationships[universeId]) {
+      this.newCharacterRelationships[universeId] = [];
+    }
+
+    this.newCharacterRelationships[universeId].push({
+      targetName: trimmedName,
+      type: 'Friend'
+    });
   }
 
   async onDeleteCharacter(universeId: string, character: Character): Promise<void> {

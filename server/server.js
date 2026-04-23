@@ -737,7 +737,7 @@ function syncRelationships(universes, sourceChar, newRelationships) {
       for (const u of universes) {
         const target = (u.characters || []).find((c) => c.id === targetId);
         if (target && target.relationships) {
-          target.relationships = target.relationships.filter((r) => r.targetId !== sourceChar.id);
+          target.relationships = target.relationships.filter((r) => r.targetId !== sourceChar.id || !r.generated);
         }
       }
     }
@@ -759,6 +759,8 @@ function syncRelationships(universes, sourceChar, newRelationships) {
               targetId: sourceChar.id,
               targetName: sourceChar.name,
               type: rel.type,
+              description: rel.description,
+              generated: true,
             });
           }
           break;
