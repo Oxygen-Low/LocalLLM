@@ -754,6 +754,12 @@ function syncRelationships(universes, sourceChar, newRelationships) {
           if (backLink) {
             // Update the name in case it changed
             backLink.targetName = sourceChar.name;
+            // If generated, also sync type/description to keep B->A in sync with A->B
+            if (backLink.generated) {
+              backLink.type = rel.type;
+              backLink.description = rel.description;
+              backLink.generated = true;
+            }
           } else {
             target.relationships.push({
               targetId: sourceChar.id,

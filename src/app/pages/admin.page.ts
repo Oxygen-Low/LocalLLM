@@ -1536,10 +1536,15 @@ export class AdminPageComponent implements OnDestroy {
       this.newCharacterRelationships[universeId] = [];
     }
 
-    this.newCharacterRelationships[universeId].push({
+    const rels = this.newCharacterRelationships[universeId];
+    // Case-insensitive name-only dedupe
+    if (rels.some(r => !r.targetId && r.targetName.toLowerCase() === trimmedName.toLowerCase())) return;
+
+    // Create new array instead of mutating in-place
+    this.newCharacterRelationships[universeId] = [...rels, {
       targetName: trimmedName,
       type: 'Friend'
-    });
+    }];
   }
 
   async onDeleteCharacter(universeId: string, character: Character): Promise<void> {
