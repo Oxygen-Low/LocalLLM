@@ -10,10 +10,18 @@ export interface AdminUserSummary {
   passwordResetRequired?: boolean;
 }
 
+export interface Relationship {
+  targetId?: string; // Optional for solely name relationships
+  targetName: string;
+  type: string;
+  description?: string;
+}
+
 export interface Character {
   id: string;
   name: string;
   description: string;
+  relationships?: Relationship[];
 }
 
 export interface Universe {
@@ -229,7 +237,7 @@ export class AdminService {
 
   // --- Characters ---
 
-  async createCharacter(universeId: string, name: string, description: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; character?: Character }> {
+  async createCharacter(universeId: string, name: string, description: string, adminPasswordHash: string, relationships?: Relationship[]): Promise<{ success: boolean; error?: string; character?: Character }> {
     try {
       const response = await firstValueFrom(
         this.http.post<{ success: boolean; error?: string; character?: Character }>(`${environment.apiUrl}/api/admin/universes/${universeId}/characters`, {
@@ -237,6 +245,7 @@ export class AdminService {
           adminPassword: adminPasswordHash,
           name,
           description,
+          relationships,
         })
       );
       return response;
@@ -245,7 +254,7 @@ export class AdminService {
     }
   }
 
-  async updateCharacter(universeId: string, characterId: string, name: string, description: string, adminPasswordHash: string): Promise<{ success: boolean; error?: string; character?: Character }> {
+  async updateCharacter(universeId: string, characterId: string, name: string, description: string, adminPasswordHash: string, relationships?: Relationship[]): Promise<{ success: boolean; error?: string; character?: Character }> {
     try {
       const response = await firstValueFrom(
         this.http.put<{ success: boolean; error?: string; character?: Character }>(`${environment.apiUrl}/api/admin/universes/${universeId}/characters/${characterId}`, {
@@ -253,6 +262,7 @@ export class AdminService {
           adminPassword: adminPasswordHash,
           name,
           description,
+          relationships,
         })
       );
       return response;

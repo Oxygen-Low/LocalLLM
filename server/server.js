@@ -720,6 +720,83 @@ function writeUniverses(universes) {
   fs.writeFileSync(UNIVERSES_FILE, JSON.stringify(universesCache, null, 2), 'utf-8');
 }
 
+/**
+ * Synchronizes bidirectional relationships between characters.
+ * @param {Array} universes The full universes array
+ * @param {Object} sourceChar The character being updated
+ * @param {Array} newRelationships The new relationships for sourceChar
+ */
+function syncRelationships(universes, sourceChar, newRelationships) {
+  const oldRelationships = sourceChar.relationships || [];
+  const oldTargetIds = new Set(oldRelationships.filter((r) => r.targetId).map((r) => r.targetId));
+  const newTargetIds = new Set(newRelationships.filter((r) => r.targetId).map((r) => r.targetId));
+
+  // Remove backlinks for relationships that were removed
+  for (const targetId of oldTargetIds) {
+    if (!newTargetIds.has(targetId)) {
+      for (const u of universes) {
+        const target = (u.characters || []).find((c) => c.id === targetId);
+        if (target && target.relationships) {
+          target.relationships = target.relationships.filter((r) => r.targetId !== sourceChar.id || !r.generated);
+        }
+      }
+    }
+  }
+
+  // Add/update backlinks for new relationships
+  for (const rel of newRelationships) {
+    if (rel.targetId) {
+      for (const u of universes) {
+        const target = (u.characters || []).find((c) => c.id === rel.targetId);
+        if (target) {
+          if (!target.relationships) target.relationships = [];
+          const backLink = target.relationships.find((r) => r.targetId === sourceChar.id);
+          if (backLink) {
+            // Update the name in case it changed
+            backLink.targetName = sourceChar.name;
+            // If generated, also sync type/description to keep B->A in sync with A->B
+            if (backLink.generated) {
+              backLink.type = rel.type;
+              backLink.description = rel.description;
+              backLink.generated = true;
+            }
+          } else {
+            target.relationships.push({
+              targetId: sourceChar.id,
+              targetName: sourceChar.name,
+              type: rel.type,
+              description: rel.description,
+              generated: true,
+            });
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Updates the targetName in all relationships pointing to a character when its name changes.
+ * @param {Array} universes The full universes array
+ * @param {string} charId The ID of the character whose name changed
+ * @param {string} newName The new name of the character
+ */
+function updateTargetNames(universes, charId, newName) {
+  for (const u of universes) {
+    if (!u.characters) continue;
+    for (const char of u.characters) {
+      if (char.relationships) {
+        for (const rel of char.relationships) {
+          if (rel.targetId === charId) {
+            rel.targetName = newName;
+          }
+        }
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // App Settings – in-memory cache with disk persistence
 // ---------------------------------------------------------------------------
@@ -2196,7 +2273,7 @@ app.delete('/api/admin/universes/:id', async (req, res) => {
 // POST /api/admin/universes/:universeId/characters – Create a character in a universe
 app.post('/api/admin/universes/:universeId/characters', async (req, res) => {
   try {
-    const { adminUsername, adminPassword, name, description } = req.body;
+    const { adminUsername, adminPassword, name, description, relationships } = req.body;
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
       auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin create character attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
@@ -2219,9 +2296,14 @@ app.post('/api/admin/universes/:universeId/characters', async (req, res) => {
       id: crypto.randomUUID(),
       name: name.trim(),
       description: (description || '').trim(),
+      relationships: Array.isArray(relationships) ? relationships : [],
     };
     if (!universe.characters) universe.characters = [];
     universe.characters.push(character);
+
+    // Sync bidirectional relationships
+    syncRelationships(universes, character, character.relationships);
+
     writeUniverses(universes);
 
     auditLog({ event: 'ADMIN_CREATE_CHARACTER', message: `Admin created character "${character.name}" in universe "${universe.name}"`, username: adminUsername, req });
@@ -2235,7 +2317,7 @@ app.post('/api/admin/universes/:universeId/characters', async (req, res) => {
 // PUT /api/admin/universes/:universeId/characters/:characterId – Update a character
 app.put('/api/admin/universes/:universeId/characters/:characterId', async (req, res) => {
   try {
-    const { adminUsername, adminPassword, name, description } = req.body;
+    const { adminUsername, adminPassword, name, description, relationships } = req.body;
     if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
       auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin update character attempt', username: adminUsername, req });
       return res.status(403).json({ success: false, error: 'Unauthorized' });
@@ -2260,14 +2342,29 @@ app.put('/api/admin/universes/:universeId/characters/:characterId', async (req, 
       return res.status(404).json({ success: false, error: 'Character not found' });
     }
 
+    const char = characters[charIndex];
+    const oldName = char.name;
+    const newName = name.trim();
+
+    // Sync bidirectional relationships
+    const newRelationships = Array.isArray(relationships) ? relationships : (char.relationships || []);
+    syncRelationships(universes, char, newRelationships);
+
     characters[charIndex] = {
-      ...characters[charIndex],
-      name: name.trim(),
+      ...char,
+      name: newName,
       description: (description || '').trim(),
+      relationships: newRelationships,
     };
+
+    // If name changed, update all relationships pointing to this character
+    if (oldName !== newName) {
+      updateTargetNames(universes, char.id, newName);
+    }
+
     writeUniverses(universes);
 
-    auditLog({ event: 'ADMIN_UPDATE_CHARACTER', message: `Admin updated character "${name.trim()}" in universe "${universe.name}"`, username: adminUsername, req });
+    auditLog({ event: 'ADMIN_UPDATE_CHARACTER', message: `Admin updated character "${newName}" in universe "${universe.name}"`, username: adminUsername, req });
     return res.json({ success: true, character: characters[charIndex] });
   } catch (err) {
     console.error('Admin update character error:', err);
@@ -2297,6 +2394,17 @@ app.delete('/api/admin/universes/:universeId/characters/:characterId', async (re
     }
 
     const removed = characters.splice(charIndex, 1)[0];
+
+    // Remove backlinks for relationships that were pointing to the removed character
+    for (const u of universes) {
+      if (!u.characters) continue;
+      for (const char of u.characters) {
+        if (char.relationships) {
+          char.relationships = char.relationships.filter((r) => r.targetId !== removed.id);
+        }
+      }
+    }
+
     writeUniverses(universes);
 
     auditLog({ event: 'ADMIN_DELETE_CHARACTER', message: `Admin deleted character "${removed.name}" from universe "${universe.name}"`, username: adminUsername, req });
