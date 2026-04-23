@@ -1,9 +1,9 @@
-import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef, OnDestroy, inject } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy, ViewChild, ElementRef, OnDestroy, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { AdminService, AdminUserSummary, Universe, Character, LocalModel, McpServer } from '../services/admin.service';
+import { AdminService, AdminUserSummary, Universe, Character, LocalModel, McpServer, Relationship } from '../services/admin.service';
 import { LlmService } from '../services/llm.service';
 
 @Component({
@@ -267,28 +267,65 @@ import { LlmService } from '../services/llm.service';
                             <!-- Characters List -->
                             <div class="p-4 space-y-3">
                               <!-- Add Character -->
-                              <div class="flex items-end gap-2">
-                                <div class="flex-1">
-                                  <input
-                                    type="text"
-                                    [(ngModel)]="newCharacterNames[universe.id]"
-                                    placeholder="Character name"
-                                    class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
-                                  />
+                              <div class="space-y-2">
+                                <div class="flex items-end gap-2">
+                                  <div class="flex-1">
+                                    <input
+                                      type="text"
+                                      [(ngModel)]="newCharacterNames[universe.id]"
+                                      placeholder="Character name"
+                                      class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                    />
+                                  </div>
+                                  <div class="flex-1">
+                                    <input
+                                      type="text"
+                                      [(ngModel)]="newCharacterDescs[universe.id]"
+                                      placeholder="Description (hidden from users)"
+                                      class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
+                                    />
+                                  </div>
+                                  <button
+                                    (click)="onCreateCharacter(universe.id)"
+                                    [disabled]="!newCharacterNames[universe.id]?.trim()"
+                                    class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >Add</button>
                                 </div>
-                                <div class="flex-1">
-                                  <input
-                                    type="text"
-                                    [(ngModel)]="newCharacterDescs[universe.id]"
-                                    placeholder="Description (hidden from users)"
-                                    class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
-                                  />
+
+                                <div class="space-y-1">
+                                  <button
+                                    (click)="newCharacterRelExpanded[universe.id] = !newCharacterRelExpanded[universe.id]"
+                                    class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+                                  >
+                                    {{ newCharacterRelExpanded[universe.id] ? '▼' : '▶' }}
+                                    Relationships ({{ (newCharacterRelationships[universe.id] || []).length }})
+                                  </button>
+
+                                  @if (newCharacterRelExpanded[universe.id]) {
+                                    <div class="p-2 border border-secondary-100 rounded bg-secondary-50 space-y-2">
+                                      <p class="text-[10px] text-muted">Relationships can be added after creation for full search functionality.</p>
+                                      @for (rel of newCharacterRelationships[universe.id] || []; track $index) {
+                                        <div class="flex items-center gap-2 text-xs bg-white p-1.5 rounded border border-secondary-100">
+                                          <span class="font-medium">{{ rel.targetName }}</span>
+                                          <span class="text-muted">({{ rel.type }})</span>
+                                          <button (click)="removeRelationshipNew(universe.id, $index)" class="text-red-500 ml-auto">✖</button>
+                                        </div>
+                                      }
+                                      <div class="flex gap-1">
+                                        <input
+                                          #newRelName
+                                          type="text"
+                                          placeholder="Name"
+                                          class="flex-1 px-2 py-1 rounded border border-secondary-200 text-xs"
+                                        />
+                                        <button
+                                          (click)="newCharacterRelationships[universe.id] = (newCharacterRelationships[universe.id] || []); newCharacterRelationships[universe.id].push({ targetName: newRelName.value, type: 'Friend' }); newRelName.value = ''"
+                                          class="px-2 py-1 rounded bg-secondary-200 text-xs"
+                                        >Add</button>
+                                      </div>
+                                    </div>
+                                  }
                                 </div>
-                                <button
-                                  (click)="onCreateCharacter(universe.id)"
-                                  [disabled]="!newCharacterNames[universe.id]?.trim()"
-                                  class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                >Add</button>
                               </div>
 
                               @if (universe.characters.length === 0) {
@@ -311,6 +348,100 @@ import { LlmService } from '../services/llm.service';
                                             rows="3"
                                             class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm resize-none"
                                           ></textarea>
+
+                                          <!-- Relationships Editor -->
+                                          <div class="space-y-2 border border-secondary-100 rounded-lg p-3 bg-secondary-50">
+                                            <button
+                                              (click)="relationshipsExpanded.set(!relationshipsExpanded())"
+                                              class="flex items-center justify-between w-full text-sm font-semibold text-secondary-900"
+                                            >
+                                              <span>Relationships ({{ editingCharacterRelationships().length }})</span>
+                                              <span>{{ relationshipsExpanded() ? '▲' : '▼' }}</span>
+                                            </button>
+
+                                            @if (relationshipsExpanded()) {
+                                              <div class="space-y-3 pt-2">
+                                                <!-- Current Relationships -->
+                                                @if (editingCharacterRelationships().length > 0) {
+                                                  <div class="space-y-2">
+                                                    @for (rel of editingCharacterRelationships(); track $index) {
+                                                      <div class="bg-white p-2 rounded border border-secondary-200 text-sm space-y-1">
+                                                        <div class="flex items-center justify-between">
+                                                          <span class="font-medium text-secondary-900">{{ rel.targetName }}</span>
+                                                          <button (click)="removeRelationship($index)" class="text-red-500 hover:text-red-700">
+                                                            <span class="sr-only">Remove</span>✖
+                                                          </button>
+                                                        </div>
+                                                        <div class="grid grid-cols-2 gap-2">
+                                                          <input
+                                                            type="text"
+                                                            [(ngModel)]="rel.type"
+                                                            placeholder="Relationship type (e.g. Friend)"
+                                                            class="px-2 py-1 rounded border border-secondary-200 text-xs w-full"
+                                                          />
+                                                          <input
+                                                            type="text"
+                                                            [(ngModel)]="rel.description"
+                                                            placeholder="Details (optional)"
+                                                            class="px-2 py-1 rounded border border-secondary-200 text-xs w-full"
+                                                          />
+                                                        </div>
+                                                      </div>
+                                                    }
+                                                  </div>
+                                                }
+
+                                                <!-- Search & Add -->
+                                                <div class="space-y-2 border-t border-secondary-200 pt-3">
+                                                  <div class="flex items-center gap-2">
+                                                    <div class="relative flex-1">
+                                                      <input
+                                                        type="text"
+                                                        [ngModel]="relationshipSearchQuery()"
+                                                        (ngModelChange)="relationshipSearchQuery.set($event)"
+                                                        placeholder="Search for a character or enter a name..."
+                                                        class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 text-xs"
+                                                      />
+                                                      @if (relationshipSearchQuery()) {
+                                                        <div class="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-secondary-200 rounded-lg shadow-lg overflow-hidden">
+                                                          @for (item of filteredCharactersForRelationship(); track item.char.id) {
+                                                            <button
+                                                              (click)="addRelationship(item)"
+                                                              class="w-full text-left px-3 py-2 text-xs hover:bg-primary-50 transition-colors border-b border-secondary-50 last:border-0"
+                                                            >
+                                                              <div class="font-medium text-secondary-900">{{ item.char.name }}</div>
+                                                              <div class="text-[10px] text-muted">{{ item.universeName }}</div>
+                                                            </button>
+                                                          }
+                                                          @if (relationshipSearchQuery().trim()) {
+                                                            <button
+                                                              (click)="addRelationship()"
+                                                              class="w-full text-left px-3 py-2 text-xs bg-secondary-50 hover:bg-secondary-100 transition-colors"
+                                                            >
+                                                              Add "<span class="font-medium">{{ relationshipSearchQuery() }}</span>" as name-only
+                                                            </button>
+                                                          }
+                                                        </div>
+                                                      }
+                                                    </div>
+                                                    <div class="flex rounded-lg border border-secondary-200 overflow-hidden shrink-0">
+                                                      <button
+                                                        (click)="relationshipSearchMode.set('same')"
+                                                        [class]="relationshipSearchMode() === 'same' ? 'bg-primary-100 text-primary-700' : 'bg-white text-secondary-600'"
+                                                        class="px-2 py-1 text-[10px] font-medium transition-colors"
+                                                      >Same</button>
+                                                      <button
+                                                        (click)="relationshipSearchMode.set('other')"
+                                                        [class]="relationshipSearchMode() === 'other' ? 'bg-primary-100 text-primary-700' : 'bg-white text-secondary-600'"
+                                                        class="px-2 py-1 text-[10px] font-medium transition-colors border-l border-secondary-200"
+                                                      >Other</button>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            }
+                                          </div>
+
                                           <div class="flex items-center gap-2">
                                             <button
                                               (click)="onSaveCharacter(universe.id, char.id)"
@@ -329,6 +460,15 @@ import { LlmService } from '../services/llm.service';
                                             <div class="font-medium text-sm text-secondary-900">{{ char.name }}</div>
                                             @if (char.description) {
                                               <div class="text-xs text-muted line-clamp-2">{{ char.description }}</div>
+                                            }
+                                            @if (char.relationships && char.relationships.length > 0) {
+                                              <div class="flex flex-wrap gap-1 mt-1">
+                                                @for (rel of char.relationships; track $index) {
+                                                  <span class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-secondary-100 text-secondary-700 text-[10px] font-medium border border-secondary-200" [title]="rel.description || ''">
+                                                    {{ rel.targetName }} ({{ rel.type }})
+                                                  </span>
+                                                }
+                                              </div>
                                             }
                                           </div>
                                           <div class="flex items-center gap-2">
@@ -997,8 +1137,42 @@ export class AdminPageComponent implements OnDestroy {
   editingCharacterId = signal<string | null>(null);
   editingCharacterName = '';
   editingCharacterDesc = '';
+  editingCharacterRelationships = signal<Relationship[]>([]);
+  relationshipSearchQuery = signal('');
+  relationshipSearchMode = signal<'same' | 'other'>('same');
+  relationshipsExpanded = signal(false);
+
   newCharacterNames: Record<string, string> = {};
   newCharacterDescs: Record<string, string> = {};
+  newCharacterRelationships: Record<string, Relationship[]> = {};
+  newCharacterRelExpanded: Record<string, boolean> = {};
+
+  filteredCharactersForRelationship = computed(() => {
+    const query = this.relationshipSearchQuery().toLowerCase().trim();
+    const mode = this.relationshipSearchMode();
+    const currentUniverseId = this.universes().find(u =>
+      u.characters.some(c => c.id === this.editingCharacterId())
+    )?.id;
+
+    let pool: { char: Character; universeName: string }[] = [];
+
+    this.universes().forEach(u => {
+      if (mode === 'same' && u.id !== currentUniverseId) return;
+      if (mode === 'other' && u.id === currentUniverseId) return;
+
+      u.characters.forEach(c => {
+        if (c.id !== this.editingCharacterId()) {
+          pool.push({ char: c, universeName: u.name });
+        }
+      });
+    });
+
+    if (!query) return pool.slice(0, 10);
+    return pool.filter(p =>
+      p.char.name.toLowerCase().includes(query) ||
+      p.universeName.toLowerCase().includes(query)
+    ).slice(0, 10);
+  });
 
   // App Settings state
   riskyAppsEnabled = signal<boolean>(true);
@@ -1246,10 +1420,11 @@ export class AdminPageComponent implements OnDestroy {
     if (!this.adminPasswordHash) return;
     const name = (this.newCharacterNames[universeId] || '').trim();
     const description = (this.newCharacterDescs[universeId] || '').trim();
+    const relationships = this.newCharacterRelationships[universeId] || [];
     if (!name) return;
     this.errorMessage.set(null);
     this.statusMessage.set(null);
-    const response = await this.adminService.createCharacter(universeId, name, description, this.adminPasswordHash);
+    const response = await this.adminService.createCharacter(universeId, name, description, this.adminPasswordHash, relationships);
     if (!response.success) {
       this.errorMessage.set(response.error ?? 'Failed to create character.');
       return;
@@ -1257,6 +1432,8 @@ export class AdminPageComponent implements OnDestroy {
     this.statusMessage.set(`Character "${name}" created.`);
     this.newCharacterNames[universeId] = '';
     this.newCharacterDescs[universeId] = '';
+    delete this.newCharacterRelationships[universeId];
+    delete this.newCharacterRelExpanded[universeId];
     await this.loadUniverses(this.adminPasswordHash);
   }
 
@@ -1264,6 +1441,9 @@ export class AdminPageComponent implements OnDestroy {
     this.editingCharacterId.set(character.id);
     this.editingCharacterName = character.name;
     this.editingCharacterDesc = character.description || '';
+    this.editingCharacterRelationships.set(JSON.parse(JSON.stringify(character.relationships || [])));
+    this.relationshipSearchQuery.set('');
+    this.relationshipsExpanded.set(false);
   }
 
   async onSaveCharacter(universeId: string, characterId: string): Promise<void> {
@@ -1271,7 +1451,12 @@ export class AdminPageComponent implements OnDestroy {
     this.errorMessage.set(null);
     this.statusMessage.set(null);
     const response = await this.adminService.updateCharacter(
-      universeId, characterId, this.editingCharacterName.trim(), this.editingCharacterDesc.trim(), this.adminPasswordHash
+      universeId,
+      characterId,
+      this.editingCharacterName.trim(),
+      this.editingCharacterDesc.trim(),
+      this.adminPasswordHash,
+      this.editingCharacterRelationships()
     );
     if (!response.success) {
       this.errorMessage.set(response.error ?? 'Failed to update character.');
@@ -1280,6 +1465,58 @@ export class AdminPageComponent implements OnDestroy {
     this.statusMessage.set(`Character updated to "${this.editingCharacterName.trim()}".`);
     this.editingCharacterId.set(null);
     await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  addRelationship(target?: { char: Character; universeName: string }): void {
+    const rels = this.editingCharacterRelationships();
+    const query = this.relationshipSearchQuery().trim();
+
+    if (target) {
+      if (rels.some(r => r.targetId === target.char.id)) return;
+      rels.push({
+        targetId: target.char.id,
+        targetName: target.char.name,
+        type: 'Friend',
+      });
+    } else if (query) {
+      rels.push({
+        targetName: query,
+        type: 'Friend',
+      });
+    }
+
+    this.editingCharacterRelationships.set([...rels]);
+    this.relationshipSearchQuery.set('');
+  }
+
+  removeRelationship(index: number): void {
+    const rels = this.editingCharacterRelationships();
+    rels.splice(index, 1);
+    this.editingCharacterRelationships.set([...rels]);
+  }
+
+  addRelationshipNew(universeId: string, target?: { char: Character; universeName: string }): void {
+    if (!this.newCharacterRelationships[universeId]) {
+      this.newCharacterRelationships[universeId] = [];
+    }
+    const rels = this.newCharacterRelationships[universeId];
+    // We don't have a search bar for "new character" yet in the UI I'm planning,
+    // but I'll add the logic just in case.
+    if (target) {
+      if (rels.some(r => r.targetId === target.char.id)) return;
+      rels.push({
+        targetId: target.char.id,
+        targetName: target.char.name,
+        type: 'Friend',
+      });
+    }
+  }
+
+  removeRelationshipNew(universeId: string, index: number): void {
+    const rels = this.newCharacterRelationships[universeId];
+    if (rels) {
+      rels.splice(index, 1);
+    }
   }
 
   async onDeleteCharacter(universeId: string, character: Character): Promise<void> {
