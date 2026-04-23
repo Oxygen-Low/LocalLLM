@@ -781,7 +781,9 @@ function validateSyncDirectory(directory) {
   }
 
   // Ensure user-supplied directory is confined to a safe root.
-  if (!(resolved === syncRoot || resolved.startsWith(syncRoot + path.sep))) {
+  try {
+    ensureWithinDir(syncRoot, resolved);
+  } catch (err) {
     return { valid: false, error: `Sync directory must be within ${syncRoot}` };
   }
 
@@ -885,6 +887,24 @@ function copyDirSync(src, dest, shouldEncrypt, excludeDirs) {
 function restoreDirSync(src, dest, isEncrypted, excludeDirs) {
   const resolvedSrc = path.resolve(src);
   const resolvedDest = path.resolve(dest);
+
+  // Security: Ensure src is within the allowed sync imports directory
+  const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
+  try {
+    ensureWithinDir(syncRootPath, resolvedSrc);
+  } catch (err) {
+    console.error(`[restoreDirSync] Blocked out-of-bounds access: ${resolvedSrc}`);
+    return;
+  }
+  // Security: Ensure dest is within the application data directory
+  const dataRootPath = path.resolve(DATA_DIR);
+  try {
+    ensureWithinDir(dataRootPath, resolvedDest);
+  } catch (err) {
+    console.error(`[restoreDirSync] Blocked out-of-bounds access: ${resolvedDest}`);
+    return;
+  }
+
   if (!fs.existsSync(resolvedDest)) {
     fs.mkdirSync(resolvedDest, { recursive: true });
   }
@@ -929,6 +949,13 @@ function buildSyncExcludeDirs(syncConfig) {
 function detectSyncEncryption(syncDataDir) {
   try {
     const resolved = path.resolve(syncDataDir);
+    // Security: Ensure syncDataDir is within the allowed sync imports directory
+    const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
+    try {
+      ensureWithinDir(syncRootPath, resolved);
+    } catch (err) {
+      return false;
+    }
     return fs.readdirSync(resolved).some(f => f.endsWith('.enc'));
   } catch {
     return false;
@@ -1095,9 +1122,9 @@ function sanitizeUsernameForPath(username) {
  * Throws if the path escapes the expected directory (e.g. via path traversal).
  */
 function ensureWithinDir(parentDir, absolutePath) {
-  const resolvedParent = path.resolve(parentDir) + path.sep;
+  const resolvedParent = path.resolve(parentDir);
   const resolvedChild = path.resolve(absolutePath);
-  if (!resolvedChild.startsWith(resolvedParent)) {
+  if (resolvedChild !== resolvedParent && !resolvedChild.startsWith(resolvedParent + path.sep)) {
     throw new Error('Path traversal detected');
   }
   return resolvedChild;
@@ -2456,12 +2483,27 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
         return res.status(400).json({ success: false, error: dirValidation.error });
       }
       resolvedDir = dirValidation.resolved;
+
+      // Re-verify resolvedDir is within syncRootPath for CodeQL
+      const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
+      try {
+        ensureWithinDir(syncRootPath, resolvedDir);
+      } catch (err) {
+        return res.status(400).json({ success: false, error: 'Invalid sync directory' });
+      }
+
       try {
         if (!fs.existsSync(resolvedDir)) {
           fs.mkdirSync(resolvedDir, { recursive: true });
         }
         // Verify we can write to the directory
         const testFile = path.join(resolvedDir, '.localllm_sync_test');
+        // Ensure testFile is within resolvedDir
+        try {
+          ensureWithinDir(resolvedDir, testFile);
+        } catch (err) {
+          throw new Error('Invalid test file path');
+        }
         fs.writeFileSync(testFile, 'test', 'utf-8');
         fs.unlinkSync(testFile);
       } catch (dirErr) {
@@ -2481,9 +2523,15 @@ app.post('/api/admin/settings/auto-sync', async (req, res) => {
     // If enabling, create the LocalLLM Data folder immediately
     if (enabled && resolvedDir) {
       const syncDataDir = path.join(resolvedDir, AUTO_SYNC_FOLDER_NAME);
-      if (!fs.existsSync(syncDataDir)) {
-        fs.mkdirSync(syncDataDir, { recursive: true });
-        console.log(`[auto-sync] Created sync folder: ${syncDataDir}`);
+      // Ensure syncDataDir is within resolvedDir
+      try {
+        ensureWithinDir(resolvedDir, syncDataDir);
+        if (!fs.existsSync(syncDataDir)) {
+          fs.mkdirSync(syncDataDir, { recursive: true });
+          console.log(`[auto-sync] Created sync folder: ${syncDataDir}`);
+        }
+      } catch (err) {
+        console.error(`[auto-sync] Invalid sync folder path: ${syncDataDir}`);
       }
     }
 
@@ -3017,8 +3065,25 @@ app.post('/api/admin/auto-sync/import', async (req, res) => {
       return res.status(400).json({ success: false, error: dirValidation.error });
     }
     const resolvedDir = dirValidation.resolved;
+
+    // Re-verify resolvedDir is within syncRootPath for CodeQL
+    const syncRootPath = fs.realpathSync(path.resolve(DATA_DIR, 'sync-imports'));
+    try {
+      ensureWithinDir(syncRootPath, resolvedDir);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: 'Invalid sync directory' });
+    }
+
     const syncDataDir = path.join(resolvedDir, AUTO_SYNC_FOLDER_NAME);
     const syncDateFile = path.join(syncDataDir, AUTO_SYNC_DATE_FILE);
+
+    // Ensure paths are within resolvedDir
+    try {
+      ensureWithinDir(resolvedDir, syncDataDir);
+      ensureWithinDir(syncDataDir, syncDateFile);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: 'Invalid sync folder structure' });
+    }
 
     if (!fs.existsSync(syncDataDir)) {
       return res.status(400).json({ success: false, error: `Sync folder not found at ${syncDataDir}` });
