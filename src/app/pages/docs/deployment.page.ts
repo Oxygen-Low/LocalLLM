@@ -1,9 +1,10 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { DocsContentTranslationDirective } from './docs-content-translation.directive';
 
 @Component({
   selector: 'app-docs-deployment',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DocsContentTranslationDirective],
   template: `
     <div appDocsContentTranslation class="p-6 sm:p-8 lg:p-12 max-w-4xl">
