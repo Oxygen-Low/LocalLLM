@@ -8529,7 +8529,7 @@ app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, re
       const initScript = [
         'set -e',
         'mkdir -p /workspace',
-        'apt-get update -qq && apt-get install -y -qq git curl net-tools > /dev/null 2>&1',
+        'apt-get update -qq && apt-get install -y -qq git curl net-tools python3 python3-venv > /dev/null 2>&1',
         'git config --global user.email "localllm@local"',
         'git config --global user.name "LocalLLM"',
         'git clone /bare-repo.git /workspace || true',
@@ -8543,7 +8543,7 @@ app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, re
         '--name', targetContainerName,
         '--network', networkName,
         '--network-alias', 'target',
-        '--memory=512m',
+        '--memory=2g',
         '--cpus=1',
         '--pids-limit=256',
         '--security-opt', 'no-new-privileges',
@@ -8578,7 +8578,7 @@ app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, re
       const initScript = [
         'set -e',
         'mkdir -p /workspace',
-        'apt-get update -qq && apt-get install -y -qq git curl net-tools > /dev/null 2>&1',
+        'apt-get update -qq && apt-get install -y -qq git curl net-tools python3 python3-venv > /dev/null 2>&1',
         ...(credentialHelperStep ? [credentialHelperStep] : []),
         `git clone --branch "$(echo '${b64Branch}' | base64 -d)" --single-branch "$(echo '${b64CloneUrl}' | base64 -d)" /workspace 2>/dev/null || (echo "ERROR: Clone failed" >&2 && exit 1)`,
         'unset GIT_TOKEN',
@@ -8592,7 +8592,7 @@ app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, re
         '--name', targetContainerName,
         '--network', networkName,
         '--network-alias', 'target',
-        '--memory=512m',
+        '--memory=2g',
         '--cpus=1',
         '--pids-limit=256',
         '--security-opt', 'no-new-privileges',
@@ -8615,7 +8615,7 @@ app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, re
       '--name', agentContainerName,
       '--network', networkName,
       '--network-alias', 'agent',
-      '--memory=512m',
+      '--memory=2g',
       '--cpus=1',
       '--pids-limit=256',
       '--security-opt', 'no-new-privileges',
@@ -8721,7 +8721,7 @@ app.post('/api/pentesting/sessions/:id/exec', requireSession, (req, res) => {
       const output = execFileSync('docker', [
         'exec', session.targetContainerName,
         'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
-      ], { timeout: 30000, encoding: 'utf-8', maxBuffer: 1024 * 1024 });
+      ], { timeout: 300000, encoding: 'utf-8', maxBuffer: 1024 * 1024 });
       res.json({ success: true, output });
     } catch (execErr) {
       res.json({ success: true, output: execErr.stderr || execErr.stdout || execErr.message, exitCode: execErr.status || 1 });
