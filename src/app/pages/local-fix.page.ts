@@ -1,9 +1,10 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, OnInit, OnDestroy, ViewChild, ElementRef, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LocalFixService, type LocalFixSession, type LocalFixLog, type LocalFixCommand, type ScriptInfo } from '../services/local-fix.service';
 import { TranslationService } from '../services/translation.service';
+import { LlmService, type ProviderInfo } from '../services/llm.service';
 
 type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 'completed';
 
@@ -121,6 +122,33 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                 <h2 class="text-xl font-bold text-secondary-900 mb-6">{{ t.translate('localFix.issue.title') }}</h2>
 
                 <div class="space-y-4">
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium text-secondary-700 mb-1">AI Provider</label>
+                      <select
+                        [ngModel]="selectedProvider()"
+                        (ngModelChange)="onProviderChange($event)"
+                        class="w-full px-3 py-2 border border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                      >
+                        @for (p of providers(); track p.id) {
+                          <option [value]="p.id">{{ p.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-secondary-700 mb-1">Model</label>
+                      <select
+                        [ngModel]="selectedModel()"
+                        (ngModelChange)="selectedModel.set($event)"
+                        class="w-full px-3 py-2 border border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                      >
+                        @for (m of availableModels(); track m) {
+                          <option [value]="getModelId(m)">{{ getModelName(m) }}</option>
+                        }
+                      </select>
+                    </div>
+                  </div>
+
                   <div>
                     <label class="block text-sm font-medium text-secondary-700 mb-1">{{ t.translate('localFix.issue.description') }}</label>
                     <textarea
@@ -382,6 +410,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
 export class LocalFixPageComponent implements OnInit, OnDestroy {
   protected t = inject(TranslationService);
   private localFixService = inject(LocalFixService);
+  private llmService = inject(LlmService);
 
   // Wizard state
   currentStep = signal<WizardStep>('setup');
@@ -397,6 +426,12 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
   allowCommands = false;
   chatMessage = '';
 
+  // LLM Selection
+  providers = signal<ProviderInfo[]>([]);
+  selectedProvider = signal('');
+  selectedModel = signal('');
+  availableModels = signal<Array<string | { id: string; name: string }>>([]);
+
   // Session data
   currentSession = signal<LocalFixSession | null>(null);
   sessionLogs = signal<LocalFixLog[]>([]);
@@ -410,6 +445,17 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
   @ViewChild('logsContainer') logsContainer?: ElementRef<HTMLDivElement>;
 
   async ngOnInit(): Promise<void> {
+    // Load providers
+    try {
+      const providers = await this.llmService.getProviders();
+      this.providers.set(providers);
+      if (providers.length > 0) {
+        this.onProviderChange(providers[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load LLM providers', err);
+    }
+
     // Check for existing sessions
     try {
       const sessions = await this.localFixService.listSessions();
@@ -447,7 +493,9 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
         this.instanceUrl,
         this.userId,
         this.issueDescription,
-        this.allowCommands
+        this.allowCommands,
+        this.selectedProvider(),
+        this.selectedModel()
       );
       this.currentSession.set(session);
       this.sessionLogs.set(session.logs || []);
@@ -597,6 +645,28 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
     this.showScriptPanel.set(false);
     this.configError.set(null);
     this.sessionError.set(null);
+  }
+
+  onProviderChange(providerId: string): void {
+    this.selectedProvider.set(providerId);
+    const provider = this.providers().find(p => p.id === providerId);
+    if (provider) {
+      this.availableModels.set(provider.models || []);
+      const defaultModel = provider.models?.[0];
+      if (defaultModel !== undefined) {
+        this.selectedModel.set(this.getModelId(defaultModel));
+      } else {
+        this.selectedModel.set('');
+      }
+    }
+  }
+
+  getModelId(model: string | { id: string; name: string }): string {
+    return typeof model === 'string' ? model : model.id;
+  }
+
+  getModelName(model: string | { id: string; name: string }): string {
+    return typeof model === 'string' ? model : (model.name || model.id);
   }
 
   copyScript(type: 'bat' | 'sh'): void {
