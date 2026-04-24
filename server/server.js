@@ -6339,7 +6339,7 @@ function writeUserLocalFixSessions(username, sessions) {
 // POST /api/local-fix/sessions – Create a new diagnostic session
 app.post('/api/local-fix/sessions', requireSession, blockInDemo, (req, res) => {
   try {
-    const { instanceUrl, userId, issueDescription, allowCommands } = req.body;
+    const { instanceUrl, userId, issueDescription, allowCommands, provider, model } = req.body;
 
     if (!instanceUrl || typeof instanceUrl !== 'string' || instanceUrl.trim().length === 0 || instanceUrl.trim().length > 2000) {
       return res.status(400).json({ success: false, error: 'Instance URL is required (max 2000 chars)' });
@@ -6382,6 +6382,8 @@ app.post('/api/local-fix/sessions', requireSession, blockInDemo, (req, res) => {
       status: 'active',
       createdAt: now,
       lastActivity: Date.now(),
+      provider: provider || null,
+      model: model || null,
       logs: [
         {
           id: crypto.randomUUID(),
@@ -6735,7 +6737,12 @@ app.post('/api/local-fix/sessions/:id/chat', requireSession, async (req, res) =>
 
     let response;
     try {
-      response = await getLLMCompletion(req.sessionUser, llmMessages, { max_tokens: 1024, temperature: 0.5 });
+      response = await getLLMCompletion(req.sessionUser, llmMessages, {
+        max_tokens: 1024,
+        temperature: 0.5,
+        provider: session.provider,
+        model: session.model,
+      });
     } catch (llmErr) {
       const errorMsg = llmErr instanceof Error ? llmErr.message : 'LLM service unavailable';
       session.lastActivity = Date.now();
@@ -8185,12 +8192,106 @@ app.post('/api/marketplace/simulations/:id/turn', requireSession, async (req, re
     const sim = data.simulations[simIdx];
     sim.lastActivity = Date.now();
 
-    // In a real implementation, this would trigger the prompting loop for each LLM one by one
-    // For this prototype, we'll just increment a turn counter
-    sim.turn = (sim.turn || 0) + 1;
+    const turnResults = [];
 
+    // Iterate through each LLM agent
+    for (const llm of sim.llms) {
+      if (llm.status !== 'active') continue;
+
+      const profile = data.profiles[llm.id] || { balance: 0 };
+      const store = data.profiles[`store_${llm.id}`] || { balance: 0 };
+      const otherItems = data.items.filter(i => i.simId === sim.id && i.sellerId !== llm.id);
+      const recentMessages = data.messages.filter(m => m.simId === sim.id && m.toId === llm.id).slice(-5);
+
+      const prompt = `You are an AI agent named ${llm.name} in a marketplace simulation.
+Your personality is: ${llm.personality}.
+Current Wallet Balance: ${profile.balance}
+Current Store Balance: ${store.balance}
+
+Available items in marketplace:
+${otherItems.map(i => `- [${i.id}] ${i.name}: ${i.description} (Price: ${i.variants[0]?.price || 0})`).join('\n')}
+
+Recent messages:
+${recentMessages.map(m => `- From ${m.fromId}: ${m.content}`).join('\n')}
+
+Decide your next action. You can:
+1. LIST_ITEM: Sell a new digital asset.
+2. BUY_ITEM: Purchase an item from the marketplace.
+3. SEND_MESSAGE: Negotiate or talk to another agent or the player (player ID is "${req.sessionUser}").
+4. NO_ACTION: Do nothing this turn.
+
+Response format (JSON):
+{
+  "thought": "your reasoning",
+  "action": "LIST_ITEM" | "BUY_ITEM" | "SEND_MESSAGE" | "NO_ACTION",
+  "params": {
+    "name": "item name", "description": "item desc", "price": 10,
+    "itemId": "target item id",
+    "toId": "target agent id", "content": "message content"
+  }
+}`;
+
+      try {
+        const responseText = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }], {
+          provider: sim.provider,
+          model: sim.model,
+          max_tokens: 1000,
+          temperature: 0.7
+        });
+
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const result = JSON.parse(jsonMatch[0]);
+          turnResults.push({ llmId: llm.id, name: llm.name, ...result });
+
+          if (result.action === 'LIST_ITEM' && result.params?.name) {
+            const newItem = {
+              id: crypto.randomUUID(),
+              simId: sim.id,
+              name: result.params.name,
+              description: result.params.description || '',
+              sellerId: llm.id,
+              filename: 'simulated_asset.zip',
+              originalName: 'asset.zip',
+              variants: [{ name: 'Standard', price: Math.max(1, Math.min(100, Number(result.params.price) || 10)) }],
+              licenses: ['Personal'],
+              rating: 0,
+              reviews: [],
+              createdAt: new Date().toISOString()
+            };
+            data.items.push(newItem);
+          } else if (result.action === 'BUY_ITEM' && result.params?.itemId) {
+            const item = data.items.find(i => i.id === result.params.itemId);
+            if (item && item.simId === sim.id && item.sellerId !== llm.id) {
+              const price = item.variants[0]?.price || 0;
+              if (profile.balance >= price) {
+                profile.balance -= price;
+                const sellerStore = data.profiles[`store_${item.sellerId}`];
+                if (sellerStore) sellerStore.balance += price;
+                // Update simulation wallet for UI if needed
+                llm.wallet = profile.balance;
+              }
+            }
+          } else if (result.action === 'SEND_MESSAGE' && result.params?.toId && result.params?.content) {
+            data.messages.push({
+              id: crypto.randomUUID(),
+              simId: sim.id,
+              fromId: llm.id,
+              toId: result.params.toId,
+              content: result.params.content,
+              read: false,
+              createdAt: new Date().toISOString()
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Error processing turn for LLM ${llm.id}:`, err);
+      }
+    }
+
+    sim.turn = (sim.turn || 0) + 1;
     writeMarketplaceData(req.sessionUser, data);
-    res.json({ success: true, turn: sim.turn });
+    res.json({ success: true, turn: sim.turn, results: turnResults });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -8199,7 +8300,7 @@ app.post('/api/marketplace/simulations/:id/turn', requireSession, async (req, re
 // POST /api/marketplace/simulations - Create simulation
 app.post('/api/marketplace/simulations', requireSession, async (req, res) => {
   try {
-    const { name, numLLMs, model, mode } = req.body;
+    const { name, numLLMs, model, mode, provider } = req.body;
     if (!name || !numLLMs || !model) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
@@ -8306,6 +8407,7 @@ app.post('/api/marketplace/simulations', requireSession, async (req, res) => {
       name,
       numLLMs,
       model,
+      provider: provider || null,
       mode: mode || 'online',
       status: 'active',
       llms,
@@ -8376,7 +8478,7 @@ function cleanupPentestSession(sessionId) {
 // POST /api/pentesting/sessions - Create a pentesting session (two containers + network)
 app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, res) => {
   try {
-    const { repoSource, cloneUrl, localRepoId, repoFullName, branch } = req.body;
+    const { repoSource, cloneUrl, localRepoId, repoFullName, branch, provider, model } = req.body;
 
     if (!repoFullName || !repoSource) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
@@ -8540,6 +8642,8 @@ app.post('/api/pentesting/sessions', requireSession, blockInDemo, async (req, re
         report: null,
         createdAt: new Date().toISOString(),
         lastActivity: Date.now(),
+        provider: provider || null,
+        model: model || null,
       };
 
       pentestRegistry.set(sessionId, {
@@ -8787,7 +8891,12 @@ Return ONLY the JSON array, no other text.`;
 
     let testPlan;
     try {
-      const llmResponse = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: analysisPrompt }], { max_tokens: 4096, temperature: 0.3 });
+      const llmResponse = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: analysisPrompt }], {
+        max_tokens: 4096,
+        temperature: 0.3,
+        provider: session.provider,
+        model: session.model,
+      });
       const jsonMatch = llmResponse.match(/\[[\s\S]*\]/);
       testPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
     } catch (llmErr) {
@@ -8866,7 +8975,12 @@ If no major vulnerabilities were found, note that the application appears reason
 
     let report;
     try {
-      report = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: reportPrompt }], { max_tokens: 8192, temperature: 0.3 });
+      report = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: reportPrompt }], {
+        max_tokens: 8192,
+        temperature: 0.3,
+        provider: session.provider,
+        model: session.model,
+      });
     } catch (reportErr) {
       console.error('LLM report generation error:', reportErr.message);
       report = `# Penetration Test Report\n\n## Error\n\nFailed to generate AI report: ${reportErr.message}\n\n## Raw Test Results\n\n${testResults.map(t => `### ${t.test}\n${t.output}`).join('\n\n')}`;
@@ -10639,42 +10753,118 @@ async function getLLMCompletion(username, messages, options = {}) {
   const baseUrl = config.baseUrl;
   const chatEndpoint = config.chatEndpoint;
 
-  const body = {
-    model,
-    messages: flatMessages,
-    max_tokens: maxTokens,
-    temperature,
-    stream: false,
-  };
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000); // 1 minute timeout for background tasks
 
   try {
-    const response = await fetch(`${baseUrl}${chatEndpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${providerKeys.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    let response;
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error ${response.status}: ${errorBody}`);
-    }
+    if (provider === 'google') {
+      // Google uses a different endpoint pattern and request/response format
+      // Normalize model: strip leading "models/" prefix if present to avoid /v1beta/models/models/... URLs
+      const normalizedModel = model.startsWith('models/') ? model.slice(7) : model;
+      const endpoint = chatEndpoint.replace('{model}', normalizedModel);
+      const body = {
+        contents: flatMessages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        })),
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature,
+        }
+      };
 
-    const data = await response.json();
+      // Add system instruction if present
+      const systemMsg = flatMessages.find(m => m.role === 'system');
+      if (systemMsg) {
+        body.systemInstruction = {
+          parts: [{ text: systemMsg.content }]
+        };
+      }
 
-    // Handle different provider response formats
-    if (provider === 'anthropic') {
-      return data.content[0].text;
+      response = await fetch(`${baseUrl}${endpoint}?key=${providerKeys.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Google API error ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    } else if (provider === 'anthropic') {
+      // Anthropic uses x-api-key header and different body format
+      const body = {
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        messages: flatMessages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role,
+          content: m.content
+        }))
+      };
+
+      // Add system prompt if present
+      const systemMsg = flatMessages.find(m => m.role === 'system');
+      if (systemMsg) {
+        body.system = systemMsg.content;
+      }
+
+      response = await fetch(`${baseUrl}${chatEndpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': providerKeys.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Anthropic API error ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      return data.content?.[0]?.text || '';
+
     } else {
-      // OpenAI-compatible
-      return data.choices[0].message.content;
+      // OpenAI-compatible providers
+      const body = {
+        model,
+        messages: flatMessages,
+        max_tokens: maxTokens,
+        temperature,
+        stream: false,
+      };
+
+      response = await fetch(`${baseUrl}${chatEndpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${providerKeys.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`API error ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || '';
     }
   } catch (err) {
     clearTimeout(timeout);

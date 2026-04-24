@@ -43,11 +43,11 @@ export class LocalFixService {
 
   // --- Sessions ---
 
-  async createSession(instanceUrl: string, userId: string, issueDescription: string, allowCommands: boolean): Promise<LocalFixSession> {
+  async createSession(instanceUrl: string, userId: string, issueDescription: string, allowCommands: boolean, provider?: string, model?: string): Promise<LocalFixSession> {
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; session: LocalFixSession }>(
         `${environment.apiUrl}/api/local-fix/sessions`,
-        { instanceUrl, userId, issueDescription, allowCommands }
+        { instanceUrl, userId, issueDescription, allowCommands, provider, model }
       )
     );
     return res.session;

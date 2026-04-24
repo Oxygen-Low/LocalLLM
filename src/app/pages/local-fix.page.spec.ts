@@ -28,6 +28,7 @@ describe('LocalFixPageComponent', () => {
   afterEach(() => {
     // Flush any pending listSessions request from ngOnInit
     httpMock.match('/api/local-fix/sessions');
+    httpMock.match('/api/providers');
     httpMock.verify();
     localStorage.clear();
   });
@@ -36,6 +37,10 @@ describe('LocalFixPageComponent', () => {
     const reqs = httpMock.match('/api/local-fix/sessions');
     for (const req of reqs) {
       req.flush({ success: true, sessions: [] });
+    }
+    const provReqs = httpMock.match('/api/providers');
+    for (const req of provReqs) {
+      req.flush([]);
     }
   }
 
