@@ -8715,26 +8715,16 @@ app.post('/api/pentesting/sessions/:id/exec', requireSession, (req, res) => {
       entry.inactivityTimer = setTimeout(() => cleanupPentestSession(session.id), PENTEST_INACTIVITY_TIMEOUT_MS);
     }
 
-    const { spawn } = require('child_process');
+    const { execFileSync } = require('child_process');
     const b64Cmd = Buffer.from(command).toString('base64');
     try {
-      // Use spawn with detached: true and stdio: 'ignore' to run command in background
-      // without blocking the Node.js process
-      const child = spawn('docker', [
+      const output = execFileSync('docker', [
         'exec', session.targetContainerName,
         'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
-      ], {
-        stdio: 'ignore',
-        detached: true
-      });
-
-      // Unref so the parent process can exit independently
-      child.unref();
-
-      // Return immediately - command is running in background
-      res.json({ success: true, output: 'Command started in background (detached mode)', detached: true });
+      ], { timeout: 30000, encoding: 'utf-8', maxBuffer: 1024 * 1024 });
+      res.json({ success: true, output });
     } catch (execErr) {
-      res.json({ success: false, error: execErr.message });
+      res.json({ success: true, output: execErr.stderr || execErr.stdout || execErr.message, exitCode: execErr.status || 1 });
     }
   } catch (err) {
     console.error('Pentest exec error:', err);
