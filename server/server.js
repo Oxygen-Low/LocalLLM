@@ -10761,7 +10761,9 @@ async function getLLMCompletion(username, messages, options = {}) {
 
     if (provider === 'google') {
       // Google uses a different endpoint pattern and request/response format
-      const endpoint = chatEndpoint.replace('{model}', model);
+      // Normalize model: strip leading "models/" prefix if present to avoid /v1beta/models/models/... URLs
+      const normalizedModel = model.startsWith('models/') ? model.slice(7) : model;
+      const endpoint = chatEndpoint.replace('{model}', normalizedModel);
       const body = {
         contents: flatMessages.filter(m => m.role !== 'system').map(m => ({
           role: m.role === 'assistant' ? 'model' : 'user',

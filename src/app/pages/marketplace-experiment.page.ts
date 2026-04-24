@@ -181,7 +181,7 @@ export class MarketplaceExperimentPageComponent implements OnInit {
   turnResults = signal<TurnResult[]>([]);
 
   providers = signal<ProviderInfo[]>([]);
-  availableModels = signal<Array<string | { id: string; name: string }>>([]);
+  availableModels = signal<Array<string | { id: string; name?: string }>>([]);
   loadError = signal<string | null>(null);
   turnError = signal<string | null>(null);
 
@@ -214,11 +214,11 @@ export class MarketplaceExperimentPageComponent implements OnInit {
     }
   }
 
-  getModelId(model: string | { id: string; name: string }): string {
+  getModelId(model: string | { id: string; name?: string }): string {
     return typeof model === 'string' ? model : model.id;
   }
 
-  getModelDisplayName(model: string | { id: string; name: string }): string {
+  getModelDisplayName(model: string | { id: string; name?: string }): string {
     return typeof model === 'string' ? model : (model.name || model.id);
   }
 
