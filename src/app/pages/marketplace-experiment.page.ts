@@ -5,6 +5,35 @@ import { TranslationService } from '../services/translation.service';
 import { HttpClient } from '@angular/common/http';
 import { LlmService, type ProviderInfo } from '../services/llm.service';
 
+interface NewSimulation {
+  name: string;
+  numLLMs: number;
+  model: string;
+  provider: string;
+  mode: string;
+}
+
+interface Simulation {
+  id: string;
+  name: string;
+  status: string;
+  turn: number;
+}
+
+interface MarketplaceItem {
+  id: string;
+  name: string;
+  description: string;
+  sellerId: string;
+  variants?: Array<{ name: string; price: number }>;
+}
+
+interface TurnResult {
+  name: string;
+  thought: string;
+  action: string;
+}
+
 @Component({
   selector: 'app-marketplace-experiment',
   standalone: true,
@@ -85,6 +114,11 @@ import { LlmService, type ProviderInfo } from '../services/llm.service';
                       <span>▶ Run Turn</span>
                     }
                   </button>
+                  @if (turnError()) {
+                    <div class="mt-3 text-sm text-red-600 bg-red-50 p-3 rounded-lg" role="alert">
+                      {{ turnError() }}
+                    </div>
+                  }
                 </div>
               </div>
             </div>
@@ -103,8 +137,8 @@ import { LlmService, type ProviderInfo } from '../services/llm.service';
                           <h3 class="font-bold text-secondary-900">{{ item.name }}</h3>
                           <p class="text-sm text-muted mb-2">{{ item.description }}</p>
                           <div class="flex items-center justify-between">
-                            <span class="text-primary-600 font-semibold">&#36;{{ item.variants[0]?.price }}</span>
-                            <span class="text-xs text-secondary-500">Seller: {{ item.sellerId.slice(0,8) }}</span>
+                            <span class="text-primary-600 font-semibold">&#36;{{ item.variants?.[0]?.price ?? '—' }}</span>
+                            <span class="text-xs text-secondary-500">Seller: {{ (item.sellerId && typeof item.sellerId === 'string' ? item.sellerId.slice(0,8) : '—') }}</span>
                           </div>
                         </div>
                       }
@@ -141,13 +175,15 @@ export class MarketplaceExperimentPageComponent implements OnInit {
   private llmService = inject(LlmService);
 
   loading = signal(false);
-  activeSimulation = signal<any>(null);
-  newSim: any = { name: '', numLLMs: 3, model: '', provider: '', mode: 'online' };
-  items = signal<any[]>([]);
-  turnResults = signal<any[]>([]);
+  activeSimulation = signal<Simulation | null>(null);
+  newSim: NewSimulation = { name: '', numLLMs: 3, model: '', provider: '', mode: 'online' };
+  items = signal<MarketplaceItem[]>([]);
+  turnResults = signal<TurnResult[]>([]);
 
   providers = signal<ProviderInfo[]>([]);
   availableModels = signal<Array<string | { id: string; name: string }>>([]);
+  loadError = signal<string | null>(null);
+  turnError = signal<string | null>(null);
 
   ngOnInit() {
     this.loadSimulations();
@@ -164,7 +200,10 @@ export class MarketplaceExperimentPageComponent implements OnInit {
         this.availableModels.set(first.models || []);
         this.newSim.model = first.model || this.getModelId(first.models?.[0] || '');
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to load providers:', e);
+      this.loadError.set('Failed to load LLM providers');
+    }
   }
 
   onProviderChange() {
@@ -180,7 +219,7 @@ export class MarketplaceExperimentPageComponent implements OnInit {
   }
 
   getModelDisplayName(model: string | { id: string; name: string }): string {
-    return typeof model === 'string' ? model : model.name;
+    return typeof model === 'string' ? model : (model.name || model.id);
   }
 
   async loadSimulations() {
@@ -190,7 +229,10 @@ export class MarketplaceExperimentPageComponent implements OnInit {
         this.activeSimulation.set(res.simulations[0]);
         this.loadItems();
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to load simulations:', e);
+      this.loadError.set('Failed to load simulations');
+    }
   }
 
   async loadItems() {
@@ -201,7 +243,10 @@ export class MarketplaceExperimentPageComponent implements OnInit {
       if (res.success) {
         this.items.set(res.items);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to load items:', e);
+      this.loadError.set('Failed to load marketplace items');
+    }
   }
 
   async runTurn() {
@@ -209,15 +254,17 @@ export class MarketplaceExperimentPageComponent implements OnInit {
     if (!simId) return;
 
     this.loading.set(true);
+    this.turnError.set(null);
     try {
       const res: any = await this.http.post(`/api/marketplace/simulations/${simId}/turn`, {}).toPromise();
       if (res.success) {
-        this.activeSimulation.update(s => ({ ...s, turn: res.turn }));
+        this.activeSimulation.update(s => s ? { ...s, turn: res.turn } : s);
         this.turnResults.set(res.results || []);
         await this.loadItems();
       }
     } catch (e) {
-      alert('Failed to process turn');
+      console.error('Failed to process turn:', e);
+      this.turnError.set('Failed to process turn');
     } finally {
       this.loading.set(false);
     }
@@ -225,13 +272,15 @@ export class MarketplaceExperimentPageComponent implements OnInit {
 
   async createSimulation() {
     this.loading.set(true);
+    this.turnError.set(null);
     try {
       const res: any = await this.http.post('/api/marketplace/simulations', this.newSim).toPromise();
       if (res.success) {
         this.activeSimulation.set(res.simulation);
       }
     } catch (e) {
-      alert('Failed to start simulation');
+      console.error('Failed to start simulation:', e);
+      this.turnError.set('Failed to start simulation');
     } finally {
       this.loading.set(false);
     }

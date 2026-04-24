@@ -430,7 +430,7 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
   providers = signal<ProviderInfo[]>([]);
   selectedProvider = signal('');
   selectedModel = signal('');
-  availableModels = signal<any[]>([]);
+  availableModels = signal<Array<string | { id: string; name: string }>>([]);
 
   // Session data
   currentSession = signal<LocalFixSession | null>(null);
@@ -653,15 +653,19 @@ export class LocalFixPageComponent implements OnInit, OnDestroy {
     if (provider) {
       this.availableModels.set(provider.models || []);
       const defaultModel = provider.models?.[0];
-      this.selectedModel.set(this.getModelId(defaultModel));
+      if (defaultModel !== undefined) {
+        this.selectedModel.set(this.getModelId(defaultModel));
+      } else {
+        this.selectedModel.set('');
+      }
     }
   }
 
-  getModelId(model: any): string {
+  getModelId(model: string | { id: string; name: string }): string {
     return typeof model === 'string' ? model : model.id;
   }
 
-  getModelName(model: any): string {
+  getModelName(model: string | { id: string; name: string }): string {
     return typeof model === 'string' ? model : (model.name || model.id);
   }
 

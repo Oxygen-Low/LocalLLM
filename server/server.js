@@ -8262,7 +8262,7 @@ Response format (JSON):
             data.items.push(newItem);
           } else if (result.action === 'BUY_ITEM' && result.params?.itemId) {
             const item = data.items.find(i => i.id === result.params.itemId);
-            if (item && item.sellerId !== llm.id) {
+            if (item && item.simId === sim.id && item.sellerId !== llm.id) {
               const price = item.variants[0]?.price || 0;
               if (profile.balance >= price) {
                 profile.balance -= price;
@@ -10753,42 +10753,116 @@ async function getLLMCompletion(username, messages, options = {}) {
   const baseUrl = config.baseUrl;
   const chatEndpoint = config.chatEndpoint;
 
-  const body = {
-    model,
-    messages: flatMessages,
-    max_tokens: maxTokens,
-    temperature,
-    stream: false,
-  };
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000); // 1 minute timeout for background tasks
 
   try {
-    const response = await fetch(`${baseUrl}${chatEndpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${providerKeys.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    let response;
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error ${response.status}: ${errorBody}`);
-    }
+    if (provider === 'google') {
+      // Google uses a different endpoint pattern and request/response format
+      const endpoint = chatEndpoint.replace('{model}', model);
+      const body = {
+        contents: flatMessages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        })),
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature,
+        }
+      };
 
-    const data = await response.json();
+      // Add system instruction if present
+      const systemMsg = flatMessages.find(m => m.role === 'system');
+      if (systemMsg) {
+        body.systemInstruction = {
+          parts: [{ text: systemMsg.content }]
+        };
+      }
 
-    // Handle different provider response formats
-    if (provider === 'anthropic') {
-      return data.content[0].text;
+      response = await fetch(`${baseUrl}${endpoint}?key=${providerKeys.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Google API error ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    } else if (provider === 'anthropic') {
+      // Anthropic uses x-api-key header and different body format
+      const body = {
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        messages: flatMessages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role,
+          content: m.content
+        }))
+      };
+
+      // Add system prompt if present
+      const systemMsg = flatMessages.find(m => m.role === 'system');
+      if (systemMsg) {
+        body.system = systemMsg.content;
+      }
+
+      response = await fetch(`${baseUrl}${chatEndpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': providerKeys.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Anthropic API error ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      return data.content?.[0]?.text || '';
+
     } else {
-      // OpenAI-compatible
-      return data.choices[0].message.content;
+      // OpenAI-compatible providers
+      const body = {
+        model,
+        messages: flatMessages,
+        max_tokens: maxTokens,
+        temperature,
+        stream: false,
+      };
+
+      response = await fetch(`${baseUrl}${chatEndpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${providerKeys.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`API error ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || '';
     }
   } catch (err) {
     clearTimeout(timeout);
