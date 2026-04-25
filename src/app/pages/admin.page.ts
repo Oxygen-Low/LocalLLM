@@ -308,7 +308,7 @@ import { LlmService } from '../services/llm.service';
                                         <div class="flex items-center gap-2 text-xs bg-white p-1.5 rounded border border-secondary-100">
                                           <span class="font-medium">{{ rel.targetName }}</span>
                                           <span class="text-muted">({{ rel.type }})</span>
-                                          <button (click)="removeRelationshipNew(universe.id, $index)" class="text-red-500 ml-auto">✖</button>
+                                          <button type="button" aria-label="Remove relationship" title="Remove relationship" (click)="removeRelationshipNew(universe.id, $index)" class="text-red-500 ml-auto outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded px-1">✖</button>
                                         </div>
                                       }
                                       <div class="flex gap-1">
@@ -368,7 +368,7 @@ import { LlmService } from '../services/llm.service';
                                                       <div class="bg-white p-2 rounded border border-secondary-200 text-sm space-y-1">
                                                         <div class="flex items-center justify-between">
                                                           <span class="font-medium text-secondary-900">{{ rel.targetName }}</span>
-                                                          <button (click)="removeRelationship($index)" class="text-red-500 hover:text-red-700">
+                                                          <button type="button" aria-label="Remove relationship" title="Remove relationship" (click)="removeRelationship($index)" class="text-red-500 hover:text-red-700 outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded px-1">
                                                             <span class="sr-only">Remove</span>✖
                                                           </button>
                                                         </div>
