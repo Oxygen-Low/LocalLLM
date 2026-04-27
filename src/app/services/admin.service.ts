@@ -287,6 +287,30 @@ export class AdminService {
     }
   }
 
+  async autoGenerateCharacter(
+    universeId: string,
+    mode: 'search' | 'links',
+    data: { query?: string; links?: string[] },
+    adminPasswordHash: string
+  ): Promise<{ success: boolean; error?: string; character?: Character }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; character?: Character }>(
+          `${environment.apiUrl}/api/admin/universes/${universeId}/characters/auto-generate`,
+          {
+            adminUsername: this.authService.username(),
+            adminPassword: adminPasswordHash,
+            mode,
+            ...data,
+          }
+        )
+      );
+      return response;
+    } catch (error: unknown) {
+      return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to auto-generate character' };
+    }
+  }
+
   // --- App Settings ---
 
   async getRiskyAppsEnabled(): Promise<AppSettingsResponse> {

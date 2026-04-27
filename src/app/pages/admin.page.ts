@@ -292,6 +292,44 @@ import { LlmService } from '../services/llm.service';
                                   >Add</button>
                                 </div>
 
+                                <!-- Auto-generate Section -->
+                                <div class="mt-2 pt-2 border-t border-secondary-100">
+                                  <button (click)="toggleAutoGen(universe.id)" class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
+                                    <span>✨</span> {{ autoGenExpanded()[universe.id] ? 'Cancel auto-generation' : 'Auto-generate character' }}
+                                  </button>
+
+                                  @if (autoGenExpanded()[universe.id]) {
+                                    <div class="mt-3 p-4 bg-primary-50 rounded-lg border border-primary-100 space-y-4">
+                                      <div class="flex gap-4">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                          <input type="radio" [name]="'mode-' + universe.id" value="search" [checked]="getAutoGenMode(universe.id) === 'search'" (change)="setAutoGenMode(universe.id, 'search')" class="text-primary-600" />
+                                          <span class="text-xs font-medium">Search by name</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                          <input type="radio" [name]="'mode-' + universe.id" value="links" [checked]="getAutoGenMode(universe.id) === 'links'" (change)="setAutoGenMode(universe.id, 'links')" class="text-primary-600" />
+                                          <span class="text-xs font-medium">Provide links</span>
+                                        </label>
+                                      </div>
+
+                                      @if (getAutoGenMode(universe.id) === 'search') {
+                                        <div>
+                                          <label class="block text-[10px] uppercase tracking-wider font-bold text-primary-700 mb-1">Character Name to Search</label>
+                                          <input type="text" [(ngModel)]="autoGenQuery[universe.id]" placeholder="e.g. Harry Potter" class="w-full px-3 py-2 rounded-lg border border-primary-200 focus:border-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-600 text-sm bg-white" />
+                                        </div>
+                                      } @else {
+                                        <div>
+                                          <label class="block text-[10px] uppercase tracking-wider font-bold text-primary-700 mb-1">Links (one per line)</label>
+                                          <textarea [(ngModel)]="autoGenLinks[universe.id]" placeholder="https://en.wikipedia.org/wiki/..." rows="3" class="w-full px-3 py-2 rounded-lg border border-primary-200 focus:border-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-600 text-sm bg-white resize-none"></textarea>
+                                        </div>
+                                      }
+
+                                      <button (click)="onAutoGenerateCharacter(universe.id)" [disabled]="isAutoGenerating()[universe.id] || (getAutoGenMode(universe.id) === 'search' ? !autoGenQuery[universe.id]?.trim() : !autoGenLinks[universe.id]?.trim())" class="w-full py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50">
+                                        {{ isAutoGenerating()[universe.id] ? 'Generating...' : 'Generate & Save Character' }}
+                                      </button>
+                                    </div>
+                                  }
+                                </div>
+
                                 <div class="space-y-1">
                                   <button
                                     (click)="newCharacterRelExpanded[universe.id] = !newCharacterRelExpanded[universe.id]"
@@ -1232,6 +1270,13 @@ export class AdminPageComponent implements OnDestroy {
   mcpMessage = signal<string | null>(null);
   mcpMessageType = signal<'success' | 'error'>('success');
 
+  // Auto-generate state
+  autoGenExpanded = signal<Record<string, boolean>>({});
+  autoGenMode: Record<string, 'search' | 'links'> = {};
+  autoGenQuery: Record<string, string> = {};
+  autoGenLinks: Record<string, string> = {};
+  isAutoGenerating = signal<Record<string, boolean>>({});
+
   private llmService = inject(LlmService);
 
   constructor(
@@ -1560,6 +1605,53 @@ export class AdminPageComponent implements OnDestroy {
     }
     this.statusMessage.set(`Character "${character.name}" deleted.`);
     await this.loadUniverses(this.adminPasswordHash);
+  }
+
+  toggleAutoGen(universeId: string) {
+    this.autoGenExpanded.update(prev => ({ ...prev, [universeId]: !prev[universeId] }));
+    if (!this.autoGenMode[universeId]) this.autoGenMode[universeId] = 'search';
+  }
+
+  getAutoGenMode(universeId: string) {
+    return this.autoGenMode[universeId] || 'search';
+  }
+
+  setAutoGenMode(universeId: string, mode: 'search' | 'links') {
+    this.autoGenMode[universeId] = mode;
+    // Force a re-render of the auto-gen section by updating the expanded state slightly
+    this.autoGenExpanded.update(prev => ({ ...prev }));
+  }
+
+  async onAutoGenerateCharacter(universeId: string) {
+    if (!this.adminPasswordHash) return;
+    const mode = this.getAutoGenMode(universeId);
+    const data: any = {};
+    if (mode === 'search') {
+      data.query = this.autoGenQuery[universeId];
+    } else {
+      data.links = (this.autoGenLinks[universeId] || '').split('\n').map(l => l.trim()).filter(l => l);
+    }
+
+    this.isAutoGenerating.update(prev => ({ ...prev, [universeId]: true }));
+    this.errorMessage.set(null);
+    this.statusMessage.set(null);
+
+    try {
+      const response = await this.adminService.autoGenerateCharacter(universeId, mode, data, this.adminPasswordHash);
+      if (response.success && response.character) {
+        this.statusMessage.set(`Character "${response.character.name}" auto-generated and saved.`);
+        this.autoGenExpanded.update(prev => ({ ...prev, [universeId]: false }));
+        this.autoGenQuery[universeId] = '';
+        this.autoGenLinks[universeId] = '';
+        await this.loadUniverses(this.adminPasswordHash);
+      } else {
+        this.errorMessage.set(response.error || 'Failed to auto-generate character');
+      }
+    } catch (err: any) {
+      this.errorMessage.set(err.message || 'An error occurred');
+    } finally {
+      this.isAutoGenerating.update(prev => ({ ...prev, [universeId]: false }));
+    }
   }
 
   // --- App Settings ---

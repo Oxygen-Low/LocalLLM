@@ -2063,6 +2063,76 @@ app.post('/api/admin/users/list', async (req, res) => {
   }
 });
 
+// POST /api/admin/universes/:universeId/characters/auto-generate – Auto-generate a character
+app.post('/api/admin/universes/:universeId/characters/auto-generate', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, mode, query, links } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin auto-generate character attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find((u) => u.id === req.params.universeId);
+    if (!universe) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    let sourceMaterial = '';
+    if (mode === 'search') {
+      if (!query) return res.status(400).json({ success: false, error: 'Query is required for search mode' });
+      const searchResults = await performWebSearch(query, adminUsername);
+      sourceMaterial = searchResults.map(r => `Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`).join('\n\n');
+    } else if (mode === 'links') {
+      if (!links || !Array.isArray(links) || links.length === 0) {
+        return res.status(400).json({ success: false, error: 'Links are required for links mode' });
+      }
+      const scrapeResults = await scrapeUrls(links, adminUsername);
+      sourceMaterial = scrapeResults.map(r => `URL: ${r.url}\nContent: ${r.content || r.error}`).join('\n\n');
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid mode' });
+    }
+
+    const prompt = `You are a character creator. Based on the following source material, create a detailed character profile for the "${universe.name}" universe.
+Universe Description: ${universe.description || 'Not provided.'}
+
+Source Material:
+${sourceMaterial}
+
+Respond ONLY with a JSON object containing:
+- name: The character's name
+- description: A detailed description of the character (background, appearance, etc.)
+- relationships: An array of objects, each with 'targetName' (string) and 'type' (string, e.g., "Friend", "Enemy", "Colleague").
+
+Ensure the character fits naturally into the universe described.`;
+
+    const llmResponse = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }]);
+    const cleanedResponse = llmResponse.replace(/```json\n?|\n?```/g, '').trim();
+    const generatedData = JSON.parse(cleanedResponse);
+
+    const character = {
+      id: crypto.randomUUID(),
+      name: generatedData.name || 'Generated Character',
+      description: generatedData.description || '',
+      relationships: Array.isArray(generatedData.relationships) ? generatedData.relationships : [],
+    };
+
+    if (!universe.characters) universe.characters = [];
+    universe.characters.push(character);
+
+    // Sync bidirectional relationships
+    syncRelationships(universes, character, character.relationships);
+
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_AUTO_GENERATE_CHARACTER', message: `Admin auto-generated character "${character.name}" in universe "${universe.name}"`, username: adminUsername, req });
+    return res.status(201).json({ success: true, character });
+  } catch (err) {
+    console.error('Admin auto-generate character error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error: ' + err.message });
+  }
+});
+
 // Admin: reset password requirement
 app.post('/api/admin/users/reset-password', async (req, res) => {
   try {
@@ -11556,6 +11626,69 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     }
   }
 });
+
+/**
+ * Scrapes content from multiple URLs using a Dockerized Playwright container.
+ */
+async function scrapeUrls(urls, username) {
+  const results = [];
+  for (const url of urls) {
+    try {
+      const ssrfCheck = await ssrfSafeUrlValidation(url);
+      if (!ssrfCheck.valid) {
+        results.push({ url, error: "SSRF validation failed: " + ssrfCheck.reason });
+        continue;
+      }
+
+      const containerId = crypto.randomUUID();
+      const containerName = `scrape-${sanitizeUsernameForPath(username)}-${containerId.slice(0, 8)}`;
+      const b64Url = Buffer.from(url).toString("base64");
+
+      const playwrightScript = `
+const { chromium } = require("playwright-core");
+(async () => {
+  const browser = await chromium.launch({ args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+  try {
+    const url = Buffer.from("${b64Url}", "base64").toString("utf-8");
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    const content = await page.evaluate(() => {
+      const main = document.querySelector("main") || document.querySelector("article") || document.body;
+      const elementsToRemove = main.querySelectorAll("script, style, nav, footer, header, noscript, iframe");
+      elementsToRemove.forEach(el => el.remove());
+      return main.innerText;
+    });
+    console.log(JSON.stringify({ success: true, content: content.slice(0, 50000) }));
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: err.message }));
+  } finally {
+    await browser.close();
+  }
+})();`;
+
+      const b64Script = Buffer.from(playwrightScript).toString("base64");
+      const dockerArgs = [
+        "run", "--rm", "-i",
+        "--name", containerName,
+        "--memory=1g",
+        "--cpus=1",
+        "mcr.microsoft.com/playwright:v1.45.0-jammy",
+        "bash", "-c", `npm install playwright-core@1.45.0 > /dev/null 2>&1 && echo '${b64Script}' | base64 -d > /tmp/scrape.js && node /tmp/scrape.js`
+      ];
+
+      const resultRaw = await runCommandAsync("docker", dockerArgs, { timeout: 120000 });
+      const result = JSON.parse(resultRaw);
+      if (result.success) {
+        results.push({ url, content: result.content });
+      } else {
+        results.push({ url, error: result.error });
+      }
+    } catch (err) {
+      results.push({ url, error: err.message });
+    }
+  }
+  return results;
+}
 
 /**
  * Perform a web search using a temporary Docker container with Playwright.
