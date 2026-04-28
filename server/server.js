@@ -2106,7 +2106,7 @@ Respond ONLY with a JSON object containing:
 
 Ensure the character fits naturally into the universe described.`;
 
-    const llmResponse = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }]);
+    const llmResponse = await getLLMCompletion(adminUsername, [{ role: 'user', content: prompt }]);
     const cleanedResponse = llmResponse.replace(/```json\n?|\n?```/g, '').trim();
     const generatedData = JSON.parse(cleanedResponse);
 
@@ -2119,6 +2119,32 @@ Ensure the character fits naturally into the universe described.`;
 
     if (!universe.characters) universe.characters = [];
     universe.characters.push(character);
+
+    // Resolve targetName to targetId for each relationship
+    const resolvedRelationships = [];
+    for (const rel of character.relationships) {
+      if (rel.targetName) {
+        // Search for the target character across all universes
+        let targetChar = null;
+        for (const u of universes) {
+          targetChar = (u.characters || []).find(c => c.name === rel.targetName);
+          if (targetChar) break;
+        }
+        // Only include relationships where we found a matching character
+        if (targetChar) {
+          resolvedRelationships.push({
+            ...rel,
+            targetId: targetChar.id
+          });
+        }
+      } else if (rel.targetId) {
+        // Already has targetId, keep as is
+        resolvedRelationships.push(rel);
+      }
+    }
+
+    // Update character with resolved relationships
+    character.relationships = resolvedRelationships;
 
     // Sync bidirectional relationships
     syncRelationships(universes, character, character.relationships);
@@ -11649,6 +11675,54 @@ const { chromium } = require("playwright-core");
 (async () => {
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
   const page = await browser.newPage();
+
+  // Enable request interception to prevent SSRF
+  await page.route('**/*', (route) => {
+    const requestUrl = route.request().url();
+    try {
+      const parsedUrl = new URL(requestUrl);
+      const hostname = parsedUrl.hostname;
+
+      // Block non-HTTP(S) schemas
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        route.abort();
+        return;
+      }
+
+      // Block localhost and private IP ranges
+      if (hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '0.0.0.0' ||
+          hostname.startsWith('192.168.') ||
+          hostname.startsWith('10.') ||
+          hostname.startsWith('172.16.') ||
+          hostname.startsWith('172.17.') ||
+          hostname.startsWith('172.18.') ||
+          hostname.startsWith('172.19.') ||
+          hostname.startsWith('172.20.') ||
+          hostname.startsWith('172.21.') ||
+          hostname.startsWith('172.22.') ||
+          hostname.startsWith('172.23.') ||
+          hostname.startsWith('172.24.') ||
+          hostname.startsWith('172.25.') ||
+          hostname.startsWith('172.26.') ||
+          hostname.startsWith('172.27.') ||
+          hostname.startsWith('172.28.') ||
+          hostname.startsWith('172.29.') ||
+          hostname.startsWith('172.30.') ||
+          hostname.startsWith('172.31.') ||
+          hostname === '[::1]' ||
+          hostname === '::1') {
+        route.abort();
+        return;
+      }
+
+      route.continue();
+    } catch (err) {
+      route.abort();
+    }
+  });
+
   try {
     const url = Buffer.from("${b64Url}", "base64").toString("utf-8");
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
@@ -11670,6 +11744,7 @@ const { chromium } = require("playwright-core");
       const dockerArgs = [
         "run", "--rm", "-i",
         "--name", containerName,
+        "--network=none",
         "--memory=1g",
         "--cpus=1",
         "mcr.microsoft.com/playwright:v1.45.0-jammy",

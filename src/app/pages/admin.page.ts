@@ -1272,7 +1272,7 @@ export class AdminPageComponent implements OnDestroy {
 
   // Auto-generate state
   autoGenExpanded = signal<Record<string, boolean>>({});
-  autoGenMode: Record<string, 'search' | 'links'> = {};
+  autoGenMode = signal<Record<string, 'search' | 'links'>>({});
   autoGenQuery: Record<string, string> = {};
   autoGenLinks: Record<string, string> = {};
   isAutoGenerating = signal<Record<string, boolean>>({});
@@ -1609,27 +1609,28 @@ export class AdminPageComponent implements OnDestroy {
 
   toggleAutoGen(universeId: string) {
     this.autoGenExpanded.update(prev => ({ ...prev, [universeId]: !prev[universeId] }));
-    if (!this.autoGenMode[universeId]) this.autoGenMode[universeId] = 'search';
+    const currentMode = this.autoGenMode();
+    if (!currentMode[universeId]) {
+      this.autoGenMode.update(prev => ({ ...prev, [universeId]: 'search' }));
+    }
   }
 
   getAutoGenMode(universeId: string) {
-    return this.autoGenMode[universeId] || 'search';
+    return this.autoGenMode()[universeId] || 'search';
   }
 
   setAutoGenMode(universeId: string, mode: 'search' | 'links') {
-    this.autoGenMode[universeId] = mode;
-    // Force a re-render of the auto-gen section by updating the expanded state slightly
-    this.autoGenExpanded.update(prev => ({ ...prev }));
+    this.autoGenMode.update(prev => ({ ...prev, [universeId]: mode }));
   }
 
   async onAutoGenerateCharacter(universeId: string) {
     if (!this.adminPasswordHash) return;
     const mode = this.getAutoGenMode(universeId);
-    const data: any = {};
+    const data: { query?: string; links?: string[] } = {};
     if (mode === 'search') {
-      data.query = this.autoGenQuery[universeId];
+      data.query = (this.autoGenQuery[universeId] || '').trim();
     } else {
-      data.links = (this.autoGenLinks[universeId] || '').split('\n').map(l => l.trim()).filter(l => l);
+      data.links = (this.autoGenLinks[universeId] || '').split('\n').map(l => l.trim()).filter(Boolean);
     }
 
     this.isAutoGenerating.update(prev => ({ ...prev, [universeId]: true }));
@@ -1647,8 +1648,9 @@ export class AdminPageComponent implements OnDestroy {
       } else {
         this.errorMessage.set(response.error || 'Failed to auto-generate character');
       }
-    } catch (err: any) {
-      this.errorMessage.set(err.message || 'An error occurred');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.errorMessage.set(errorMessage || 'An error occurred');
     } finally {
       this.isAutoGenerating.update(prev => ({ ...prev, [universeId]: false }));
     }
