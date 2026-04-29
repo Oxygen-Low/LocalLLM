@@ -2179,7 +2179,7 @@ Ensure the character fits naturally into the universe described.`;
     return res.status(201).json({ success: true, character });
   } catch (err) {
     console.error('Admin auto-generate character error:', err);
-    return res.status(500).json({ success: false, error: 'Internal server error: ' + err.message });
+    return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
