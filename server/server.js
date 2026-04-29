@@ -2082,13 +2082,23 @@ app.post('/api/admin/universes/:universeId/characters/auto-generate', async (req
     if (mode === 'search') {
       if (!query) return res.status(400).json({ success: false, error: 'Query is required for search mode' });
       const searchResults = await performWebSearch(query, adminUsername);
-      sourceMaterial = searchResults.map(r => `Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`).join('\n\n');
+      // Filter out failed search entries
+      const validSearchResults = searchResults.filter(r => r.title && r.snippet && r.url);
+      if (validSearchResults.length === 0) {
+        return res.status(502).json({ success: false, error: 'No usable source material retrieved' });
+      }
+      sourceMaterial = validSearchResults.map(r => `Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`).join('\n\n');
     } else if (mode === 'links') {
       if (!links || !Array.isArray(links) || links.length === 0) {
         return res.status(400).json({ success: false, error: 'Links are required for links mode' });
       }
       const scrapeResults = await scrapeUrls(links, adminUsername);
-      sourceMaterial = scrapeResults.map(r => `URL: ${r.url}\nContent: ${r.content || r.error}`).join('\n\n');
+      // Filter out failed scrape entries
+      const validScrapeResults = scrapeResults.filter(r => r.content && !r.error);
+      if (validScrapeResults.length === 0) {
+        return res.status(502).json({ success: false, error: 'No usable source material retrieved' });
+      }
+      sourceMaterial = validScrapeResults.map(r => `URL: ${r.url}\nContent: ${r.content}`).join('\n\n');
     } else {
       return res.status(400).json({ success: false, error: 'Invalid mode' });
     }
@@ -2124,12 +2134,26 @@ Ensure the character fits naturally into the universe described.`;
     const resolvedRelationships = [];
     for (const rel of character.relationships) {
       if (rel.targetName) {
-        // Search for the target character across all universes
+        const normalizedTargetName = rel.targetName.trim().toLowerCase();
         let targetChar = null;
-        for (const u of universes) {
-          targetChar = (u.characters || []).find(c => c.name === rel.targetName);
-          if (targetChar) break;
+
+        // First, search in the current universe
+        targetChar = (universe.characters || []).find(c => c.name.trim().toLowerCase() === normalizedTargetName);
+
+        // If not found in current universe, search other universes
+        if (!targetChar) {
+          const crossUniverseMatches = [];
+          for (const u of universes) {
+            if (u.id === universe.id) continue; // Skip current universe
+            const matches = (u.characters || []).filter(c => c.name.trim().toLowerCase() === normalizedTargetName);
+            crossUniverseMatches.push(...matches);
+          }
+          // Only accept cross-universe match if exactly one exists
+          if (crossUniverseMatches.length === 1) {
+            targetChar = crossUniverseMatches[0];
+          }
         }
+
         // Only include relationships where we found a matching character
         if (targetChar) {
           resolvedRelationships.push({
@@ -11672,6 +11696,26 @@ async function scrapeUrls(urls, username) {
 
       const playwrightScript = `
 const { chromium } = require("playwright-core");
+const dns = require("dns").promises;
+
+// Helper function to check if an IP is private/internal
+function isPrivateIP(ip) {
+  const parts = ip.split('.');
+  if (parts.length === 4) {
+    const first = parseInt(parts[0], 10);
+    const second = parseInt(parts[1], 10);
+    if (first === 127) return true; // 127.x.x.x
+    if (first === 10) return true; // 10.x.x.x
+    if (first === 192 && second === 168) return true; // 192.168.x.x
+    if (first === 169 && second === 254) return true; // 169.254.x.x (link-local)
+    if (first === 172 && second >= 16 && second <= 31) return true; // 172.16-31.x.x
+    if (first === 0) return true; // 0.0.0.0
+  }
+  // IPv6 localhost
+  if (ip === '::1' || ip === '0000:0000:0000:0000:0000:0000:0000:0001') return true;
+  return false;
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
   const page = await browser.newPage();
@@ -11725,6 +11769,39 @@ const { chromium } = require("playwright-core");
 
   try {
     const url = Buffer.from("${b64Url}", "base64").toString("utf-8");
+
+    // Validate and canonicalize the URL
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('Invalid URL protocol. Only http and https are allowed.');
+    }
+
+    const hostname = parsedUrl.hostname;
+
+    // Check against denylist
+    if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1' || hostname === '[::1]') {
+      throw new Error('Access to localhost is not allowed.');
+    }
+
+    // Perform DNS resolution to check if resolved IP is private
+    try {
+      const addresses = await dns.resolve4(hostname).catch(() => []);
+      const addresses6 = await dns.resolve6(hostname).catch(() => []);
+      const allAddresses = [...addresses, ...addresses6];
+
+      for (const addr of allAddresses) {
+        if (isPrivateIP(addr)) {
+          throw new Error('Resolved IP address is in a private/internal range.');
+        }
+      }
+    } catch (dnsErr) {
+      // If DNS resolution fails, we still proceed but log the error
+      // This handles cases where the hostname might be valid but DNS lookup fails
+      if (dnsErr.message && dnsErr.message.includes('private/internal')) {
+        throw dnsErr;
+      }
+    }
+
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     const content = await page.evaluate(() => {
       const main = document.querySelector("main") || document.querySelector("article") || document.body;
@@ -11744,7 +11821,6 @@ const { chromium } = require("playwright-core");
       const dockerArgs = [
         "run", "--rm", "-i",
         "--name", containerName,
-        "--network=none",
         "--memory=1g",
         "--cpus=1",
         "mcr.microsoft.com/playwright:v1.45.0-jammy",
