@@ -2081,6 +2081,9 @@ app.post('/api/admin/universes/:universeId/characters/auto-generate', async (req
     let sourceMaterial = '';
     if (mode === 'search') {
       if (!query) return res.status(400).json({ success: false, error: 'Query is required for search mode' });
+      if (!isDockerAvailable()) {
+        return res.status(503).json({ success: false, error: 'Service unavailable: Docker not available' });
+      }
       const searchResults = await performWebSearch(query, adminUsername);
       // Filter out failed search entries
       const validSearchResults = searchResults.filter(r => r.title && r.snippet && r.url);
@@ -2091,6 +2094,9 @@ app.post('/api/admin/universes/:universeId/characters/auto-generate', async (req
     } else if (mode === 'links') {
       if (!links || !Array.isArray(links) || links.length === 0) {
         return res.status(400).json({ success: false, error: 'Links are required for links mode' });
+      }
+      if (!isDockerAvailable()) {
+        return res.status(503).json({ success: false, error: 'Service unavailable: Docker not available' });
       }
       const scrapeResults = await scrapeUrls(links, adminUsername);
       // Filter out failed scrape entries
@@ -2120,19 +2126,28 @@ Ensure the character fits naturally into the universe described.`;
     const cleanedResponse = llmResponse.replace(/```json\n?|\n?```/g, '').trim();
     const generatedData = JSON.parse(cleanedResponse);
 
-    const character = {
-      id: crypto.randomUUID(),
-      name: generatedData.name || 'Generated Character',
-      description: generatedData.description || '',
-      relationships: Array.isArray(generatedData.relationships) ? generatedData.relationships : [],
-    };
+    // Validate and sanitize relationships before mutating universe
+    const sanitizedRelationships = [];
+    if (Array.isArray(generatedData.relationships)) {
+      for (const rel of generatedData.relationships) {
+        // Filter out non-object entries
+        if (!rel || typeof rel !== 'object') continue;
 
-    if (!universe.characters) universe.characters = [];
-    universe.characters.push(character);
+        // Validate targetName is a non-empty string, or accept targetId
+        if (rel.targetName && typeof rel.targetName === 'string' && rel.targetName.trim()) {
+          sanitizedRelationships.push({
+            ...rel,
+            targetName: rel.targetName.trim()
+          });
+        } else if (rel.targetId && typeof rel.targetId === 'string') {
+          sanitizedRelationships.push(rel);
+        }
+      }
+    }
 
     // Resolve targetName to targetId for each relationship
     const resolvedRelationships = [];
-    for (const rel of character.relationships) {
+    for (const rel of sanitizedRelationships) {
       if (rel.targetName) {
         const normalizedTargetName = rel.targetName.trim().toLowerCase();
         let targetChar = null;
@@ -2167,8 +2182,17 @@ Ensure the character fits naturally into the universe described.`;
       }
     }
 
-    // Update character with resolved relationships
-    character.relationships = resolvedRelationships;
+    // Create character object with validated relationships
+    const character = {
+      id: crypto.randomUUID(),
+      name: generatedData.name || 'Generated Character',
+      description: generatedData.description || '',
+      relationships: resolvedRelationships,
+    };
+
+    // Only now push to universe after all validation is complete
+    if (!universe.characters) universe.characters = [];
+    universe.characters.push(character);
 
     // Sync bidirectional relationships
     syncRelationships(universes, character, character.relationships);
