@@ -32,7 +32,7 @@ type RoleplayView = 'list' | 'create' | 'session';
             <p class="text-muted mt-1">Immerse yourself in different universes</p>
           </div>
           @if (currentView() === 'list') {
-            <button (click)="showCreate()" class="btn-primary text-sm">
+            <button type="button" (click)="showCreate()" class="btn-primary text-sm">
               + New Session
             </button>
           }
@@ -57,7 +57,7 @@ type RoleplayView = 'list' | 'create' | 'session';
               <div class="w-16 h-16 bg-secondary-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🎭</div>
               <h3 class="text-lg font-semibold text-secondary-900 mb-2">No sessions yet</h3>
               <p class="text-muted text-sm mb-6">Create a session to start your roleplay adventure</p>
-              <button (click)="showCreate()" class="btn-primary text-sm">+ New Session</button>
+              <button type="button" (click)="showCreate()" class="btn-primary text-sm">+ New Session</button>
             </div>
           } @else {
             <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -119,11 +119,11 @@ type RoleplayView = 'list' | 'create' | 'session';
                 </select>
               </div>
               <div class="pt-4 flex gap-3">
-                <button (click)="createSession()" [disabled]="isCreating() || !selectedUniverseId"
+                <button type="button" (click)="createSession()" [disabled]="isCreating() || !selectedUniverseId"
                         class="btn-primary flex-1 disabled:opacity-50">
                   @if (isCreating()) { Creating... } @else { Start Roleplay }
                 </button>
-                <button (click)="currentView.set('list')" class="btn-secondary px-6">Cancel</button>
+                <button type="button" (click)="currentView.set('list')" class="btn-secondary px-6">Cancel</button>
               </div>
             </div>
           </div>
@@ -140,9 +140,9 @@ type RoleplayView = 'list' | 'create' | 'session';
                   <p class="text-lg font-bold text-primary-600">{{ currentSession()?.currentDate }}</p>
                 </div>
                 <div class="flex flex-col gap-2">
-                  <button (click)="endDay()" [disabled]="isLoading()" class="w-full btn-primary text-xs py-2">End Day & Post</button>
-                  <button (click)="rewind()" [disabled]="isLoading()" class="w-full btn-secondary text-xs py-2">Rewind Day</button>
-                  <button (click)="currentView.set('list')" class="w-full text-xs text-muted hover:text-secondary-800 transition-colors py-2">Close Session</button>
+                  <button type="button" (click)="endDay()" [disabled]="isLoading()" class="w-full btn-primary text-xs py-2">End Day & Post</button>
+                  <button type="button" (click)="rewind()" [disabled]="isLoading()" class="w-full btn-secondary text-xs py-2">Rewind Day</button>
+                  <button type="button" (click)="currentView.set('list')" class="w-full text-xs text-muted hover:text-secondary-800 transition-colors py-2">Close Session</button>
                 </div>
               </div>
 
@@ -176,7 +176,7 @@ type RoleplayView = 'list' | 'create' | 'session';
                   <textarea [(ngModel)]="newUserPostContent" placeholder="What's happening in this universe?"
                             class="w-full p-3 rounded-lg border border-secondary-200 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 text-sm bg-white min-h-[80px] resize-none"></textarea>
                   <div class="mt-2 flex justify-end">
-                    <button (click)="sendPost()" [disabled]="isLoading() || !newUserPostContent.trim()"
+                    <button type="button" (click)="sendPost()" [disabled]="isLoading() || !newUserPostContent.trim()"
                             class="btn-primary text-xs py-1.5 px-4 disabled:opacity-50">Post</button>
                   </div>
                 </div>
@@ -214,15 +214,15 @@ type RoleplayView = 'list' | 'create' | 'session';
                         }
 
                         <div class="mt-4 pt-3 border-t border-secondary-50 flex items-center gap-6">
-                          <button (click)="likePost(post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-red-500 transition-colors">
+                          <button type="button" (click)="likePost(post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-red-500 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
                             {{ post.likes }}
                           </button>
-                          <button (click)="activeReplyId.set(activeReplyId() === post.id ? null : post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-primary-500 transition-colors">
+                          <button type="button" (click)="activeReplyId.set(activeReplyId() === post.id ? null : post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-primary-500 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                             Reply
                           </button>
-                          <button (click)="repost(post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-green-500 transition-colors">
+                          <button type="button" (click)="repost(post.id)" class="flex items-center gap-1.5 text-xs text-muted hover:text-green-500 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
                             Repost
                           </button>
@@ -234,8 +234,8 @@ type RoleplayView = 'list' | 'create' | 'session';
                             <textarea [(ngModel)]="replyContent" placeholder="Write a reply..."
                                       class="w-full p-2 text-xs rounded border border-secondary-200 focus:outline-none focus:ring-1 focus:ring-primary-500 min-h-[60px] resize-none bg-white"></textarea>
                             <div class="mt-2 flex justify-end gap-2">
-                              <button (click)="activeReplyId.set(null)" class="text-[10px] text-muted hover:text-secondary-800">Cancel</button>
-                              <button (click)="sendReply(post.id)" [disabled]="isLoading() || !replyContent.trim()"
+                              <button type="button" (click)="activeReplyId.set(null)" class="text-[10px] text-muted hover:text-secondary-800">Cancel</button>
+                              <button type="button" (click)="sendReply(post.id)" [disabled]="isLoading() || !replyContent.trim()"
                                       class="btn-primary text-[10px] py-1 px-3 disabled:opacity-50">Reply</button>
                             </div>
                           </div>

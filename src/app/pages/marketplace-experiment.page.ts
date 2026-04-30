@@ -82,7 +82,7 @@ interface TurnResult {
                   <option value="offline">Offline (Restricted)</option>
                 </select>
               </div>
-              <button (click)="createSimulation()" class="btn-primary w-full py-3" [disabled]="loading()">
+              <button type="button" (click)="createSimulation()" class="btn-primary w-full py-3" [disabled]="loading()">
                 {{ loading() ? 'Starting...' : 'Start Simulation' }}
               </button>
             </div>
@@ -106,7 +106,7 @@ interface TurnResult {
                 </div>
 
                 <div class="mt-6 pt-6 border-t border-secondary-100">
-                  <button (click)="runTurn()" class="btn-primary w-full py-2 flex items-center justify-center gap-2" [disabled]="loading()">
+                  <button type="button" (click)="runTurn()" class="btn-primary w-full py-2 flex items-center justify-center gap-2" [disabled]="loading()">
                     @if (loading()) {
                       <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                       Processing...

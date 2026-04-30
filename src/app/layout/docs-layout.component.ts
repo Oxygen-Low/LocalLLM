@@ -68,8 +68,7 @@ export interface DocNavItem {
         </aside>
 
         <!-- Mobile Sidebar Toggle Button -->
-        <button
-          (click)="toggleMobileSidebar()"
+        <button type="button"           (click)="toggleMobileSidebar()"
           class="lg:hidden fixed bottom-8 right-8 z-40 p-3 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-lg"
           [attr.aria-label]="mobileSidebarOpen() ? 'Close sidebar' : 'Open sidebar'"
         >

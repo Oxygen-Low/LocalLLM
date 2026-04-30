@@ -43,8 +43,7 @@ import { VoiceService } from '../services/voice.service';
               class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors group flex items-center justify-between cursor-pointer"
               [ngClass]="currentChatId() === chat.id ? 'bg-secondary-700' : 'hover:bg-secondary-800'"
             >
-              <button
-                (click)="loadChat(chat.id)"
+              <button type="button"                 (click)="loadChat(chat.id)"
                 class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0"
               >{{ chat.title }}</button>
               <button
@@ -152,12 +151,10 @@ import { VoiceService } from '../services/voice.service';
                             (keydown.escape)="cancelEdit()"
                           ></textarea>
                           <div class="flex gap-2 justify-end">
-                            <button
-                              (click)="cancelEdit()"
+                            <button type="button"                               (click)="cancelEdit()"
                               class="px-3 py-1.5 rounded-lg text-sm border border-secondary-200 hover:bg-secondary-50 transition-colors"
                             >Cancel</button>
-                            <button
-                              (click)="saveUserEdit($index)"
+                            <button type="button"                               (click)="saveUserEdit($index)"
                               class="px-3 py-1.5 rounded-lg text-sm bg-primary-600 text-white hover:bg-primary-700 transition-colors"
                             >Save &amp; Re-send</button>
                           </div>
@@ -312,16 +309,16 @@ import { VoiceService } from '../services/voice.service';
                   Ask me anything. I can help with writing, coding, analysis, creative tasks, and more.
                 </p>
                 <div class="grid grid-cols-2 gap-3">
-                  <button (click)="sendQuickPrompt('Explain quantum computing in simple terms')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('Explain quantum computing in simple terms')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
                     💡 Explain quantum computing
                   </button>
-                  <button (click)="sendQuickPrompt('Write a short poem about the ocean')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('Write a short poem about the ocean')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
                     ✍️ Write a short poem
                   </button>
-                  <button (click)="sendQuickPrompt('Help me debug a JavaScript function')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('Help me debug a JavaScript function')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
                     🔧 Debug JavaScript code
                   </button>
-                  <button (click)="sendQuickPrompt('What are good habits for productivity?')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('What are good habits for productivity?')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
                     📋 Productivity tips
                   </button>
                 </div>
@@ -385,8 +382,7 @@ import { VoiceService } from '../services/voice.service';
                     @for (p of providers(); track p.id) {
                       @if (p.models && p.models.length > 1) {
                         <div>
-                          <button
-                            (click)="toggleModelList(p, $event)"
+                          <button type="button"                             (click)="toggleModelList(p, $event)"
                             class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
                             [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                           >
@@ -402,8 +398,7 @@ import { VoiceService } from '../services/voice.service';
                           @if (expandedProvider() === p.id) {
                             <div class="border-t border-secondary-100 bg-secondary-50">
                               @for (m of p.models; track getModelId(m)) {
-                                <button
-                                  (click)="selectProviderModel(p, m)"
+                                <button type="button"                                   (click)="selectProviderModel(p, m)"
                                   class="w-full text-left pl-9 pr-4 py-2 text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2"
                                   [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
                                 >
@@ -415,8 +410,7 @@ import { VoiceService } from '../services/voice.service';
                           }
                         </div>
                       } @else {
-                        <button
-                          (click)="selectProvider(p)"
+                        <button type="button"                           (click)="selectProvider(p)"
                           class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
                           [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                         >
@@ -461,8 +455,7 @@ import { VoiceService } from '../services/voice.service';
 
                 @if (showMcpDropdown()) {
                   <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
-                    <button
-                      (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
+                    <button type="button"                       (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
                       class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between"
                       [ngClass]="webSearchEnabled() ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                     >
@@ -479,8 +472,7 @@ import { VoiceService } from '../services/voice.service';
                       }
                     </button>
                     @for (mcp of availableMcpServers(); track mcp.id) {
-                      <button
-                        (click)="toggleMcpServer(mcp)"
+                      <button type="button"                         (click)="toggleMcpServer(mcp)"
                         class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between"
                         [ngClass]="isMcpServerEnabled(mcp.id) ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                       >
@@ -546,8 +538,7 @@ import { VoiceService } from '../services/voice.service';
 
                   @if (showCharacterDropdown()) {
                     <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-64 overflow-y-auto">
-                      <button
-                        (click)="selectCharacter(null)"
+                      <button type="button"                         (click)="selectCharacter(null)"
                         class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors"
                         [ngClass]="!selectedCharacter() ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                       >
@@ -560,8 +551,7 @@ import { VoiceService } from '../services/voice.service';
                             {{ universe.name }}
                           </div>
                           @for (char of universe.characters; track char.id) {
-                            <button
-                              (click)="selectCharacter(char)"
+                            <button type="button"                               (click)="selectCharacter(char)"
                               class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2"
                               [ngClass]="selectedCharacter()?.id === char.id ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                             >
@@ -598,8 +588,7 @@ import { VoiceService } from '../services/voice.service';
 
                 @if (showPersonaDropdown()) {
                   <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-64 overflow-y-auto">
-                    <button
-                      (click)="selectPersona(null)"
+                    <button type="button"                       (click)="selectPersona(null)"
                       class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors"
                       [ngClass]="!selectedPersona() ? 'bg-blue-50 text-blue-700' : 'text-secondary-700'"
                     >
@@ -611,8 +600,7 @@ import { VoiceService } from '../services/voice.service';
                         Your Personas
                       </div>
                       @for (p of personas(); track p.id) {
-                        <button
-                          (click)="selectPersona(p)"
+                        <button type="button"                           (click)="selectPersona(p)"
                           class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2"
                           [ngClass]="selectedPersona()?.id === p.id ? 'bg-blue-50 text-blue-700' : 'text-secondary-700'"
                         >
@@ -679,8 +667,7 @@ import { VoiceService } from '../services/voice.service';
       @if (voiceModeActive()) {
         <div class="fixed inset-0 z-50 bg-gradient-to-b from-secondary-900 to-secondary-800 flex flex-col items-center justify-center text-white">
           <!-- Close button -->
-          <button
-            (click)="exitVoiceMode()"
+          <button type="button"             (click)="exitVoiceMode()"
             class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors"
             aria-label="Exit voice mode"
           >
@@ -728,8 +715,7 @@ import { VoiceService } from '../services/voice.service';
           </div>
 
           <!-- Mic button -->
-          <button
-            (click)="toggleVoiceListening()"
+          <button type="button"             (click)="toggleVoiceListening()"
             [disabled]="voiceProcessing()"
             class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50"
             [ngClass]="voiceService.isListening()
@@ -744,8 +730,7 @@ import { VoiceService } from '../services/voice.service';
 
           <!-- Voice picker -->
           <div class="mt-8 relative" #voicePickerDropdown>
-            <button
-              (click)="showVoicePicker.set(!showVoicePicker())"
+            <button type="button"               (click)="showVoicePicker.set(!showVoicePicker())"
               aria-haspopup="listbox"
               [attr.aria-expanded]="showVoicePicker()"
               class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors"
@@ -761,8 +746,7 @@ import { VoiceService } from '../services/voice.service';
             @if (showVoicePicker()) {
               <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 max-h-64 overflow-y-auto bg-secondary-800 rounded-lg border border-secondary-600 shadow-xl py-1 z-50">
                 @for (v of voiceService.availableVoices(); track $index) {
-                  <button
-                    (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
+                  <button type="button"                     (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate"
                     [ngClass]="voiceService.selectedVoiceIndex() === $index ? 'bg-primary-700/40 text-primary-300' : 'text-white/80'"
                   >

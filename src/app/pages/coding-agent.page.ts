@@ -73,7 +73,7 @@ interface ToolCall {
                       <p>You can still use <strong>public repositories</strong> by entering a URL. To access private repositories, <a routerLink="/settings" class="underline hover:text-blue-600">configure a GitHub token in Settings</a>.</p>
                     </div>
                   }
-                  <button (click)="goToStep('select-repo')" class="btn-primary">
+                  <button type="button" (click)="goToStep('select-repo')" class="btn-primary">
                     Select Repository
                   </button>
                 }
@@ -87,7 +87,7 @@ interface ToolCall {
           <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
             <div class="flex items-center justify-between mb-6">
               <div>
-                <button (click)="goToStep('check-github')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-2 inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('check-github')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-2 inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -116,7 +116,7 @@ interface ToolCall {
                   placeholder="https://github.com/owner/repo"
                   class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
                 />
-                <button (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0">
+                <button type="button" (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0">
                   Use URL
                 </button>
               </div>
@@ -142,8 +142,7 @@ interface ToolCall {
               } @else {
                 <div class="space-y-2">
                   @for (repo of localRepos(); track repo.id) {
-                    <button
-                      (click)="selectLocalRepo(repo)"
+                    <button type="button"                       (click)="selectLocalRepo(repo)"
                       class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
                       [ngClass]="selectedLocalRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
                     >
@@ -199,8 +198,7 @@ interface ToolCall {
                   </div>
                 } @else {
                   @for (repo of repos(); track repo.id) {
-                    <button
-                      (click)="selectRepo(repo)"
+                    <button type="button"                       (click)="selectRepo(repo)"
                       class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
                       [ngClass]="selectedRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
                     >
@@ -244,7 +242,7 @@ interface ToolCall {
             <!-- Continue button -->
             @if (selectedRepo() || selectedLocalRepo()) {
               <div class="pt-4 border-t border-secondary-200 mt-4">
-                <button (click)="goToStep('select-mode')" class="btn-primary w-full sm:w-auto">
+                <button type="button" (click)="goToStep('select-mode')" class="btn-primary w-full sm:w-auto">
                   Continue with {{ selectedLocalRepo()?.name || selectedRepo()?.name }}
                 </button>
               </div>
@@ -256,7 +254,7 @@ interface ToolCall {
         @case ('select-mode') {
           <div class="flex-1 flex items-center justify-center px-4">
             <div class="max-w-2xl w-full">
-              <button (click)="goToStep('select-repo')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="goToStep('select-repo')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                 </svg>
@@ -296,8 +294,7 @@ interface ToolCall {
                 </div>
 
                 <!-- Manual Mode -->
-                <button
-                  (click)="startManualMode()"
+                <button type="button"                   (click)="startManualMode()"
                   [disabled]="isCreatingContainer()"
                   class="text-left p-6 bg-white rounded-xl border-2 border-secondary-200 hover:border-blue-300 hover:shadow-md transition-all disabled:opacity-50"
                 >
@@ -330,7 +327,7 @@ interface ToolCall {
         <!-- Step 3b: Container Manager -->
         @case ('container-manager') {
           <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
-            <button (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -342,8 +339,7 @@ interface ToolCall {
                 <h1 class="text-2xl font-bold text-secondary-900">Containers</h1>
                 <p class="text-sm text-muted mt-1">Manage containers for <strong>{{ selectedLocalRepo()?.name || selectedRepo()?.fullName }}</strong></p>
               </div>
-              <button
-                (click)="createNewContainer()"
+              <button type="button"                 (click)="createNewContainer()"
                 [disabled]="isCreatingContainer() || activeContainersForRepo().length >= 3"
                 class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -407,28 +403,24 @@ interface ToolCall {
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
                         @if (container.status === 'running') {
-                          <button
-                            (click)="loadContainerWorkspace(container)"
+                          <button type="button"                             (click)="loadContainerWorkspace(container)"
                             class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 transition-colors"
                           >
                             Open
                           </button>
-                          <button
-                            (click)="stopContainerById(container.id)"
+                          <button type="button"                             (click)="stopContainerById(container.id)"
                             class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
                           >
                             Stop
                           </button>
                         } @else if (container.status === 'stopped') {
-                          <button
-                            (click)="startAndLoadContainer(container)"
+                          <button type="button"                             (click)="startAndLoadContainer(container)"
                             [disabled]="isStartingContainer()"
                             class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
                           >
                             {{ isStartingContainer() ? 'Starting...' : 'Start & Open' }}
                           </button>
-                          <button
-                            (click)="removeContainerById(container.id)"
+                          <button type="button"                             (click)="removeContainerById(container.id)"
                             class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
                           >
                             Remove
@@ -446,7 +438,7 @@ interface ToolCall {
         <!-- Background Mode: Running -->
         @case ('background-running') {
           <div class="flex-1 flex flex-col max-w-3xl mx-auto w-full px-4 py-8">
-            <button (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -487,8 +479,7 @@ interface ToolCall {
                     </div>
                   }
 
-                  <button
-                    (click)="startBackgroundTask()"
+                  <button type="button"                     (click)="startBackgroundTask()"
                     [disabled]="isRunningTask() || !taskDescription.trim()"
                     class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -531,7 +522,7 @@ interface ToolCall {
                         </svg>
                       </a>
                     }
-                    <button (click)="goToStep('select-repo')" class="btn-secondary">
+                    <button type="button" (click)="goToStep('select-repo')" class="btn-secondary">
                       New Task
                     </button>
                   </div>
@@ -547,7 +538,7 @@ interface ToolCall {
             <!-- Toolbar -->
             <div class="flex items-center justify-between px-4 py-2 bg-white border-b border-secondary-200">
               <div class="flex items-center gap-3">
-                <button (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -559,23 +550,20 @@ interface ToolCall {
                 </span>
               </div>
               <div class="flex items-center gap-2">
-                <button
-                  (click)="toggleAgentTerminal()"
+                <button type="button"                   (click)="toggleAgentTerminal()"
                   class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
                   [attr.aria-pressed]="showAgentTerminal()"
                   [ngClass]="showAgentTerminal() ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-secondary-200 text-secondary-700 hover:bg-secondary-50'"
                 >
                   🤖 Agent Terminal
                 </button>
-                <button
-                  (click)="runDevServer()"
+                <button type="button"                   (click)="runDevServer()"
                   [disabled]="isRunningDevServer()"
                   class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
                 >
                   {{ isRunningDevServer() ? 'Starting...' : '▶ Run Dev Server' }}
                 </button>
-                <button
-                  (click)="stopActiveContainer()"
+                <button type="button"                   (click)="stopActiveContainer()"
                   class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
                 >
                   Stop Container
@@ -588,7 +576,7 @@ interface ToolCall {
               <div class="bg-secondary-900 border-b border-secondary-700 max-h-48 overflow-y-auto">
                 <div class="flex items-center justify-between px-4 py-1.5 border-b border-secondary-700">
                   <span class="text-xs font-semibold text-secondary-400 uppercase tracking-wider">Agent Terminal</span>
-                  <button (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors">Clear</button>
+                  <button type="button" (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors">Clear</button>
                 </div>
                 <pre class="p-3 text-xs text-green-400 font-mono whitespace-pre-wrap">{{ agentTerminalOutput() || '(No output yet)' }}</pre>
               </div>
@@ -608,8 +596,7 @@ interface ToolCall {
                     </div>
                   } @else {
                     @for (file of currentFiles(); track file.name) {
-                      <button
-                        (click)="onFileClick(file)"
+                      <button type="button"                         (click)="onFileClick(file)"
                         class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2 truncate"
                         [ngClass]="currentFilePath() === file.name ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                       >
@@ -633,24 +620,21 @@ interface ToolCall {
               <div class="flex-1 flex flex-col overflow-hidden">
                 <!-- Tabs -->
                 <div class="flex items-center gap-1 px-3 py-1 bg-secondary-50 border-b border-secondary-200">
-                  <button
-                    (click)="activeTab.set('editor')"
+                  <button type="button"                     (click)="activeTab.set('editor')"
                     class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
                     [attr.aria-pressed]="activeTab() === 'editor'"
                     [ngClass]="activeTab() === 'editor' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
                     Editor
                   </button>
-                  <button
-                    (click)="activeTab.set('terminal')"
+                  <button type="button"                     (click)="activeTab.set('terminal')"
                     class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
                     [attr.aria-pressed]="activeTab() === 'terminal'"
                     [ngClass]="activeTab() === 'terminal' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
                     Terminal
                   </button>
-                  <button
-                    (click)="activeTab.set('preview')"
+                  <button type="button"                     (click)="activeTab.set('preview')"
                     class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
                     [attr.aria-pressed]="activeTab() === 'preview'"
                     [ngClass]="activeTab() === 'preview' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
@@ -665,8 +649,7 @@ interface ToolCall {
                     @if (currentFilePath()) {
                       <div class="flex items-center justify-between px-3 py-2 bg-white border-b border-secondary-100">
                         <span class="text-xs text-muted truncate">{{ currentFilePath() }}</span>
-                        <button
-                          (click)="saveCurrentFile()"
+                        <button type="button"                           (click)="saveCurrentFile()"
                           [disabled]="isSavingFile()"
                           class="px-3 py-1 rounded text-xs font-medium bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50"
                         >
@@ -729,8 +712,7 @@ interface ToolCall {
                 <div class="p-3 border-b border-secondary-100 space-y-2">
                   <div class="flex items-center justify-between">
                     <h3 class="text-xs font-semibold text-secondary-500 uppercase tracking-wider">AI Assistant</h3>
-                    <button
-                      (click)="showMemoriesPanel.set(!showMemoriesPanel())"
+                    <button type="button"                       (click)="showMemoriesPanel.set(!showMemoriesPanel())"
                       class="text-xs px-2 py-1 rounded transition-colors"
                       [attr.aria-pressed]="showMemoriesPanel()"
                       [ngClass]="showMemoriesPanel() ? 'bg-purple-100 text-purple-700' : 'text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100'"
@@ -742,8 +724,7 @@ interface ToolCall {
                   <!-- Provider & Character selectors -->
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <div class="relative" #providerDropdown>
-                      <button
-                        (click)="toggleProviderDropdown($event)"
+                      <button type="button"                         (click)="toggleProviderDropdown($event)"
                         class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-xs transition-colors"
                         aria-label="Select AI provider"
                         title="Select AI provider"
@@ -773,8 +754,7 @@ interface ToolCall {
                           @for (p of providers(); track p.id) {
                             @if (p.models && p.models.length > 1) {
                               <div>
-                                <button
-                                  (click)="toggleModelList(p, $event)"
+                                <button type="button"                                   (click)="toggleModelList(p, $event)"
                                   class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2"
                                   [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                                 >
@@ -790,8 +770,7 @@ interface ToolCall {
                                 @if (expandedProvider() === p.id) {
                                   <div class="border-t border-secondary-100 bg-secondary-50">
                                     @for (m of p.models; track getModelId(m)) {
-                                      <button
-                                        (click)="selectProviderModel(p, m)"
+                                      <button type="button"                                         (click)="selectProviderModel(p, m)"
                                         class="w-full text-left pl-7 pr-3 py-1.5 text-xs hover:bg-secondary-100 transition-colors flex items-center gap-1.5"
                                         [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
                                       >
@@ -803,8 +782,7 @@ interface ToolCall {
                                 }
                               </div>
                             } @else {
-                              <button
-                                (click)="selectProvider(p)"
+                              <button type="button"                                 (click)="selectProvider(p)"
                                 class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2"
                                 [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                               >
@@ -825,8 +803,7 @@ interface ToolCall {
                     <!-- Character selector -->
                     @if (universes().length > 0) {
                       <div class="relative" #characterDropdown>
-                        <button
-                          (click)="toggleCharacterDropdown($event)"
+                        <button type="button"                           (click)="toggleCharacterDropdown($event)"
                           class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
                           [ngClass]="selectedCharacter()
                             ? 'border-purple-300 bg-purple-50 text-purple-700'
@@ -844,8 +821,7 @@ interface ToolCall {
 
                         @if (showCharacterDropdown()) {
                           <div class="absolute bottom-full left-0 mb-1 w-56 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-56 overflow-y-auto">
-                            <button
-                              (click)="selectCharacter(null)"
+                            <button type="button"                               (click)="selectCharacter(null)"
                               class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors"
                               [ngClass]="!selectedCharacter() ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                             >
@@ -857,8 +833,7 @@ interface ToolCall {
                                   {{ universe.name }}
                                 </div>
                                 @for (char of universe.characters; track char.id) {
-                                  <button
-                                    (click)="selectCharacter(char)"
+                                  <button type="button"                                     (click)="selectCharacter(char)"
                                     class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors"
                                     [ngClass]="selectedCharacter()?.id === char.id ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                                   >
@@ -874,8 +849,7 @@ interface ToolCall {
 
                     <!-- MCPs Dropdown -->
                     <div class="relative" #mcpDropdown>
-                      <button
-                        (click)="toggleMcpDropdown($event)"
+                      <button type="button"                         (click)="toggleMcpDropdown($event)"
                         class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
                         [ngClass]="webSearchEnabled() || enabledMcpServerIds().length > 0
                           ? 'border-primary-300 bg-primary-50 text-primary-700'
@@ -900,8 +874,7 @@ interface ToolCall {
 
                       @if (showMcpDropdown()) {
                         <div class="absolute bottom-full left-0 mb-1 w-56 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
-                          <button
-                            (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
+                          <button type="button"                             (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
                             class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
                             [ngClass]="webSearchEnabled() ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                           >
@@ -918,8 +891,7 @@ interface ToolCall {
                             }
                           </button>
                           @for (mcp of availableMcpServers(); track mcp.id) {
-                            <button
-                              (click)="toggleMcpServer(mcp)"
+                            <button type="button"                               (click)="toggleMcpServer(mcp)"
                               class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
                               [ngClass]="isMcpServerEnabled(mcp.id) ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                             >
@@ -947,8 +919,7 @@ interface ToolCall {
                     </div>
 
                     <!-- Think toggle -->
-                    <button
-                      (click)="thinkEnabled.set(!thinkEnabled())"
+                    <button type="button"                       (click)="thinkEnabled.set(!thinkEnabled())"
                       class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
                       [ngClass]="thinkEnabled()
                         ? 'border-primary-300 bg-primary-50 text-primary-700'
@@ -969,8 +940,7 @@ interface ToolCall {
                       @for (mem of memories(); track mem.id) {
                         <div class="flex items-start gap-1.5 p-1.5 bg-white rounded border border-secondary-100 text-xs">
                           <span class="flex-1 text-secondary-700 break-words">{{ mem.content }}</span>
-                          <button
-                            (click)="deleteMemory(mem.id)"
+                          <button type="button"                             (click)="deleteMemory(mem.id)"
                             class="text-secondary-400 hover:text-red-500 flex-shrink-0 p-0.5"
                             aria-label="Delete memory"
                             title="Delete memory"
@@ -993,8 +963,7 @@ interface ToolCall {
                           placeholder="Add a memory..."
                           class="flex-1 px-2 py-1 rounded border border-secondary-200 text-xs focus:border-primary-600 focus:outline-none"
                         />
-                        <button
-                          (click)="addMemory()"
+                        <button type="button"                           (click)="addMemory()"
                           [disabled]="!newMemoryContent.trim()"
                           class="px-2 py-1 rounded bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-50 transition-colors"
                         >
@@ -1135,8 +1104,7 @@ interface ToolCall {
                       (input)="autoChatResize($event)"
                     ></textarea>
                     @if (voiceService.recognitionSupported) {
-                      <button
-                        (click)="enterVoiceMode()"
+                      <button type="button"                         (click)="enterVoiceMode()"
                         [disabled]="isAiResponding()"
                         class="px-2 py-2 rounded-lg border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
                         aria-label="Voice mode"
@@ -1147,8 +1115,7 @@ interface ToolCall {
                         </svg>
                       </button>
                     }
-                    <button
-                      (click)="sendChatMessage()"
+                    <button type="button"                       (click)="sendChatMessage()"
                       [disabled]="isAiResponding() || !chatInput.trim() || !selectedProvider()"
                       class="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm hover:bg-primary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
                       aria-label="Send message"
@@ -1170,8 +1137,7 @@ interface ToolCall {
       @if (voiceModeActive()) {
         <div class="fixed inset-0 z-50 bg-gradient-to-b from-secondary-900 to-secondary-800 flex flex-col items-center justify-center text-white">
           <!-- Close button -->
-          <button
-            (click)="exitVoiceMode()"
+          <button type="button"             (click)="exitVoiceMode()"
             class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors"
             aria-label="Exit voice mode"
           >
@@ -1216,8 +1182,7 @@ interface ToolCall {
           </div>
 
           <!-- Mic button -->
-          <button
-            (click)="toggleVoiceListening()"
+          <button type="button"             (click)="toggleVoiceListening()"
             [disabled]="voiceProcessing()"
             class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50"
             [ngClass]="voiceService.isListening()
@@ -1232,8 +1197,7 @@ interface ToolCall {
 
           <!-- Voice picker -->
           <div class="mt-8 relative">
-            <button
-              (click)="showVoicePicker.set(!showVoicePicker())"
+            <button type="button"               (click)="showVoicePicker.set(!showVoicePicker())"
               class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1247,8 +1211,7 @@ interface ToolCall {
             @if (showVoicePicker()) {
               <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 max-h-64 overflow-y-auto bg-secondary-800 rounded-lg border border-secondary-600 shadow-xl py-1 z-50">
                 @for (v of voiceService.availableVoices(); track $index) {
-                  <button
-                    (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
+                  <button type="button"                     (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
                     class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate"
                     [ngClass]="voiceService.selectedVoiceIndex() === $index ? 'bg-primary-700/40 text-primary-300' : 'text-white/80'"
                   >

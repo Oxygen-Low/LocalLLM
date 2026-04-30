@@ -31,11 +31,11 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
             <p class="text-muted mt-1">{{ t.translate('webSeo.subtitle') }}</p>
           </div>
           @if (currentView() === 'list') {
-            <button (click)="goToAdd()" class="btn-primary flex items-center gap-2">
+            <button type="button" (click)="goToAdd()" class="btn-primary flex items-center gap-2">
               <span class="text-lg">+</span> {{ t.translate('webSeo.addApp') }}
             </button>
           } @else {
-            <button (click)="goBack()" class="text-sm text-muted hover:text-secondary-700 transition-colors flex items-center gap-1">
+            <button type="button" (click)="goBack()" class="text-sm text-muted hover:text-secondary-700 transition-colors flex items-center gap-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -56,7 +56,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                 <span class="text-3xl">🔍</span>
               </div>
               <h3 class="text-lg font-medium text-secondary-900">{{ t.translate('webSeo.noApps') }}</h3>
-              <button (click)="goToAdd()" class="mt-4 btn-primary">
+              <button type="button" (click)="goToAdd()" class="mt-4 btn-primary">
                 {{ t.translate('webSeo.addApp') }}
               </button>
             </div>
@@ -70,7 +70,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                         {{ app.type === 'url' ? '🌐' : '📦' }}
                       </div>
                       <div class="flex gap-2">
-                        <button (click)="deleteApp(app.id)" class="text-secondary-400 hover:text-red-500 p-1">
+                        <button type="button" (click)="deleteApp(app.id)" class="text-secondary-400 hover:text-red-500 p-1">
                           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
@@ -104,11 +104,11 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                     }
                   </div>
                   <div class="p-4 bg-secondary-50 border-t border-secondary-100 flex gap-2">
-                    <button (click)="runCheck(app)" class="flex-1 btn-primary text-sm py-2">
+                    <button type="button" (click)="runCheck(app)" class="flex-1 btn-primary text-sm py-2">
                       {{ t.translate('webSeo.checkNow') }}
                     </button>
                     @if (app.lastCheck) {
-                      <button (click)="viewResults(app)" class="px-3 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 hover:bg-secondary-50 text-sm transition-colors">
+                      <button type="button" (click)="viewResults(app)" class="px-3 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 hover:bg-secondary-50 text-sm transition-colors">
                         View
                       </button>
                     }
@@ -133,8 +133,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
 
               <!-- Type Selector -->
               <div class="grid grid-cols-2 gap-4">
-                <button
-                  (click)="newApp.type = 'url'"
+                <button type="button"                   (click)="newApp.type = 'url'"
                   [attr.aria-pressed]="newApp.type === 'url'"
                   [ngClass]="newApp.type === 'url' ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-secondary-200 hover:border-secondary-300 text-secondary-600'"
                   class="flex flex-col items-center p-4 rounded-xl border-2 transition-all"
@@ -142,8 +141,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                   <span class="text-2xl mb-2">🌐</span>
                   <span class="font-medium">{{ t.translate('webSeo.urlType') }}</span>
                 </button>
-                <button
-                  (click)="newApp.type = 'repo'"
+                <button type="button"                   (click)="newApp.type = 'repo'"
                   [attr.aria-pressed]="newApp.type === 'repo'"
                   [ngClass]="newApp.type === 'repo' ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-secondary-200 hover:border-secondary-300 text-secondary-600'"
                   class="flex flex-col items-center p-4 rounded-xl border-2 transition-all"
@@ -170,8 +168,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
                   } @else {
                     <div class="space-y-2 max-h-60 overflow-y-auto pr-2">
                       @for (repo of repos(); track repo.id) {
-                        <button
-                          (click)="selectRepo(repo)"
+                        <button type="button"                           (click)="selectRepo(repo)"
                           [attr.aria-pressed]="newApp.repoFullName === repo.fullName"
                           [ngClass]="newApp.repoFullName === repo.fullName ? 'border-primary-600 bg-primary-50' : 'border-secondary-200 hover:border-secondary-300'"
                           class="w-full text-left p-3 rounded-lg border text-sm transition-all"
@@ -197,8 +194,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
               }
 
               <div class="pt-6">
-                <button
-                  (click)="createApp()"
+                <button type="button"                   (click)="createApp()"
                   [disabled]="!isValidApp()"
                   class="w-full btn-primary py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -241,7 +237,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
               @if (checkError()) {
                 <div class="p-6 bg-red-50 border-t border-red-100">
                   <p class="text-red-700 font-medium">Error: {{ checkError() }}</p>
-                  <button (click)="goBack()" class="mt-4 btn-secondary">Go Back</button>
+                  <button type="button" (click)="goBack()" class="mt-4 btn-secondary">Go Back</button>
                 </div>
               }
             </div>
@@ -347,7 +343,7 @@ type ViewMode = 'list' | 'add' | 'check' | 'results';
               </div>
 
               <div class="flex justify-center pb-12">
-                <button (click)="runCheck(selectedApp()!)" class="btn-primary px-8 py-3">
+                <button type="button" (click)="runCheck(selectedApp()!)" class="btn-primary px-8 py-3">
                   Re-run Check
                 </button>
               </div>

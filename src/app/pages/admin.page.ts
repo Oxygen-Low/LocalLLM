@@ -66,8 +66,7 @@ import { LlmService } from '../services/llm.service';
               </div>
 
               <div class="flex items-center gap-3">
-                <button
-                  (click)="unlock()"
+                <button type="button"                   (click)="unlock()"
                   [disabled]="!adminPassword || isUnlocking() || isUnlocked()"
                   class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -91,8 +90,7 @@ import { LlmService } from '../services/llm.service';
                       Use the menu to view accounts, require password resets, or remove stale accounts.
                     </p>
                   </div>
-                  <button
-                    (click)="toggleMenu()"
+                  <button type="button"                     (click)="toggleMenu()"
                     class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
                   >
                     {{ menuOpen() ? 'Hide account menu' : 'Account management menu' }}
@@ -129,15 +127,13 @@ import { LlmService } from '../services/llm.service';
                             </div>
 
                             <div class="flex items-center gap-2">
-                              <button
-                                (click)="onResetPassword(user.username)"
+                              <button type="button"                                 (click)="onResetPassword(user.username)"
                                 [disabled]="actionInProgress() === user.username"
                                 class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50"
                               >
                                 {{ actionInProgress() === user.username ? 'Resetting...' : 'Require new password' }}
                               </button>
-                              <button
-                                (click)="onDeleteUser(user.username)"
+                              <button type="button"                                 (click)="onDeleteUser(user.username)"
                                 [disabled]="user.username === 'admin' || actionInProgress() === user.username"
                                 class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
@@ -161,8 +157,7 @@ import { LlmService } from '../services/llm.service';
                       Manage universes and the characters within them. Characters change how the AI behaves.
                     </p>
                   </div>
-                  <button
-                    (click)="toggleUniverseMenu()"
+                  <button type="button"                     (click)="toggleUniverseMenu()"
                     class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
                   >
                     {{ universeMenuOpen() ? 'Hide universes' : 'Manage universes' }}
@@ -195,8 +190,7 @@ import { LlmService } from '../services/llm.service';
                             class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white resize-none"
                           ></textarea>
                         </div>
-                        <button
-                          (click)="onCreateUniverse()"
+                        <button type="button"                           (click)="onCreateUniverse()"
                           [disabled]="!newUniverseName.trim()"
                           class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
@@ -228,13 +222,11 @@ import { LlmService } from '../services/llm.service';
                                     class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm resize-none"
                                   ></textarea>
                                   <div class="flex items-center gap-2">
-                                    <button
-                                      (click)="onSaveUniverse(universe.id)"
+                                    <button type="button"                                       (click)="onSaveUniverse(universe.id)"
                                       [disabled]="!editingUniverseName.trim()"
                                       class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
                                     >Save</button>
-                                    <button
-                                      (click)="editingUniverseId.set(null)"
+                                    <button type="button"                                       (click)="editingUniverseId.set(null)"
                                       class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
                                     >Cancel</button>
                                   </div>
@@ -251,12 +243,10 @@ import { LlmService } from '../services/llm.service';
                                     }
                                   </div>
                                   <div class="flex items-center gap-2">
-                                    <button
-                                      (click)="onEditUniverse(universe)"
+                                    <button type="button"                                       (click)="onEditUniverse(universe)"
                                       class="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm transition-colors"
                                     >Edit</button>
-                                    <button
-                                      (click)="onDeleteUniverse(universe)"
+                                    <button type="button"                                       (click)="onDeleteUniverse(universe)"
                                       class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-sm transition-colors"
                                     >Delete</button>
                                   </div>
@@ -285,16 +275,14 @@ import { LlmService } from '../services/llm.service';
                                       class="w-full px-3 py-1.5 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
                                     />
                                   </div>
-                                  <button
-                                    (click)="onCreateCharacter(universe.id)"
+                                  <button type="button"                                     (click)="onCreateCharacter(universe.id)"
                                     [disabled]="!newCharacterNames[universe.id]?.trim()"
                                     class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                   >Add</button>
                                 </div>
 
                                 <div class="space-y-1">
-                                  <button
-                                    (click)="newCharacterRelExpanded[universe.id] = !newCharacterRelExpanded[universe.id]"
+                                  <button type="button"                                     (click)="newCharacterRelExpanded[universe.id] = !newCharacterRelExpanded[universe.id]"
                                     class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
                                   >
                                     {{ newCharacterRelExpanded[universe.id] ? '▼' : '▶' }}
@@ -318,8 +306,7 @@ import { LlmService } from '../services/llm.service';
                                           placeholder="Name"
                                           class="flex-1 px-2 py-1 rounded border border-secondary-200 text-xs"
                                         />
-                                        <button
-                                          (click)="addCharacterRelationship(newRelName.value, universe.id); newRelName.value = ''"
+                                        <button type="button"                                           (click)="addCharacterRelationship(newRelName.value, universe.id); newRelName.value = ''"
                                           class="px-2 py-1 rounded bg-secondary-200 text-xs"
                                         >Add</button>
                                       </div>
@@ -351,8 +338,7 @@ import { LlmService } from '../services/llm.service';
 
                                           <!-- Relationships Editor -->
                                           <div class="space-y-2 border border-secondary-100 rounded-lg p-3 bg-secondary-50">
-                                            <button
-                                              (click)="relationshipsExpanded.set(!relationshipsExpanded())"
+                                            <button type="button"                                               (click)="relationshipsExpanded.set(!relationshipsExpanded())"
                                               class="flex items-center justify-between w-full text-sm font-semibold text-secondary-900"
                                             >
                                               <span>Relationships ({{ editingCharacterRelationships().length }})</span>
@@ -405,8 +391,7 @@ import { LlmService } from '../services/llm.service';
                                                       @if (relationshipSearchQuery()) {
                                                         <div class="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-secondary-200 rounded-lg shadow-lg overflow-hidden">
                                                           @for (item of filteredCharactersForRelationship(); track item.char.id) {
-                                                            <button
-                                                              (click)="addRelationship(item)"
+                                                            <button type="button"                                                               (click)="addRelationship(item)"
                                                               class="w-full text-left px-3 py-2 text-xs hover:bg-primary-50 transition-colors border-b border-secondary-50 last:border-0"
                                                             >
                                                               <div class="font-medium text-secondary-900">{{ item.char.name }}</div>
@@ -414,8 +399,7 @@ import { LlmService } from '../services/llm.service';
                                                             </button>
                                                           }
                                                           @if (relationshipSearchQuery().trim()) {
-                                                            <button
-                                                              (click)="addRelationship()"
+                                                            <button type="button"                                                               (click)="addRelationship()"
                                                               class="w-full text-left px-3 py-2 text-xs bg-secondary-50 hover:bg-secondary-100 transition-colors"
                                                             >
                                                               Add "<span class="font-medium">{{ relationshipSearchQuery() }}</span>" as name-only
@@ -425,13 +409,11 @@ import { LlmService } from '../services/llm.service';
                                                       }
                                                     </div>
                                                     <div class="flex rounded-lg border border-secondary-200 overflow-hidden shrink-0">
-                                                      <button
-                                                        (click)="relationshipSearchMode.set('same')"
+                                                      <button type="button"                                                         (click)="relationshipSearchMode.set('same')"
                                                         [class]="relationshipSearchMode() === 'same' ? 'bg-primary-100 text-primary-700' : 'bg-white text-secondary-600'"
                                                         class="px-2 py-1 text-[10px] font-medium transition-colors"
                                                       >Same</button>
-                                                      <button
-                                                        (click)="relationshipSearchMode.set('other')"
+                                                      <button type="button"                                                         (click)="relationshipSearchMode.set('other')"
                                                         [class]="relationshipSearchMode() === 'other' ? 'bg-primary-100 text-primary-700' : 'bg-white text-secondary-600'"
                                                         class="px-2 py-1 text-[10px] font-medium transition-colors border-l border-secondary-200"
                                                       >Other</button>
@@ -443,13 +425,11 @@ import { LlmService } from '../services/llm.service';
                                           </div>
 
                                           <div class="flex items-center gap-2">
-                                            <button
-                                              (click)="onSaveCharacter(universe.id, char.id)"
+                                            <button type="button"                                               (click)="onSaveCharacter(universe.id, char.id)"
                                               [disabled]="!editingCharacterName.trim()"
                                               class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
                                             >Save</button>
-                                            <button
-                                              (click)="editingCharacterId.set(null)"
+                                            <button type="button"                                               (click)="editingCharacterId.set(null)"
                                               class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
                                             >Cancel</button>
                                           </div>
@@ -472,12 +452,10 @@ import { LlmService } from '../services/llm.service';
                                             }
                                           </div>
                                           <div class="flex items-center gap-2">
-                                            <button
-                                              (click)="onEditCharacter(char)"
+                                            <button type="button"                                               (click)="onEditCharacter(char)"
                                               class="px-2 py-1 rounded border border-primary-200 text-primary-700 hover:bg-primary-50 text-xs transition-colors"
                                             >Edit</button>
-                                            <button
-                                              (click)="onDeleteCharacter(universe.id, char)"
+                                            <button type="button"                                               (click)="onDeleteCharacter(universe.id, char)"
                                               class="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 text-xs transition-colors"
                                             >Delete</button>
                                           </div>
@@ -505,8 +483,7 @@ import { LlmService } from '../services/llm.service';
                       Download HuggingFace models or upload your own GGUF files for local AI inference. Users can select from available models.
                     </p>
                   </div>
-                  <button
-                    (click)="toggleModelMenu()"
+                  <button type="button"                     (click)="toggleModelMenu()"
                     class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
                   >
                     {{ modelMenuOpen() ? 'Hide models' : 'Manage models' }}
@@ -543,15 +520,13 @@ import { LlmService } from '../services/llm.service';
                             with <strong>read</strong> access.
                           </p>
                           <div class="flex gap-2">
-                            <button
-                              (click)="saveAdminHfToken()"
+                            <button type="button"                               (click)="saveAdminHfToken()"
                               [disabled]="isSavingAdminHf()"
                               class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
                             >
                               {{ isSavingAdminHf() ? 'Validating...' : 'Save' }}
                             </button>
-                            <button
-                              (click)="editingAdminHf.set(false); adminHfToken = ''"
+                            <button type="button"                               (click)="editingAdminHf.set(false); adminHfToken = ''"
                               class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
                             >
                               Cancel
@@ -571,15 +546,13 @@ import { LlmService } from '../services/llm.service';
                             }
                           </div>
                           <div class="flex gap-2">
-                            <button
-                              (click)="editingAdminHf.set(true); adminHfToken = ''; adminHfMessage.set(null)"
+                            <button type="button"                               (click)="editingAdminHf.set(true); adminHfToken = ''; adminHfMessage.set(null)"
                               class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
                             >
                               {{ adminHfConfigured() ? 'Update' : 'Configure' }}
                             </button>
                             @if (adminHfConfigured()) {
-                              <button
-                                (click)="removeAdminHfToken()"
+                              <button type="button"                                 (click)="removeAdminHfToken()"
                                 class="px-3 py-1.5 rounded-lg border border-red-200 text-xs text-red-500 hover:text-red-700 transition-colors"
                               >
                                 Remove
@@ -615,8 +588,7 @@ import { LlmService } from '../services/llm.service';
                             class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
                           />
                         </div>
-                        <button
-                          (click)="onUploadModel()"
+                        <button type="button"                           (click)="onUploadModel()"
                           [disabled]="!selectedGgufFile || isUploadingModel()"
                           class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
@@ -649,8 +621,7 @@ import { LlmService } from '../services/llm.service';
                             class="w-full px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm bg-white"
                           />
                         </div>
-                        <button
-                          (click)="onDownloadModel()"
+                        <button type="button"                           (click)="onDownloadModel()"
                           [disabled]="!modelRepoId.trim() || isDownloadingModel()"
                           class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
@@ -700,8 +671,7 @@ import { LlmService } from '../services/llm.service';
                                 {{ formatFileSize(model.size) }} · Added {{ model.downloadedAt | date: 'medium' }}
                               </p>
                             </div>
-                            <button
-                              (click)="onDeleteModel(model)"
+                            <button type="button"                               (click)="onDeleteModel(model)"
                               [disabled]="actionInProgress() === model.id"
                               class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
                             >
@@ -738,8 +708,7 @@ import { LlmService } from '../services/llm.service';
                     Apps that execute code on the server (e.g. Coding Agent). When disabled, these apps are greyed out for all users.
                   </p>
                 </div>
-                <button
-                  (click)="onToggleRiskyApps()"
+                <button type="button"                   (click)="onToggleRiskyApps()"
                   [disabled]="isTogglingRiskyApps()"
                   [class]="riskyAppsEnabled()
                     ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
@@ -759,8 +728,7 @@ import { LlmService } from '../services/llm.service';
                     Enable auto-detection and usage of a locally running Kobold.cpp server as an LLM provider.
                   </p>
                 </div>
-                <button
-                  (click)="onToggleKobold()"
+                <button type="button"                   (click)="onToggleKobold()"
                   [disabled]="isTogglingKobold()"
                   [class]="koboldEnabled()
                     ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
@@ -780,8 +748,7 @@ import { LlmService } from '../services/llm.service';
                     Enable auto-detection and usage of a locally running Ollama server as an LLM provider.
                   </p>
                 </div>
-                <button
-                  (click)="onToggleOllama()"
+                <button type="button"                   (click)="onToggleOllama()"
                   [disabled]="isTogglingOllama()"
                   [class]="ollamaEnabled()
                     ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
@@ -811,8 +778,7 @@ import { LlmService } from '../services/llm.service';
                     class="w-24 px-3 py-2 rounded-lg border border-secondary-200 text-sm text-right"
                   />
                   <span class="text-sm text-muted whitespace-nowrap">GB</span>
-                  <button
-                    (click)="onSaveDatasetTokenLimit()"
+                  <button type="button"                     (click)="onSaveDatasetTokenLimit()"
                     [disabled]="isSavingDatasetTokenLimit()"
                     class="px-4 py-2 rounded-lg bg-primary-100 border border-primary-200 text-primary-700 hover:bg-primary-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                   >
@@ -898,8 +864,7 @@ import { LlmService } from '../services/llm.service';
                   </div>
                 }
                 <div class="flex items-center gap-2">
-                  <button
-                    (click)="onAddMcpServer()"
+                  <button type="button"                     (click)="onAddMcpServer()"
                     [disabled]="isAddingMcpServer()"
                     class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -935,8 +900,7 @@ import { LlmService } from '../services/llm.service';
                           }
                         </div>
                         <div class="flex items-center gap-2">
-                          <button
-                            (click)="onToggleMcpServer(server)"
+                          <button type="button"                             (click)="onToggleMcpServer(server)"
                             [disabled]="actionInProgress() !== null"
                             class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
                             [ngClass]="server.enabled
@@ -945,8 +909,7 @@ import { LlmService } from '../services/llm.service';
                           >
                             {{ server.enabled ? 'Disable' : 'Enable' }}
                           </button>
-                          <button
-                            (click)="onDeleteMcpServer(server)"
+                          <button type="button"                             (click)="onDeleteMcpServer(server)"
                             [disabled]="actionInProgress() !== null"
                             class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-xs font-medium transition-colors disabled:opacity-50"
                           >
@@ -984,8 +947,7 @@ import { LlmService } from '../services/llm.service';
                     When enabled, data will be synced to the specified directory on server start/stop.
                   </p>
                 </div>
-                <button
-                  (click)="onToggleAutoSync()"
+                <button type="button"                   (click)="onToggleAutoSync()"
                   [disabled]="isTogglingAutoSync() || (!autoSyncEnabled() && !autoSyncDirectory.trim())"
                   [class]="autoSyncEnabled()
                     ? 'px-4 py-2 rounded-lg bg-red-100 border border-red-200 text-red-700 hover:bg-red-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
@@ -1040,15 +1002,13 @@ import { LlmService } from '../services/llm.service';
                       }
                     </div>
                     <div class="flex items-center gap-2">
-                      <button
-                        (click)="onTriggerSync('push')"
+                      <button type="button"                         (click)="onTriggerSync('push')"
                         [disabled]="isSyncing()"
                         class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm"
                       >
                         {{ isSyncing() ? 'Syncing...' : 'Push to remote' }}
                       </button>
-                      <button
-                        (click)="onTriggerSync('pull')"
+                      <button type="button"                         (click)="onTriggerSync('pull')"
                         [disabled]="isSyncing()"
                         class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm"
                       >
@@ -1073,8 +1033,7 @@ import { LlmService } from '../services/llm.service';
                     placeholder="e.g. C:\\Users\\YourName\\OneDrive\\LocalLLM"
                     class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 text-sm"
                   />
-                  <button
-                    (click)="onImportSync()"
+                  <button type="button"                     (click)="onImportSync()"
                     [disabled]="!importSyncDirectory.trim() || isImportingSync()"
                     class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
                   >
