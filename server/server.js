@@ -2063,6 +2063,150 @@ app.post('/api/admin/users/list', async (req, res) => {
   }
 });
 
+// POST /api/admin/universes/:universeId/characters/auto-generate – Auto-generate a character
+app.post('/api/admin/universes/:universeId/characters/auto-generate', async (req, res) => {
+  try {
+    const { adminUsername, adminPassword, mode, query, links } = req.body;
+    if (!(await verifyAdminCredentials(adminUsername, adminPassword))) {
+      auditLog({ event: 'ADMIN_AUTH_FAILURE', message: 'Unauthorized admin auto-generate character attempt', username: adminUsername, req });
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find((u) => u.id === req.params.universeId);
+    if (!universe) {
+      return res.status(404).json({ success: false, error: 'Universe not found' });
+    }
+
+    let sourceMaterial = '';
+    if (mode === 'search') {
+      if (!query) return res.status(400).json({ success: false, error: 'Query is required for search mode' });
+      if (!isDockerAvailable()) {
+        return res.status(503).json({ success: false, error: 'Service unavailable: Docker not available' });
+      }
+      const searchResults = await performWebSearch(query, adminUsername);
+      // Filter out failed search entries
+      const validSearchResults = searchResults.filter(r => r.title && r.snippet && r.url);
+      if (validSearchResults.length === 0) {
+        return res.status(502).json({ success: false, error: 'No usable source material retrieved' });
+      }
+      sourceMaterial = validSearchResults.map(r => `Title: ${r.title}\nSnippet: ${r.snippet}\nURL: ${r.url}`).join('\n\n');
+    } else if (mode === 'links') {
+      if (!links || !Array.isArray(links) || links.length === 0) {
+        return res.status(400).json({ success: false, error: 'Links are required for links mode' });
+      }
+      if (!isDockerAvailable()) {
+        return res.status(503).json({ success: false, error: 'Service unavailable: Docker not available' });
+      }
+      const scrapeResults = await scrapeUrls(links, adminUsername);
+      // Filter out failed scrape entries
+      const validScrapeResults = scrapeResults.filter(r => r.content && !r.error);
+      if (validScrapeResults.length === 0) {
+        return res.status(502).json({ success: false, error: 'No usable source material retrieved' });
+      }
+      sourceMaterial = validScrapeResults.map(r => `URL: ${r.url}\nContent: ${r.content}`).join('\n\n');
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid mode' });
+    }
+
+    const prompt = `You are a character creator. Based on the following source material, create a detailed character profile for the "${universe.name}" universe.
+Universe Description: ${universe.description || 'Not provided.'}
+
+Source Material:
+${sourceMaterial}
+
+Respond ONLY with a JSON object containing:
+- name: The character's name
+- description: A detailed description of the character (background, appearance, etc.)
+- relationships: An array of objects, each with 'targetName' (string) and 'type' (string, e.g., "Friend", "Enemy", "Colleague").
+
+Ensure the character fits naturally into the universe described.`;
+
+    const llmResponse = await getLLMCompletion(adminUsername, [{ role: 'user', content: prompt }]);
+    const cleanedResponse = llmResponse.replace(/```json\n?|\n?```/g, '').trim();
+    const generatedData = JSON.parse(cleanedResponse);
+
+    // Validate and sanitize relationships before mutating universe
+    const sanitizedRelationships = [];
+    if (Array.isArray(generatedData.relationships)) {
+      for (const rel of generatedData.relationships) {
+        // Filter out non-object entries
+        if (!rel || typeof rel !== 'object') continue;
+
+        // Validate targetName is a non-empty string, or accept targetId
+        if (rel.targetName && typeof rel.targetName === 'string' && rel.targetName.trim()) {
+          sanitizedRelationships.push({
+            ...rel,
+            targetName: rel.targetName.trim()
+          });
+        } else if (rel.targetId && typeof rel.targetId === 'string') {
+          sanitizedRelationships.push(rel);
+        }
+      }
+    }
+
+    // Resolve targetName to targetId for each relationship
+    const resolvedRelationships = [];
+    for (const rel of sanitizedRelationships) {
+      if (rel.targetName) {
+        const normalizedTargetName = rel.targetName.trim().toLowerCase();
+        let targetChar = null;
+
+        // First, search in the current universe
+        targetChar = (universe.characters || []).find(c => c.name.trim().toLowerCase() === normalizedTargetName);
+
+        // If not found in current universe, search other universes
+        if (!targetChar) {
+          const crossUniverseMatches = [];
+          for (const u of universes) {
+            if (u.id === universe.id) continue; // Skip current universe
+            const matches = (u.characters || []).filter(c => c.name.trim().toLowerCase() === normalizedTargetName);
+            crossUniverseMatches.push(...matches);
+          }
+          // Only accept cross-universe match if exactly one exists
+          if (crossUniverseMatches.length === 1) {
+            targetChar = crossUniverseMatches[0];
+          }
+        }
+
+        // Only include relationships where we found a matching character
+        if (targetChar) {
+          resolvedRelationships.push({
+            ...rel,
+            targetId: targetChar.id
+          });
+        }
+      } else if (rel.targetId) {
+        // Already has targetId, keep as is
+        resolvedRelationships.push(rel);
+      }
+    }
+
+    // Create character object with validated relationships
+    const character = {
+      id: crypto.randomUUID(),
+      name: generatedData.name || 'Generated Character',
+      description: generatedData.description || '',
+      relationships: resolvedRelationships,
+    };
+
+    // Only now push to universe after all validation is complete
+    if (!universe.characters) universe.characters = [];
+    universe.characters.push(character);
+
+    // Sync bidirectional relationships
+    syncRelationships(universes, character, character.relationships);
+
+    writeUniverses(universes);
+
+    auditLog({ event: 'ADMIN_AUTO_GENERATE_CHARACTER', message: `Admin auto-generated character "${character.name}" in universe "${universe.name}"`, username: adminUsername, req });
+    return res.status(201).json({ success: true, character });
+  } catch (err) {
+    console.error('Admin auto-generate character error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // Admin: reset password requirement
 app.post('/api/admin/users/reset-password', async (req, res) => {
   try {
@@ -11556,6 +11700,170 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     }
   }
 });
+
+/**
+ * Scrapes content from multiple URLs using a Dockerized Playwright container.
+ */
+async function scrapeUrls(urls, username) {
+  const results = [];
+  for (const url of urls) {
+    try {
+      const ssrfCheck = await ssrfSafeUrlValidation(url);
+      if (!ssrfCheck.valid) {
+        results.push({ url, error: "SSRF validation failed: " + ssrfCheck.reason });
+        continue;
+      }
+
+      const containerId = crypto.randomUUID();
+      const containerName = `scrape-${sanitizeUsernameForPath(username)}-${containerId.slice(0, 8)}`;
+      const b64Url = Buffer.from(url).toString("base64");
+
+      const playwrightScript = `
+const { chromium } = require("playwright-core");
+const dns = require("dns").promises;
+
+// Helper function to check if an IP is private/internal
+function isPrivateIP(ip) {
+  const parts = ip.split('.');
+  if (parts.length === 4) {
+    const first = parseInt(parts[0], 10);
+    const second = parseInt(parts[1], 10);
+    if (first === 127) return true; // 127.x.x.x
+    if (first === 10) return true; // 10.x.x.x
+    if (first === 192 && second === 168) return true; // 192.168.x.x
+    if (first === 169 && second === 254) return true; // 169.254.x.x (link-local)
+    if (first === 172 && second >= 16 && second <= 31) return true; // 172.16-31.x.x
+    if (first === 0) return true; // 0.0.0.0
+  }
+  // IPv6 localhost
+  if (ip === '::1' || ip === '0000:0000:0000:0000:0000:0000:0000:0001') return true;
+  return false;
+}
+
+(async () => {
+  const browser = await chromium.launch({ args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+
+  // Enable request interception to prevent SSRF
+  await page.route('**/*', (route) => {
+    const requestUrl = route.request().url();
+    try {
+      const parsedUrl = new URL(requestUrl);
+      const hostname = parsedUrl.hostname;
+
+      // Block non-HTTP(S) schemas
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        route.abort();
+        return;
+      }
+
+      // Block localhost and private IP ranges
+      if (hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '0.0.0.0' ||
+          hostname.startsWith('192.168.') ||
+          hostname.startsWith('10.') ||
+          hostname.startsWith('172.16.') ||
+          hostname.startsWith('172.17.') ||
+          hostname.startsWith('172.18.') ||
+          hostname.startsWith('172.19.') ||
+          hostname.startsWith('172.20.') ||
+          hostname.startsWith('172.21.') ||
+          hostname.startsWith('172.22.') ||
+          hostname.startsWith('172.23.') ||
+          hostname.startsWith('172.24.') ||
+          hostname.startsWith('172.25.') ||
+          hostname.startsWith('172.26.') ||
+          hostname.startsWith('172.27.') ||
+          hostname.startsWith('172.28.') ||
+          hostname.startsWith('172.29.') ||
+          hostname.startsWith('172.30.') ||
+          hostname.startsWith('172.31.') ||
+          hostname === '[::1]' ||
+          hostname === '::1') {
+        route.abort();
+        return;
+      }
+
+      route.continue();
+    } catch (err) {
+      route.abort();
+    }
+  });
+
+  try {
+    const url = Buffer.from("${b64Url}", "base64").toString("utf-8");
+
+    // Validate and canonicalize the URL
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('Invalid URL protocol. Only http and https are allowed.');
+    }
+
+    const hostname = parsedUrl.hostname;
+
+    // Check against denylist
+    if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1' || hostname === '[::1]') {
+      throw new Error('Access to localhost is not allowed.');
+    }
+
+    // Perform DNS resolution to check if resolved IP is private
+    try {
+      const addresses = await dns.resolve4(hostname).catch(() => []);
+      const addresses6 = await dns.resolve6(hostname).catch(() => []);
+      const allAddresses = [...addresses, ...addresses6];
+
+      for (const addr of allAddresses) {
+        if (isPrivateIP(addr)) {
+          throw new Error('Resolved IP address is in a private/internal range.');
+        }
+      }
+    } catch (dnsErr) {
+      // If DNS resolution fails, we still proceed but log the error
+      // This handles cases where the hostname might be valid but DNS lookup fails
+      if (dnsErr.message && dnsErr.message.includes('private/internal')) {
+        throw dnsErr;
+      }
+    }
+
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    const content = await page.evaluate(() => {
+      const main = document.querySelector("main") || document.querySelector("article") || document.body;
+      const elementsToRemove = main.querySelectorAll("script, style, nav, footer, header, noscript, iframe");
+      elementsToRemove.forEach(el => el.remove());
+      return main.innerText;
+    });
+    console.log(JSON.stringify({ success: true, content: content.slice(0, 50000) }));
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: err.message }));
+  } finally {
+    await browser.close();
+  }
+})();`;
+
+      const b64Script = Buffer.from(playwrightScript).toString("base64");
+      const dockerArgs = [
+        "run", "--rm", "-i",
+        "--name", containerName,
+        "--memory=1g",
+        "--cpus=1",
+        "mcr.microsoft.com/playwright:v1.45.0-jammy",
+        "bash", "-c", `npm install playwright-core@1.45.0 > /dev/null 2>&1 && echo '${b64Script}' | base64 -d > /tmp/scrape.js && node /tmp/scrape.js`
+      ];
+
+      const resultRaw = await runCommandAsync("docker", dockerArgs, { timeout: 120000 });
+      const result = JSON.parse(resultRaw);
+      if (result.success) {
+        results.push({ url, content: result.content });
+      } else {
+        results.push({ url, error: result.error });
+      }
+    } catch (err) {
+      results.push({ url, error: err.message });
+    }
+  }
+  return results;
+}
 
 /**
  * Perform a web search using a temporary Docker container with Playwright.

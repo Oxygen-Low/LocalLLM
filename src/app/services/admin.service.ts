@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 
@@ -284,6 +284,39 @@ export class AdminService {
       return response;
     } catch (error: unknown) {
       return { success: false, error: (error as { error?: { error?: string } }).error?.error ?? 'Failed to delete character' };
+    }
+  }
+
+  async autoGenerateCharacter(
+    universeId: string,
+    mode: 'search' | 'links',
+    data: { query?: string; links?: string[] },
+    adminPasswordHash: string
+  ): Promise<{ success: boolean; error?: string; character?: Character }> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string; character?: Character }>(
+          `${environment.apiUrl}/api/admin/universes/${universeId}/characters/auto-generate`,
+          {
+            adminUsername: this.authService.username(),
+            adminPassword: adminPasswordHash,
+            mode,
+            ...data,
+          }
+        ).pipe(
+          timeout(180000), // 3 minute timeout for long-running scraping/LLM requests
+          catchError((err) => {
+            if (err.name === 'TimeoutError') {
+              return throwError(() => new Error('Request timeout: The auto-generation process took too long. Please try again with fewer links or a simpler query.'));
+            }
+            return throwError(() => err);
+          })
+        )
+      );
+      return response;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : (error as { error?: { error?: string } }).error?.error;
+      return { success: false, error: errorMessage ?? 'Failed to auto-generate character' };
     }
   }
 
