@@ -227,6 +227,7 @@ const AI_PROVIDERS = {
 // ---------------------------------------------------------------------------
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const sessions = new Map(); // token -> { username, createdAt, expiresAt }
+const adventureLocks = new Map(); // adventureId -> Promise
 
 function createSessionToken(username) {
   const token = crypto.randomUUID();
@@ -2272,6 +2273,21 @@ app.post('/api/admin/users/delete', async (req, res) => {
     users.splice(userIndex, 1);
     writeUsers(users);
 
+    // Clean up all data owned by this user
+    try {
+      deleteAllUserContainers(normalizedUsername);
+      deleteAllUserRepos(normalizedUsername);
+      deleteAllUserDatasets(normalizedUsername);
+      deleteAllUserAdventures(normalizedUsername);
+
+      const personaFile = getPersonasFile(normalizedUsername);
+      if (fs.existsSync(personaFile)) {
+        fs.unlinkSync(personaFile);
+      }
+    } catch (err) {
+      console.error(`Admin delete user: failed to clean up data for ${normalizedUsername}:`, err);
+    }
+
     auditLog({ event: 'ADMIN_DELETE_USER', message: `Admin deleted user ${normalizedUsername}`, username: adminUsername, req });
     return res.json({ success: true });
   } catch (err) {
@@ -3616,16 +3632,30 @@ app.get('/api/adventures/:id', requireSession, (req, res) => {
 
 // POST /api/adventures/:id/turn – Execute a turn
 app.post('/api/adventures/:id/turn', requireSession, async (req, res) => {
+  const adventureId = req.params.id;
+
+  // Simple per-adventure lock to prevent concurrent turns
+  while (adventureLocks.has(adventureId)) {
+    await adventureLocks.get(adventureId);
+  }
+  let resolveLock;
+  const lockPromise = new Promise(resolve => { resolveLock = resolve; });
+  adventureLocks.set(adventureId, lockPromise);
+
   try {
     const { action } = req.body; // action can be 'skip' or a string
-    const adventure = readAdventure(req.sessionUser, req.params.id);
+    const adventure = readAdventure(req.sessionUser, adventureId);
     if (!adventure) return res.status(404).json({ success: false, error: 'Adventure not found' });
     if (adventure.status !== 'playing') return res.status(400).json({ success: false, error: 'Adventure is ended' });
 
     const universes = readUniverses();
     const universe = universes.find(u => u.id === adventure.universeId);
+    if (!universe) return res.status(409).json({ success: false, error: 'Adventure references a deleted universe' });
+
     const personas = readPersonas(req.sessionUser);
     const persona = personas.find(p => p.id === adventure.personaId);
+    if (!persona) return res.status(409).json({ success: false, error: 'Adventure references a deleted persona' });
+
     const selectedNpcs = (universe.characters || []).filter(c => adventure.npcIds.includes(c.id));
 
     const now = new Date().toISOString();
@@ -3727,6 +3757,9 @@ Respond ONLY with JSON.`;
   } catch (err) {
     console.error('Adventure turn error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
+  } finally {
+    adventureLocks.delete(adventureId);
+    resolveLock();
   }
 });
 
@@ -9063,6 +9096,11 @@ async function getLLMCompletion(username, messages, options = {}) {
   const model = options.model || (keys[provider]?.selectedModel);
   if (!model) {
     throw new Error(`No model selected for provider ${provider}.`);
+  }
+
+  // Ensure there is at least one non-system message
+  if (Array.isArray(messages) && messages.length > 0 && messages.every(m => m.role === 'system')) {
+    messages = [...messages, { role: 'user', content: 'Continue the story.' }];
   }
 
   const maxTokens = options.max_tokens || 2048;

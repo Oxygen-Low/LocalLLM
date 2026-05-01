@@ -26,7 +26,9 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
         @if (viewMode() === 'list') {
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             @for (adv of adventures(); track adv.id) {
-              <div class="bg-white p-6 rounded shadow-md border border-[#d3d3d3] hover:shadow-lg transition-shadow cursor-pointer relative group" (click)="loadAdventure(adv.id)">
+              <button type="button" class="bg-white p-6 rounded shadow-md border border-[#d3d3d3] hover:shadow-lg transition-shadow cursor-pointer relative group text-left w-full focus:outline-none focus:ring-2 focus:ring-[#8b7355] focus:ring-offset-2"
+                      (click)="loadAdventure(adv.id)"
+                      [attr.aria-label]="'Load adventure: ' + adv.title + ' in universe ' + adv.universeName">
                 <div class="absolute top-2 right-2">
                   <span [ngClass]="adv.status === 'playing' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-secondary-100 text-secondary-800 border-secondary-200'" class="text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full font-sans font-bold border">
                     {{ adv.status }}
@@ -41,7 +43,7 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                   </span>
                   <span>{{ adv.updatedAt | date:'mediumDate' }}</span>
                 </div>
-              </div>
+              </button>
             }
             @if (adventures().length === 0) {
               <div class="col-span-full text-center py-20 bg-white/50 rounded border-2 border-dashed border-[#8b7355]">
@@ -174,22 +176,22 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
           <div class="flex flex-col gap-8">
 
             <!-- Book Container -->
-            <div class="relative bg-[#faf9f6] parchment aspect-[3/4] md:aspect-[4/3] rounded-sm book-shadow border border-[#d3d3d3] overflow-hidden flex flex-col md:flex-row">
+            <div class="relative bg-[#faf9f6] bg-[url('/parchment.png')] aspect-[3/4] md:aspect-[4/3] rounded-sm [box-shadow:0_25px_50px_-12px_rgba(0,0,0,0.4),_inset_0_0_100px_rgba(139,115,85,0.1)] border border-[#d3d3d3] overflow-hidden flex flex-col md:flex-row">
               <!-- Gutter/Spine -->
               <div class="hidden md:block absolute left-1/2 top-0 bottom-0 w-px bg-black/10 z-10"></div>
               <div class="hidden md:block absolute left-1/2 top-0 bottom-0 w-4 -translate-x-1/2 bg-gradient-to-r from-transparent via-black/5 to-transparent z-10"></div>
 
               <!-- Left Page (Desktop) -->
-              <div class="flex-1 p-8 md:p-12 border-b md:border-b-0 md:border-r border-[#e8e4d9] overflow-y-auto relative page-curl-left">
-                 <div class="prose prose-stone max-w-none">
+              <div class="flex-1 p-8 md:p-12 border-b md:border-b-0 md:border-r border-[#e8e4d9] overflow-y-auto relative [box-shadow:inset_20px_0_30px_-20px_rgba(0,0,0,0.1)]">
+                 <div class="prose prose-stone max-w-none prose-p:mb-6 last:prose-p:mb-0">
                     <div class="mb-6 flex justify-between items-end border-b border-[#e8e4d9] pb-1">
                       <span class="text-[10px] font-sans font-bold uppercase tracking-widest text-secondary-400">
                         {{ perspectiveName() }}
                       </span>
-                      <span class="text-xs font-serif italic text-secondary-400">Page {{ currentPage() * 2 + 1 }}</span>
+                      <span class="text-xs font-serif italic text-secondary-400">Page {{ currentPage() + 1 }}</span>
                     </div>
-                    @for (entry of getPageEntries(currentPage() * 2); track $index) {
-                      <p [ngClass]="entry.type === 'action' ? 'italic text-secondary-500 pl-4 border-l-2 border-secondary-100' : 'text-stone-800 drop-cap'" class="mb-6 leading-relaxed text-lg">
+                    @for (entry of getPageEntries(currentPage()); track $index) {
+                      <p [ngClass]="entry.type === 'action' ? 'italic text-secondary-500 pl-4 border-l-2 border-secondary-100' : 'text-stone-800 first-letter:float-left first-letter:text-6xl first-letter:font-bold first-letter:mr-3 first-letter:mt-2 first-letter:text-[#5d4037]'" class="leading-relaxed text-lg">
                         {{ entry.entry }}
                       </p>
                     }
@@ -197,16 +199,16 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
               </div>
 
               <!-- Right Page (Desktop) -->
-              <div class="flex-1 p-8 md:p-12 overflow-y-auto bg-white relative page-curl-right">
-                <div class="prose prose-stone max-w-none">
+              <div class="flex-1 p-8 md:p-12 overflow-y-auto bg-white relative [box-shadow:inset_-20px_0_30px_-20px_rgba(0,0,0,0.1)]">
+                <div class="prose prose-stone max-w-none prose-p:mb-6 last:prose-p:mb-0">
                    <div class="mb-6 flex justify-between items-end border-b border-[#e8e4d9] pb-1">
                       <span class="text-[10px] font-sans font-bold uppercase tracking-widest text-secondary-400">
                         {{ currentAdventure()?.title }}
                       </span>
-                      <span class="text-xs font-serif italic text-secondary-400">Page {{ currentPage() * 2 + 2 }}</span>
+                      <span class="text-xs font-serif italic text-secondary-400">Page {{ currentPage() + 2 }}</span>
                     </div>
-                   @for (entry of getPageEntries(currentPage() * 2 + 1); track $index) {
-                      <p [ngClass]="entry.type === 'action' ? 'italic text-secondary-500 pl-4 border-l-2 border-secondary-100' : 'text-stone-800'" class="mb-6 leading-relaxed text-lg">
+                   @for (entry of getPageEntries(currentPage() + 1); track $index) {
+                      <p [ngClass]="entry.type === 'action' ? 'italic text-secondary-500 pl-4 border-l-2 border-secondary-100' : 'text-stone-800'" class="leading-relaxed text-lg">
                         {{ entry.entry }}
                       </p>
                     }
@@ -217,7 +219,7 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
               <button (click)="prevPage()" [disabled]="currentPage() === 0" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button (click)="nextPage()" [disabled]="(currentPage() + 1) * 2 >= currentBook().length" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
+              <button (click)="nextPage()" [disabled]="(currentPage() + 2) * 5 >= currentBook().length" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
 
@@ -281,32 +283,6 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
       </div>
     </div>
   `,
-  styles: [`
-    .prose p { margin-bottom: 1.5rem; }
-    .prose p:last-child { margin-bottom: 0; }
-    .book-shadow {
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), inset 0 0 100px rgba(139, 115, 85, 0.1);
-    }
-    .parchment {
-      background-image: url("https://www.transparenttextures.com/patterns/parchment.png");
-    }
-    .page-curl-left {
-      box-shadow: inset 20px 0 30px -20px rgba(0,0,0,0.1);
-    }
-    .page-curl-right {
-      box-shadow: inset -20px 0 30px -20px rgba(0,0,0,0.1);
-    }
-    .drop-cap::first-letter {
-      float: left;
-      font-size: 3.5rem;
-      line-height: 0.8;
-      font-weight: bold;
-      margin-right: 0.6rem;
-      margin-top: 0.2rem;
-      color: #5d4037;
-      font-family: serif;
-    }
-  `]
 })
 export class AdventurePageComponent implements OnInit {
   private llmService = inject(LlmService);
@@ -431,7 +407,9 @@ export class AdventurePageComponent implements OnInit {
       this.currentPerspective.set('user');
       // Jump to last page
       const book = adv.books['user'];
-      this.currentPage.set(Math.max(0, Math.floor((book.length - 1) / 2)));
+      const lastPageIdx = Math.floor((book.length - 1) / 5);
+      const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
+      this.currentPage.set(Math.max(0, lastSpreadIdx));
     } catch (e) {
       this.errorMessage.set('Failed to open the book.');
     }
@@ -448,19 +426,21 @@ export class AdventurePageComponent implements OnInit {
 
   getPageEntries(pageNum: number): AdventureBookEntry[] {
     const book = this.currentBook();
-    const start = pageNum * 2;
-    return book.slice(start, start + 2);
+    const entriesPerPage = 5; // 5 entries per page, 10 per spread
+    const start = pageNum * entriesPerPage;
+    return book.slice(start, start + entriesPerPage);
   }
 
   nextPage() {
-    if ((this.currentPage() + 1) * 2 < this.currentBook().length) {
-      this.currentPage.update(p => p + 1);
+    const entriesPerSpread = 10;
+    if ((this.currentPage() + 1) * entriesPerSpread < this.currentBook().length) {
+      this.currentPage.update(p => (p + 2));
     }
   }
 
   prevPage() {
-    if (this.currentPage() > 0) {
-      this.currentPage.update(p => p - 1);
+    if (this.currentPage() >= 2) {
+      this.currentPage.update(p => p - 2);
     }
   }
 
@@ -498,7 +478,9 @@ export class AdventurePageComponent implements OnInit {
       this.currentAdventure.set(adventure);
       this.userAction = '';
       const book = adventure.books['user'];
-      this.currentPage.set(Math.max(0, Math.floor((book.length - 1) / 2)));
+      const lastPageIdx = Math.floor((book.length - 1) / 5);
+      const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
+      this.currentPage.set(Math.max(0, lastSpreadIdx));
     } catch (e) {
       this.errorMessage.set('The world failed to respond to your action.');
     } finally {
@@ -515,7 +497,9 @@ export class AdventurePageComponent implements OnInit {
       this.currentAdventure.set(adventure);
       if (somethingHappened) {
         const book = adventure.books['user'];
-        this.currentPage.set(Math.max(0, Math.floor((book.length - 1) / 2)));
+        const lastPageIdx = Math.floor((book.length - 1) / 5);
+        const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
+        this.currentPage.set(Math.max(0, lastSpreadIdx));
       }
     } catch (e) {
       this.errorMessage.set('Time failed to pass.');
