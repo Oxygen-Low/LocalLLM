@@ -32,7 +32,7 @@ type PageView = 'list' | 'create' | 'edit';
             <p class="text-muted mt-1">Manage your private AI chat personas</p>
           </div>
           @if (currentView() === 'list' && !adminService.demoMode()) {
-            <button (click)="showCreate()" class="btn-primary text-sm">
+            <button type="button" (click)="showCreate()" class="btn-primary text-sm">
               + New Persona
             </button>
           }
@@ -72,7 +72,7 @@ type PageView = 'list' | 'create' | 'edit';
               <div class="w-16 h-16 bg-secondary-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">👤</div>
               <h3 class="text-lg font-semibold text-secondary-900 mb-2">No personas yet</h3>
               <p class="text-muted text-sm mb-6">Create a persona to define how the AI sees you in chats</p>
-              <button (click)="showCreate()" class="btn-primary text-sm">+ New Persona</button>
+              <button type="button" (click)="showCreate()" class="btn-primary text-sm">+ New Persona</button>
             </div>
           } @else {
             <div class="grid gap-4">
@@ -124,7 +124,7 @@ type PageView = 'list' | 'create' | 'edit';
           <!-- CREATE / EDIT VIEW                                            -->
           <!-- ============================================================ -->
           <div class="max-w-2xl">
-            <button (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
               Back to List
             </button>
@@ -145,11 +145,11 @@ type PageView = 'list' | 'create' | 'edit';
                 </div>
 
                 <div class="pt-4 flex gap-3">
-                  <button (click)="savePersona()" [disabled]="isSaving() || !formName.trim() || !formDescription.trim()"
+                  <button type="button" (click)="savePersona()" [disabled]="isSaving() || !formName.trim() || !formDescription.trim()"
                           class="btn-primary flex-1 disabled:opacity-50">
                     @if (isSaving()) { Saving... } @else { Save Persona }
                   </button>
-                  <button (click)="backToList()" class="btn-secondary px-6">
+                  <button type="button" (click)="backToList()" class="btn-secondary px-6">
                     Cancel
                   </button>
                 </div>
