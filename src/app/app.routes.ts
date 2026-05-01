@@ -83,6 +83,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/local-fix.page').then(m => m.LocalFixPageComponent),
         canActivate: [authGuard, demoGuard],
       },
+      {
+        path: 'app/adventure',
+        loadComponent: () => import('./pages/adventure.page').then(m => m.AdventurePageComponent),
+        canActivate: [authGuard],
+      },
     ],
   },
   {

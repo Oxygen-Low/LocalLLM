@@ -123,6 +123,38 @@ export interface Persona {
   updatedAt?: string;
 }
 
+export interface AdventureBookEntry {
+  entry: string;
+  timestamp: string;
+  type: 'narrator' | 'action';
+}
+
+export interface Adventure {
+  id: string;
+  title: string;
+  status: 'playing' | 'ended';
+  universeId: string;
+  universeName: string;
+  personaId: string;
+  personaName: string;
+  npcIds: string[];
+  npcNames?: Array<{ id: string; name: string }>;
+  narratorConfig: { provider: string; model: string };
+  characterConfig: { provider: string; model: string };
+  books: Record<string, AdventureBookEntry[]>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdventureSummary {
+  id: string;
+  title: string;
+  status: 'playing' | 'ended';
+  universeName: string;
+  personaName: string;
+  updatedAt: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -321,6 +353,69 @@ export class LlmService {
   async deleteChat(id: string): Promise<void> {
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/chats/${id}`)
+    );
+  }
+
+  // --- Adventures ---
+
+  async listAdventures(): Promise<AdventureSummary[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; adventures: AdventureSummary[] }>(
+        `${environment.apiUrl}/api/adventures`
+      )
+    );
+    return res.adventures || [];
+  }
+
+  async createAdventure(data: {
+    title?: string;
+    universeId: string;
+    personaId: string;
+    npcIds: string[];
+    narratorConfig: { provider: string; model: string };
+    characterConfig: { provider: string; model: string };
+  }): Promise<Adventure> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; adventure: Adventure }>(
+        `${environment.apiUrl}/api/adventures`,
+        data
+      )
+    );
+    return res.adventure;
+  }
+
+  async getAdventure(id: string): Promise<Adventure> {
+    const res = await firstValueFrom(
+      this.http.get<{ success: boolean; adventure: Adventure }>(
+        `${environment.apiUrl}/api/adventures/${id}`
+      )
+    );
+    return res.adventure;
+  }
+
+  async executeAdventureTurn(id: string, action: string | 'skip'): Promise<{ adventure: Adventure; somethingHappened: boolean }> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; adventure: Adventure; somethingHappened: boolean }>(
+        `${environment.apiUrl}/api/adventures/${id}/turn`,
+        { action }
+      )
+    );
+    return { adventure: res.adventure, somethingHappened: res.somethingHappened };
+  }
+
+  async updateAdventureState(id: string, status: 'playing' | 'ended'): Promise<Adventure> {
+    const res = await firstValueFrom(
+      this.http.post<{ success: boolean; adventure: Adventure }>(
+        `${environment.apiUrl}/api/adventures/${id}/state`,
+        { status }
+      )
+    );
+    return res.adventure;
+  }
+
+  async deleteAdventure(id: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`${environment.apiUrl}/api/adventures/${id}`)
     );
   }
 

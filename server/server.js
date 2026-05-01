@@ -25,6 +25,7 @@ const UNIVERSES_FILE = path.join(DATA_DIR, 'universes.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
+const ADVENTURES_DIR = path.join(DATA_DIR, 'adventures');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PYTHON_VENV_DIR = path.join(DATA_DIR, 'python_env');
 const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
@@ -661,6 +662,9 @@ if (!fs.existsSync(CHATS_DIR)) {
 }
 if (!fs.existsSync(PERSONAS_DIR)) {
   fs.mkdirSync(PERSONAS_DIR, { recursive: true });
+}
+if (!fs.existsSync(ADVENTURES_DIR)) {
+  fs.mkdirSync(ADVENTURES_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
@@ -2015,6 +2019,9 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     // Clean up all datasets owned by this user
     deleteAllUserDatasets(normalizedUsername);
+
+    // Clean up all adventures owned by this user
+    deleteAllUserAdventures(normalizedUsername);
 
     // Clean up personas file
     const personaFile = getPersonasFile(normalizedUsername);
@@ -3415,6 +3422,346 @@ function writePersonas(username, personas) {
   const encrypted = encryptData(JSON.stringify(personas), username);
   fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
 }
+
+// ---------------------------------------------------------------------------
+// Adventure management – Encrypted per-user storage
+// ---------------------------------------------------------------------------
+
+function getAdventureFile(username, adventureId) {
+  if (!/^[a-f0-9-]{36}$/.test(adventureId)) {
+    throw new Error('Invalid adventure ID');
+  }
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const userDir = path.join(ADVENTURES_DIR, safeUsername);
+  if (!fs.existsSync(userDir)) {
+    fs.mkdirSync(userDir, { recursive: true });
+  }
+  const filePath = path.join(userDir, `${adventureId}.enc`);
+  return ensureWithinDir(userDir, filePath);
+}
+
+function readAdventure(username, adventureId) {
+  const file = getAdventureFile(username, adventureId);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const encrypted = fs.readFileSync(file, 'utf-8');
+    return JSON.parse(decryptData(encrypted, username));
+  } catch {
+    return null;
+  }
+}
+
+function writeAdventure(username, adventureId, data) {
+  const file = getAdventureFile(username, adventureId);
+  const encrypted = encryptData(JSON.stringify(data), username);
+  fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
+}
+
+function listAdventures(username) {
+  const safeUsername = path.basename(sanitizeUsernameForPath(username));
+  const userDir = path.join(ADVENTURES_DIR, safeUsername);
+  if (!fs.existsSync(userDir)) return [];
+  const files = fs.readdirSync(userDir).filter(f => f.endsWith('.enc'));
+  const adventures = [];
+  for (const file of files) {
+    try {
+      const id = file.replace('.enc', '');
+      const data = readAdventure(username, id);
+      if (data) {
+        adventures.push({
+          id: data.id,
+          title: data.title,
+          status: data.status,
+          universeName: data.universeName,
+          personaName: data.personaName,
+          updatedAt: data.updatedAt,
+        });
+      }
+    } catch { /* ignore */ }
+  }
+  return adventures.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+function deleteAdventure(username, adventureId) {
+  const file = getAdventureFile(username, adventureId);
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+    return true;
+  }
+  return false;
+}
+
+// POST /api/adventures – Create a new adventure
+app.post('/api/adventures', requireSession, async (req, res) => {
+  try {
+    const { title, universeId, personaId, npcIds, narratorConfig, characterConfig } = req.body;
+
+    if (!universeId || !personaId || !narratorConfig || !characterConfig) {
+      return res.status(400).json({ success: false, error: 'Missing required parameters' });
+    }
+
+    const universes = readUniverses();
+    const universe = universes.find(u => u.id === universeId);
+    if (!universe) return res.status(404).json({ success: false, error: 'Universe not found' });
+
+    const personas = readPersonas(req.sessionUser);
+    const persona = personas.find(p => p.id === personaId);
+    if (!persona) return res.status(404).json({ success: false, error: 'Persona not found' });
+
+    const selectedNpcs = (universe.characters || []).filter(c => npcIds.includes(c.id));
+
+    const adventureId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    // Initial Narrator Prompt
+    const narratorPrompt = `You are the Narrator of an interactive book adventure.
+Universe: ${universe.name}. ${universe.description || ''}
+Characters:
+- ${persona.name} (User): ${persona.description}
+${selectedNpcs.map(npc => `- ${npc.name}: ${npc.description}`).join('\n')}
+
+Task: Start the adventure by generating a starting scene for everyone.
+Each character starts in a different place depending on their description.
+Output MUST be a JSON object with:
+1. "worldState": A hidden comprehensive summary of the current state of the world, locations, and what everyone is doing.
+2. "perspectives": An object where keys are "user" and NPC IDs, and values are the 2nd person, present tense description of their starting scene.
+
+Example Output:
+{
+  "worldState": "It is a rainy morning in the city of Eldoria. Player is at the tavern. NPC1 is at the library...",
+  "perspectives": {
+    "user": "You wake up to the sound of rain against the tavern window...",
+    "npc_uuid_1": "You are dusting the shelves in the quiet library..."
+  }
+}
+
+Respond ONLY with JSON.`;
+
+    const response = await getLLMCompletion(req.sessionUser, [{ role: 'system', content: narratorPrompt }], {
+      provider: narratorConfig.provider,
+      model: narratorConfig.model
+    });
+
+    let result;
+    try {
+      const cleaned = response.replace(/```json\n?|\n?```/g, '').trim();
+      result = JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Failed to parse Narrator start:', response);
+      return res.status(502).json({ success: false, error: 'Narrator failed to start the adventure correctly' });
+    }
+
+    const books = { user: [{ entry: result.perspectives.user, timestamp: now, type: 'narrator' }] };
+    selectedNpcs.forEach(npc => {
+      books[npc.id] = [{ entry: result.perspectives[npc.id] || result.perspectives[npc.name] || 'You are elsewhere...', timestamp: now, type: 'narrator' }];
+    });
+
+    const adventure = {
+      id: adventureId,
+      title: title || `Adventure in ${universe.name}`,
+      status: 'playing',
+      universeId,
+      universeName: universe.name,
+      personaId,
+      personaName: persona.name,
+      npcIds,
+      npcNames: selectedNpcs.map(n => ({ id: n.id, name: n.name })),
+      narratorConfig,
+      characterConfig,
+      worldState: result.worldState,
+      books,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    writeAdventure(req.sessionUser, adventureId, adventure);
+    auditLog({ event: 'ADVENTURE_CREATED', message: `Adventure "${adventure.title}" created`, username: req.sessionUser, req });
+    res.status(201).json({ success: true, adventure });
+  } catch (err) {
+    console.error('Create adventure error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/adventures – List user's adventures
+app.get('/api/adventures', requireSession, (req, res) => {
+  try {
+    const adventures = listAdventures(req.sessionUser);
+    res.json({ success: true, adventures });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/adventures/:id – Get single adventure
+app.get('/api/adventures/:id', requireSession, (req, res) => {
+  try {
+    const adventure = readAdventure(req.sessionUser, req.params.id);
+    if (!adventure) return res.status(404).json({ success: false, error: 'Adventure not found' });
+
+    // If playing, user only sees their own book
+    if (adventure.status === 'playing') {
+      const sanitized = { ...adventure };
+      delete sanitized.worldState;
+      const userBook = adventure.books.user;
+      sanitized.books = { user: userBook };
+      return res.json({ success: true, adventure: sanitized });
+    }
+
+    res.json({ success: true, adventure });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/adventures/:id/turn – Execute a turn
+app.post('/api/adventures/:id/turn', requireSession, async (req, res) => {
+  try {
+    const { action } = req.body; // action can be 'skip' or a string
+    const adventure = readAdventure(req.sessionUser, req.params.id);
+    if (!adventure) return res.status(404).json({ success: false, error: 'Adventure not found' });
+    if (adventure.status !== 'playing') return res.status(400).json({ success: false, error: 'Adventure is ended' });
+
+    const universes = readUniverses();
+    const universe = universes.find(u => u.id === adventure.universeId);
+    const personas = readPersonas(req.sessionUser);
+    const persona = personas.find(p => p.id === adventure.personaId);
+    const selectedNpcs = (universe.characters || []).filter(c => adventure.npcIds.includes(c.id));
+
+    const now = new Date().toISOString();
+    const npcActions = {};
+
+    // 1. NPCs Act
+    for (const npc of selectedNpcs) {
+      const npcBook = adventure.books[npc.id] || [];
+      const npcPrompt = `You are playing the role of ${npc.name} in a book adventure.
+Description: ${npc.description}
+Universe: ${universe.name}
+Your story so far:
+${npcBook.slice(-10).map(e => e.entry).join('\n')}
+
+Based on your current situation, what is your next action?
+Respond in the 1st person ("I ..."), present tense.
+Keep it concise.
+If you are sleeping or inactive, respond with "I am sleeping" or "I am waiting".
+Respond ONLY with your action.`;
+
+      const npcAction = await getLLMCompletion(req.sessionUser, [{ role: 'system', content: npcPrompt }], {
+        provider: adventure.characterConfig.provider,
+        model: adventure.characterConfig.model
+      });
+      npcActions[npc.id] = npcAction.trim();
+    }
+
+    // 2. Narrator Updates
+    const allActions = { user: action === 'skip' ? 'I wait.' : action };
+    selectedNpcs.forEach(npc => { allActions[npc.id] = npcActions[npc.id]; });
+
+    const narratorPrompt = `You are the Narrator.
+Universe: ${universe.name}.
+Current World State: ${adventure.worldState}
+
+Characters:
+- ${persona.name} (User): ${persona.description}
+${selectedNpcs.map(npc => `- ${npc.name}: ${npc.description}`).join('\n')}
+
+Recent Actions:
+- ${persona.name} (User): ${allActions.user}
+${selectedNpcs.map(npc => `- ${npc.name}: ${allActions[npc.id]}`).join('\n')}
+
+Task: Update the adventure.
+Output MUST be a JSON object with:
+1. "worldState": Updated comprehensive summary.
+2. "perspectives": Object with 2nd person present tense descriptions for everyone.
+3. "somethingHappened": Boolean. False if everyone just waited/slept and nothing changed.
+
+Ensure perspectives follow the rule:
+- Character A sees B do X.
+- Character B sees themselves do X.
+- Character C (who isn't there) sees nothing of X.
+
+If character A doesn't know who character B is, they should describe them by their appearance from their description.
+
+Respond ONLY with JSON.`;
+
+    const narratorResponse = await getLLMCompletion(req.sessionUser, [{ role: 'system', content: narratorPrompt }], {
+      provider: adventure.narratorConfig.provider,
+      model: adventure.narratorConfig.model
+    });
+
+    let result;
+    try {
+      const cleaned = narratorResponse.replace(/```json\n?|\n?```/g, '').trim();
+      result = JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Failed to parse Narrator turn:', narratorResponse);
+      return res.status(502).json({ success: false, error: 'Narrator failed to process the turn' });
+    }
+
+    // 3. Update Adventure
+    if (result.somethingHappened || action !== 'skip') {
+      if (action !== 'skip') {
+        adventure.books.user.push({ entry: action, timestamp: now, type: 'action' });
+      }
+      adventure.books.user.push({ entry: result.perspectives.user, timestamp: now, type: 'narrator' });
+
+      selectedNpcs.forEach(npc => {
+        if (!adventure.books[npc.id]) adventure.books[npc.id] = [];
+        if (result.somethingHappened || npcActions[npc.id].toLowerCase().indexOf('sleep') === -1) {
+           adventure.books[npc.id].push({ entry: npcActions[npc.id], timestamp: now, type: 'action' });
+           adventure.books[npc.id].push({ entry: result.perspectives[npc.id] || result.perspectives[npc.name] || '...', timestamp: now, type: 'narrator' });
+        }
+      });
+
+      adventure.worldState = result.worldState;
+      adventure.updatedAt = now;
+      writeAdventure(req.sessionUser, adventure.id, adventure);
+    }
+
+    // Return sanitized adventure
+    const sanitized = { ...adventure };
+    delete sanitized.worldState;
+    const userBook = adventure.books.user;
+    sanitized.books = { user: userBook };
+    res.json({ success: true, adventure: sanitized, somethingHappened: result.somethingHappened });
+  } catch (err) {
+    console.error('Adventure turn error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/adventures/:id/state – Toggle state
+app.post('/api/adventures/:id/state', requireSession, (req, res) => {
+  try {
+    const { status } = req.body;
+    if (status !== 'playing' && status !== 'ended') {
+      return res.status(400).json({ success: false, error: 'Invalid status' });
+    }
+    const adventure = readAdventure(req.sessionUser, req.params.id);
+    if (!adventure) return res.status(404).json({ success: false, error: 'Adventure not found' });
+
+    adventure.status = status;
+    adventure.updatedAt = new Date().toISOString();
+    writeAdventure(req.sessionUser, adventure.id, adventure);
+    res.json({ success: true, adventure });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/adventures/:id – Delete adventure
+app.delete('/api/adventures/:id', requireSession, (req, res) => {
+  try {
+    if (deleteAdventure(req.sessionUser, req.params.id)) {
+      auditLog({ event: 'ADVENTURE_DELETED', message: `Adventure ${req.params.id} deleted`, username: req.sessionUser, req });
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ success: false, error: 'Adventure not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
 
 // GET /api/user/personas – List user's personas
 app.get('/api/user/personas', requireSession, (req, res) => {
@@ -4860,6 +5207,18 @@ function deleteAllUserDatasets(username) {
     if (fs.existsSync(metaFile)) fs.unlinkSync(metaFile);
   } catch (err) {
     console.error('deleteAllUserDatasets error for %s: %s', username, err.message);
+  }
+}
+
+function deleteAllUserAdventures(username) {
+  try {
+    const safeUsername = path.basename(sanitizeUsernameForPath(username));
+    const userDir = path.join(ADVENTURES_DIR, safeUsername);
+    if (fs.existsSync(userDir)) {
+      fs.rmSync(userDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.error('deleteAllUserAdventures error for %s: %s', username, err.message);
   }
 }
 
@@ -10036,4 +10395,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT, readAdventure, writeAdventure, listAdventures, deleteAdventure };
