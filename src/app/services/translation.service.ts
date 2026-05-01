@@ -26,10 +26,10 @@ const translations: TranslationDictionary = {
     ru: 'Инструменты для всех',
   },
   'hero.subheading': {
-    en: 'Local.LLM is your platform for accessing developer, roleplaying, and gaming AI applications. Use our cloud or host it yourself.',
-    ko: 'Local.LLM은 개발자, 롤플레잉, 게임 AI 애플리케이션을 위한 플랫폼입니다. 클라우드를 사용하거나 직접 호스팅하세요.',
-    ja: 'Local.LLMは、開発者向け、ロールプレイ向け、ゲーム向けのAIアプリケーションにアクセスするためのプラットフォームです。クラウドを利用することも、自分でホストすることもできます。',
-    ru: 'Local.LLM — это платформа для доступа к ИИ-приложениям для разработчиков, ролевых игр и игр. Используйте наше облако или разместите её у себя.',
+    en: 'Local.LLM is your platform for accessing developer and creative AI applications. Use our cloud or host it yourself.',
+    ko: 'Local.LLM은 개발자 및 크리에이티브 AI 애플리케이션을 위한 플랫폼입니다. 클라우드를 사용하거나 직접 호스팅하세요.',
+    ja: 'Local.LLMは、開発者やクリエイティブなAIアプリケーションにアクセスするためのプラットフォームです。クラウドを利用することも、自分でホストすることもできます。',
+    ru: 'Local.LLM — это платформа для доступа к ИИ-приложениям для разработчиков и творческих задач. Используйте наше облако или разместите её у себя.',
   },
   'hero.feature.cloud': {
     en: 'Cloud & Self-Hosted',
@@ -242,67 +242,6 @@ const translations: TranslationDictionary = {
     ru: 'Опасные приложения отключены администратором.',
   },
 
-  // Web SEO App
-  'webSeo.title': {
-    en: 'Web Seo Optimizer',
-    ko: '웹 SEO 최적화 도구',
-    ja: 'ウェブSEOオプティマイザー',
-    ru: 'Web Seo Оптимизатор',
-  },
-  'webSeo.subtitle': {
-    en: 'Analyze your web projects for SEO, performance, and accessibility using AI.',
-    ko: 'AI를 사용하여 웹 프로젝트의 SEO, 성능 및 접근성을 분석합니다.',
-    ja: 'AIを使用して、ウェブプロジェクトのSEO、パフォーマンス、アクセシビリティを分析します。',
-    ru: 'Анализируйте свои веб-проекты на предмет SEO, производительности и доступности с помощью ИИ.',
-  },
-  'webSeo.addApp': {
-    en: 'Add SEO App',
-    ko: 'SEO 앱 추가',
-    ja: 'SEOアプリを追加',
-    ru: 'Добавить SEO приложение',
-  },
-  'webSeo.noApps': {
-    en: 'No SEO apps yet. Add one to start analyzing!',
-    ko: '아직 SEO 앱이 없습니다. 분석을 시작하려면 하나를 추가하세요!',
-    ja: 'SEOアプリはまだありません。分析を開始するには1つ追加してください！',
-    ru: 'SEO-приложений пока нет. Добавьте одно, чтобы начать анализ!',
-  },
-  'webSeo.urlType': {
-    en: 'Web URL',
-    ko: '웹 URL',
-    ja: 'ウェブURL',
-    ru: 'Веб URL',
-  },
-  'webSeo.repoType': {
-    en: 'Repository',
-    ko: '저장소',
-    ja: 'リポジトリ',
-    ru: 'Репозиторий',
-  },
-  'webSeo.checkNow': {
-    en: 'Run SEO Check',
-    ko: 'SEO 확인 실행',
-    ja: 'SEOチェックを実行',
-    ru: 'Запустить проверку SEO',
-  },
-  'webSeo.lastChecked': {
-    en: 'Last checked',
-    ko: '마지막 확인',
-    ja: '最終チェック',
-    ru: 'Последняя проверка',
-  },
-  'webSeo.score': {
-    en: 'Score',
-    ko: '점수',
-    ja: 'スコア',
-    ru: 'Балл',
-  },
-  'webSeo.findings': {
-    en: 'AI Findings',
-    ko: 'AI 분석 결과',
-    ja: 'AIの分析結果',
-    ru: 'Результаты ИИ',
-  },
 
   // App Card translations
   'apps.general-assistant.name': {
@@ -341,30 +280,6 @@ const translations: TranslationDictionary = {
     ja: 'サーバー上でホストされているLocal.LLMリポジトリを管理します。リポジトリは1時間の無活動後に自動的にアーカイブされ、認証キーによるgitクローンをサポートし、GitHubと同期できます。',
     ru: 'Управление репозиториями Local.LLM, размещенными на сервере. Репозитории автоматически архивируются после 1 часа бездействия, поддерживают клонирование git через ключи аутентификации и могут синхронизироваться with GitHub.',
   },
-  'apps.web-seo.name': {
-    en: 'Web Seo',
-    ko: '웹 SEO',
-    ja: 'ウェブSEO',
-    ru: 'Веб SEO',
-  },
-  'apps.web-seo.description': {
-    en: 'Analyze websites and repositories for SEO optimizations using AI. Automatically creates containers to build and check your web applications.',
-    ko: 'AI를 사용하여 웹사이트 및 저장소의 SEO 최적화를 분석합니다. 웹 애플리케이션을 빌드하고 확인하기 위해 자동으로 컨테이너를 생성합니다.',
-    ja: 'AIを使用してウェブサイトやリポジトリのSEO最適化を分析します。ウェブアプリケーションをビル드하여 확인하기 위해, 자동으로 컨테이너를 생성합니다.',
-    ru: 'Анализ веб-сайтов и репозиториев на предмет SEO-оптимизации с помощью ИИ. Автоматически создает контейнеры для сборки и проверки ваших веб-приложений.',
-  },
-  'apps.roleplay.name': {
-    en: 'Roleplay',
-    ko: '롤플레잉',
-    ja: 'ロールプレイ',
-    ru: 'Ролевая игра',
-  },
-  'apps.roleplay.description': {
-    en: 'Immerse yourself in different universes with custom and automatically generated characters. Experience a life-simulator with social media interactions.',
-    ko: '커스텀 및 자동 생성된 캐릭터와 함께 다양한 세계관에 몰입해 보세요. 소셜 미디어 상호작용이 있는 라이프 시뮬레이터를 경험하세요.',
-    ja: 'カスタムおよび自動生成されたキャラクターと共に、さまざまな世界観に没入しましょう。ソーシャルメディアでの交流があるライフシミュレーターを体験してください。',
-    ru: 'Погрузитесь в различные вселенные с созданными и автоматически сгенерированными персонажами. Испытайте симулятор жизни с взаимодействием в социальных сетях.',
-  },
   'apps.category.assistant': {
     en: 'Assistant',
     ko: '어시스턴트',
@@ -382,30 +297,6 @@ const translations: TranslationDictionary = {
     ko: '저장소',
     ja: 'ストレージ',
     ru: 'Хранилище',
-  },
-  'apps.category.seo': {
-    en: 'SEO',
-    ko: 'SEO',
-    ja: 'SEO',
-    ru: 'SEO',
-  },
-  'apps.category.experiment': {
-    en: 'Experiment',
-    ko: '실험',
-    ja: '実験',
-    ru: 'Эксперимент',
-  },
-  'apps.marketplace-experiment.name': {
-    en: 'Marketplace Experiment',
-    ko: '마켓플레이스 실험',
-    ja: 'マーケットプレイス実験',
-    ru: 'Эксперимент с маркетплейсом',
-  },
-  'apps.marketplace-experiment.description': {
-    en: 'Simulate multiple LLMs in their own Docker VMs interacting with a marketplace. Buy, sell, and manage items in a controlled economy.',
-    ko: '자체 Docker VM에서 마켓플레이스와 상호 작용하는 여러 LLM을 시뮬레이션합니다. 통제된 경제에서 아이템을 사고팔고 관리하세요.',
-    ja: '独自のDocker VMでマーケットプレイスと相互作用する複数のLLMをシミュレートします。制御された経済の中でアイテムを売買し、管理します。',
-    ru: 'Симулируйте работу нескольких LLM в их собственных Docker VM, взаимодействующих с маркетплейсом. Покупайте, продавайте и управляйте предметами в контролируемой экономике.',
   },
   'apps.datasets.name': {
     en: 'Datasets',
@@ -1145,12 +1036,6 @@ const translations: TranslationDictionary = {
     ja: 'データ',
     ru: 'Данные',
   },
-  'apps.category.creative': {
-    en: 'Creative',
-    ko: '크리에이티브',
-    ja: 'クリエイティブ',
-    ru: 'Творчество',
-  },
   'apps.category.training': {
     en: 'Training',
     ko: '훈련',
@@ -1186,24 +1071,6 @@ const translations: TranslationDictionary = {
     ko: '진단',
     ja: '診断',
     ru: 'Диагностика',
-  },
-  'apps.pentesting.name': {
-    en: 'Pentesting',
-    ko: '침투 테스트',
-    ja: 'ペネトレーションテスト',
-    ru: 'Пентестинг',
-  },
-  'apps.pentesting.description': {
-    en: 'Deploy a repository into an isolated Docker environment and let an AI ethical hacker find vulnerabilities. Generates a detailed security report when done.',
-    ko: '격리된 Docker 환경에 저장소를 배포하고 AI 윤리적 해커가 취약점을 찾도록 합니다. 완료 시 자세한 보안 보고서를 생성합니다.',
-    ja: '隔離されたDocker環境にリポジトリをデプロイし、AI倫理的ハッカーに脆弱性を見つけさせます。完了時に詳細なセキュリティレポートを生成します。',
-    ru: 'Развёртывайте репозиторий в изолированной среде Docker и позвольте ИИ-этичному хакеру находить уязвимости. По завершении генерируется подробный отчёт по безопасности.',
-  },
-  'apps.category.security': {
-    en: 'Security',
-    ko: '보안',
-    ja: 'セキュリティ',
-    ru: 'Безопасность',
   },
   'localFix.title': {
     en: '🔧 Local Fix',

@@ -69,18 +69,8 @@ export const routes: Routes = [
         canActivate: [authGuard, riskyAppsGuard, demoGuard],
       },
       {
-        path: 'app/web-seo',
-        loadComponent: () => import('./pages/web-seo.page').then(m => m.WebSeoPageComponent),
-        canActivate: [authGuard, riskyAppsGuard, demoGuard],
-      },
-      {
         path: 'app/datasets',
         loadComponent: () => import('./pages/datasets.page').then(m => m.DatasetsPageComponent),
-        canActivate: [authGuard],
-      },
-      {
-        path: 'app/roleplay',
-        loadComponent: () => import('./pages/roleplay.page').then(m => m.RoleplayPageComponent),
         canActivate: [authGuard],
       },
       {
@@ -92,16 +82,6 @@ export const routes: Routes = [
         path: 'app/local-fix',
         loadComponent: () => import('./pages/local-fix.page').then(m => m.LocalFixPageComponent),
         canActivate: [authGuard, demoGuard],
-      },
-      {
-        path: 'app/pentesting',
-        loadComponent: () => import('./pages/pentesting.page').then(m => m.PentestingPageComponent),
-        canActivate: [authGuard, riskyAppsGuard, demoGuard],
-      },
-      {
-        path: 'app/marketplace-experiment',
-        loadComponent: () => import('./pages/marketplace-experiment.page').then(m => m.MarketplaceExperimentPageComponent),
-        canActivate: [authGuard, riskyAppsGuard, demoGuard],
       },
     ],
   },

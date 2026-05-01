@@ -1570,7 +1570,7 @@ export class GeneralAssistantPageComponent implements OnInit, OnDestroy {
     let systemContent = 'You are a helpful, knowledgeable, and friendly AI assistant. Provide clear, accurate, and well-structured responses. When appropriate, use markdown formatting like headings, lists, code blocks, and emphasis for readability.';
 
     if (this.selectedCharacter()) {
-      systemContent += '\n\nIMPORTANT: You are currently in roleplay mode. Prioritize the character background, universe setting, and persona context provided in the system context. Stay in character at all times and avoid breaking the fourth wall unless explicitly asked.';
+      systemContent += '\n\nIMPORTANT: You are currently adopting a character persona. Prioritize the character background, universe setting, and persona context provided in the system context. Stay in character at all times and avoid breaking the fourth wall unless explicitly asked.';
     }
 
     if (withTools) {

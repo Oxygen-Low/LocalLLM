@@ -86,9 +86,7 @@ describe('App Routes', () => {
     expect(childPaths).toContain('app/general-assistant');
     expect(childPaths).toContain('app/coding-agent');
     expect(childPaths).toContain('app/repositories');
-    expect(childPaths).toContain('app/web-seo');
     expect(childPaths).toContain('app/datasets');
-    expect(childPaths).toContain('app/roleplay');
     expect(childPaths).toContain('app/train-llm');
     expect(childPaths).toContain('app/local-fix');
   });
