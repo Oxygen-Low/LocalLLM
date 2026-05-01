@@ -407,9 +407,7 @@ export class AdventurePageComponent implements OnInit {
       this.currentPerspective.set('user');
       // Jump to last page
       const book = adv.books['user'];
-      const lastPageIdx = Math.floor((book.length - 1) / 5);
-      const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
-      this.currentPage.set(Math.max(0, lastSpreadIdx));
+      this.jumpToLastSpread(book);
     } catch (e) {
       this.errorMessage.set('Failed to open the book.');
     }
@@ -469,6 +467,17 @@ export class AdventurePageComponent implements OnInit {
     this.currentPage.set(0);
   }
 
+  private jumpToLastSpread(book: AdventureBookEntry[] | undefined) {
+    const length = book?.length ?? 0;
+    if (length === 0) {
+      this.currentPage.set(0);
+      return;
+    }
+    const lastPageIdx = Math.floor((length - 1) / 5);
+    const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
+    this.currentPage.set(Math.max(0, lastSpreadIdx));
+  }
+
   async executeTurn() {
     if (!this.userAction.trim() || !this.currentAdventure()) return;
     this.isProcessing.set(true);
@@ -477,10 +486,7 @@ export class AdventurePageComponent implements OnInit {
       const { adventure } = await this.llmService.executeAdventureTurn(this.currentAdventure()!.id, this.userAction);
       this.currentAdventure.set(adventure);
       this.userAction = '';
-      const book = adventure.books['user'];
-      const lastPageIdx = Math.floor((book.length - 1) / 5);
-      const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
-      this.currentPage.set(Math.max(0, lastSpreadIdx));
+      this.jumpToLastSpread(adventure.books['user']);
     } catch (e) {
       this.errorMessage.set('The world failed to respond to your action.');
     } finally {
@@ -496,10 +502,7 @@ export class AdventurePageComponent implements OnInit {
       const { adventure, somethingHappened } = await this.llmService.executeAdventureTurn(this.currentAdventure()!.id, 'skip');
       this.currentAdventure.set(adventure);
       if (somethingHappened) {
-        const book = adventure.books['user'];
-        const lastPageIdx = Math.floor((book.length - 1) / 5);
-        const lastSpreadIdx = lastPageIdx % 2 === 0 ? lastPageIdx : lastPageIdx - 1;
-        this.currentPage.set(Math.max(0, lastSpreadIdx));
+        this.jumpToLastSpread(adventure.books['user']);
       }
     } catch (e) {
       this.errorMessage.set('Time failed to pass.');

@@ -297,6 +297,24 @@ function requireSession(req, res, next) {
   next();
 }
 
+// Helper to acquire per-adventure lock and run mutation logic
+async function withAdventureLock(adventureId, fn) {
+  // Wait for any existing lock
+  while (adventureLocks.has(adventureId)) {
+    await adventureLocks.get(adventureId);
+  }
+  let resolveLock;
+  const lockPromise = new Promise(resolve => { resolveLock = resolve; });
+  adventureLocks.set(adventureId, lockPromise);
+
+  try {
+    return await fn();
+  } finally {
+    adventureLocks.delete(adventureId);
+    resolveLock();
+  }
+}
+
 // Middleware to block specific endpoints when running in demo mode
 function blockInDemo(req, res, next) {
   if (DEMO_MODE) {
@@ -2284,6 +2302,9 @@ app.post('/api/admin/users/delete', async (req, res) => {
       if (fs.existsSync(personaFile)) {
         fs.unlinkSync(personaFile);
       }
+
+      // Invalidate all active sessions/tokens for the deleted user
+      invalidateUserSessions(normalizedUsername);
     } catch (err) {
       console.error('Admin delete user: failed to clean up data for %s:', normalizedUsername, err);
     }
@@ -3516,6 +3537,10 @@ app.post('/api/adventures', requireSession, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required parameters' });
     }
 
+    if (!Array.isArray(npcIds)) {
+      return res.status(400).json({ success: false, error: 'npcIds must be an array' });
+    }
+
     const universes = readUniverses();
     const universe = universes.find(u => u.id === universeId);
     if (!universe) return res.status(404).json({ success: false, error: 'Universe not found' });
@@ -3764,33 +3789,37 @@ Respond ONLY with JSON.`;
 });
 
 // POST /api/adventures/:id/state – Toggle state
-app.post('/api/adventures/:id/state', requireSession, (req, res) => {
+app.post('/api/adventures/:id/state', requireSession, async (req, res) => {
   try {
-    const { status } = req.body;
-    if (status !== 'playing' && status !== 'ended') {
-      return res.status(400).json({ success: false, error: 'Invalid status' });
-    }
-    const adventure = readAdventure(req.sessionUser, req.params.id);
-    if (!adventure) return res.status(404).json({ success: false, error: 'Adventure not found' });
+    await withAdventureLock(req.params.id, async () => {
+      const { status } = req.body;
+      if (status !== 'playing' && status !== 'ended') {
+        return res.status(400).json({ success: false, error: 'Invalid status' });
+      }
+      const adventure = readAdventure(req.sessionUser, req.params.id);
+      if (!adventure) return res.status(404).json({ success: false, error: 'Adventure not found' });
 
-    adventure.status = status;
-    adventure.updatedAt = new Date().toISOString();
-    writeAdventure(req.sessionUser, adventure.id, adventure);
-    res.json({ success: true, adventure });
+      adventure.status = status;
+      adventure.updatedAt = new Date().toISOString();
+      writeAdventure(req.sessionUser, adventure.id, adventure);
+      res.json({ success: true, adventure });
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
 // DELETE /api/adventures/:id – Delete adventure
-app.delete('/api/adventures/:id', requireSession, (req, res) => {
+app.delete('/api/adventures/:id', requireSession, async (req, res) => {
   try {
-    if (deleteAdventure(req.sessionUser, req.params.id)) {
-      auditLog({ event: 'ADVENTURE_DELETED', message: `Adventure ${req.params.id} deleted`, username: req.sessionUser, req });
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ success: false, error: 'Adventure not found' });
-    }
+    await withAdventureLock(req.params.id, async () => {
+      if (deleteAdventure(req.sessionUser, req.params.id)) {
+        auditLog({ event: 'ADVENTURE_DELETED', message: `Adventure ${req.params.id} deleted`, username: req.sessionUser, req });
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ success: false, error: 'Adventure not found' });
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
