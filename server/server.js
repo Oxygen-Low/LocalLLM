@@ -1399,7 +1399,7 @@ function startPythonProcess() {
       });
 
       proc.stderr.on('data', (data) => {
-        console.error(`[python] ${data.toString().trim()}`);
+        console.error('[python] %s', data.toString().trim());
       });
 
       proc.on('close', (code) => {
@@ -1869,7 +1869,7 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
 
     if (apiKeysData === null) {
       // File is corrupt / unreadable – abort to avoid data loss
-      console.error(`Change-username: failed to read API keys for ${oldUsername}, aborting username change`);
+      console.error('Change-username: failed to read API keys for %s, aborting username change', oldUsername);
       return res.status(500).json({ success: false, error: 'Failed to migrate API keys. Please try again later.' });
     }
 
@@ -2285,7 +2285,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
         fs.unlinkSync(personaFile);
       }
     } catch (err) {
-      console.error(`Admin delete user: failed to clean up data for ${normalizedUsername}:`, err);
+      console.error('Admin delete user: failed to clean up data for %s:', normalizedUsername, err);
     }
 
     auditLog({ event: 'ADMIN_DELETE_USER', message: `Admin deleted user ${normalizedUsername}`, username: adminUsername, req });
@@ -4437,9 +4437,9 @@ async function stopContainerByInactivity(containerId) {
       entry.status = 'stopped';
       clearTimeout(entry.inactivityTimer);
     }
-    console.log(`Container ${containerId} stopped due to inactivity`);
+    console.log('Container %s stopped due to inactivity', containerId);
   } catch (err) {
-    console.error(`Failed to stop container ${containerId}:`, err.message);
+    console.error('Failed to stop container %s:', containerId, err.message);
   }
 }
 
@@ -6344,7 +6344,7 @@ Do not include any markdown, explanation, or extra text. Return raw JSON only.`;
         });
       } catch (rowErr) {
         // On LLM failure for a single row, keep the original
-        console.error(`Dataset refine: failed to refine row ${i + 1} of dataset "${ds.name}":`, rowErr.message || rowErr);
+        console.error('Dataset refine: failed to refine row %d of dataset %s:', i + 1, ds.name, rowErr.message || rowErr);
         refinedRows.push(row);
       }
     }
@@ -7600,7 +7600,7 @@ async function archiveRepoByInactivity(repoId) {
   const entry = repoRegistry.get(repoId);
   if (!entry) return;
   try { await performArchiveRepo(entry.username, repoId); }
-  catch (err) { console.error(`Failed to archive repo ${repoId}:`, err.message); }
+  catch (err) { console.error('Failed to archive repo %s:', repoId, err.message); }
 }
 
 // Load active repos into memory at startup
@@ -7672,13 +7672,13 @@ async function performArchiveRepo(username, repoId) {
                 `cd /workspace && git add -A && git checkout -b "${branchName}" && git -c user.email="localllm@local" -c user.name="LocalLLM" commit -m "Auto-save before archive"`],
                 { timeout: 60000, encoding: 'utf-8' });
             } catch (commitErr) {
-              console.error(`Auto-commit error for repo ${repoId}:`, commitErr.message);
+              console.error('Auto-commit error for repo %s:', repoId, commitErr.message);
             }
           }
           try { execFileSync('docker', ['rm', '-f', containerName], { timeout: 30000 }); } catch {}
         }
       } catch (err) {
-        console.error(`Archive container cleanup error for ${repoId}:`, err.message);
+        console.error('Archive container cleanup error for %s:', repoId, err.message);
       }
       if (containerEntry) {
         clearTimeout(containerEntry.inactivityTimer);
@@ -7735,7 +7735,7 @@ function deleteAllUserRepos(username) {
     const metaFile = getUserReposMetaFile(username);
     if (fs.existsSync(metaFile)) fs.unlinkSync(metaFile);
   } catch (err) {
-    console.error(`deleteAllUserRepos error for ${username}:`, err.message);
+    console.error('deleteAllUserRepos error for %s:', username, err.message);
   }
 }
 
@@ -9996,7 +9996,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
       return;
     }
     const errorId = crypto.randomUUID();
-    console.error(`Chat send error [${errorId}]:`, err);
+    console.error('Chat send error [%s]:', errorId, err);
     if (processedMessages && processedMessages.length > 0) {
       console.log(`[${errorId}] Message count: ${processedMessages.length}`);
     }
