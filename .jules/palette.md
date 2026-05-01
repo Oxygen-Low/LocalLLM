@@ -4,3 +4,4 @@
 - **Fix:** Added `type="button"`, `aria-label="Remove relationship"`, `title="Remove relationship"`, and keyboard focus classes (`outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded px-1`) to the buttons.
 - **Impact:** Improved accessibility for screen readers and keyboard users, preventing accidental form submissions and providing clear interactive feedback.
 - **Verification:** Verified code changes are correctly rendered via file inspection and ensured frontend tests passed.
+- Moved the Adventure app from the top navigation bar to the main dashboard as a standard app card. This improves UI consistency by grouping all AI applications in the dashboard and decluttering the navbar.

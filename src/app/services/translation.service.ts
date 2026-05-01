@@ -1072,6 +1072,24 @@ const translations: TranslationDictionary = {
     ja: '診断',
     ru: 'Диагностика',
   },
+  'apps.category.creative': {
+    en: 'Creative',
+    ko: '창의적',
+    ja: 'クリエイティブ',
+    ru: 'Творчество',
+  },
+  'apps.adventure.name': {
+    en: 'Adventure',
+    ko: '어드벤처',
+    ja: 'アドベンチャー',
+    ru: 'Приключение',
+  },
+  'apps.adventure.description': {
+    en: 'Embark on a turn-based journey in custom universes. Play as your persona and interact with AI-driven characters in an evolving story.',
+    ko: '커스텀 유니버스에서 턴제 여정을 시작하세요. 자신의 페르소나로 플레이하고 진화하는 스토리에서 AI 중심 캐릭터와 상호 작용하세요.',
+    ja: 'カスタムユニバースでターン制の旅に出かけましょう。自分のペ르ソナとしてプレイし、進化するストーリーの中でAI駆動のキャラクターと対話します。',
+    ru: 'Отправляйтесь в пошаговое путешествие по кастомным вселенным. Играйте за свою персону и взаимодействуйте с ИИ-персонажами в развивающейся истории.',
+  },
   'localFix.title': {
     en: '🔧 Local Fix',
     ko: '🔧 로컬 수리',
