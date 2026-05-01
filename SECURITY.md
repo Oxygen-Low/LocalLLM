@@ -88,7 +88,7 @@ Server-side session tokens are issued on successful login or signup:
 - **Client delivery**: Returned in the login/signup JSON response and stored in `sessionStorage`
 - **Transmission**: Attached to all API requests via `Authorization: Bearer <token>` header (Angular HTTP interceptor)
 - **Invalidation**: `POST /api/auth/logout` removes the token server-side; account deletion revokes all user sessions
-- **Protected endpoints**: All authenticated API endpoints are session-protected, including endpoints for authentication management (`/api/auth/*`), user settings and language (`/api/user/*`), personas, chats, roleplay sessions, datasets, repositories, coding agent containers, model training, web SEO, local fix sessions, and admin operations
+- **Protected endpoints**: All authenticated API endpoints are session-protected, including endpoints for authentication management (`/api/auth/*`), user settings and language (`/api/user/*`), personas, chats, datasets, repositories, coding agent containers, model training, local fix sessions, and admin operations
 
 ## Cryptographic Standards
 

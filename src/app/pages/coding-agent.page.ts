@@ -831,8 +831,8 @@ interface ToolCall {
                           [ngClass]="selectedCharacter()
                             ? 'border-purple-300 bg-purple-50 text-purple-700'
                             : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
-                          aria-label="Select roleplay character"
-                          title="Select roleplay character"
+                          aria-label="Select character"
+                          title="Select character"
                           aria-haspopup="listbox"
                           [attr.aria-expanded]="showCharacterDropdown()"
                         >
