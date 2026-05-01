@@ -10066,19 +10066,24 @@ const dns = require("dns").promises;
 
 // Helper function to check if an IP is private/internal
 function isPrivateIP(ip) {
-  const parts = ip.split('.');
-  if (parts.length === 4) {
-    const first = parseInt(parts[0], 10);
-    const second = parseInt(parts[1], 10);
-    if (first === 127) return true; // 127.x.x.x
-    if (first === 10) return true; // 10.x.x.x
-    if (first === 192 && second === 168) return true; // 192.168.x.x
-    if (first === 169 && second === 254) return true; // 169.254.x.x (link-local)
-    if (first === 172 && second >= 16 && second <= 31) return true; // 172.16-31.x.x
-    if (first === 0) return true; // 0.0.0.0
+  const addr = ip.replace(/^\[|\]$/g, '');
+  if (/^127\./.test(addr)) return true;
+  if (/^10\./.test(addr)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(addr)) return true;
+  if (/^192\.168\./.test(addr)) return true;
+  if (/^169\.254\./.test(addr)) return true;
+  if (addr === '0.0.0.0' || addr === '0') return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) return true;
+  if (/^([0:]+):0*1$/i.test(addr) && !/[2-9a-f]/i.test(addr)) return true;
+  if (/^[0:]+$/i.test(addr) && addr.includes(':') && !/[1-9a-f]/i.test(addr)) return true;
+  if (/^fe80:/i.test(addr)) return true;
+  if (/^f[cd]/i.test(addr)) return true;
+  if (/^::ffff:/i.test(addr)) {
+    const v4 = addr.replace(/^::ffff:/i, '');
+    if (v4.includes('.')) return isPrivateIP(v4);
+    if (/^[0:]*0*1$/i.test(v4) && !/[2-9a-f]/i.test(v4)) return true;
+    if (/^[0:]+$/i.test(v4) && !/[1-9a-f]/i.test(v4)) return true;
   }
-  // IPv6 localhost
-  if (ip === '::1' || ip === '0000:0000:0000:0000:0000:0000:0000:0001') return true;
   return false;
 }
 
