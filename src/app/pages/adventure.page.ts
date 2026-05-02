@@ -276,7 +276,7 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               {{ errorMessage() }}
             </span>
-            <button (click)="errorMessage.set(null)" class="hover:text-red-900 transition-colors">✕</button>
+            <button type="button" (click)="errorMessage.set(null)" aria-label="Dismiss error" title="Dismiss error" class="hover:text-red-900 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none rounded px-1">✕</button>
           </div>
         }
 
