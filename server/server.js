@@ -6198,7 +6198,7 @@ app.delete('/api/datasets/:id', requireSession, blockInDemo, (req, res) => {
 });
 
 // POST /api/datasets/:id/archive – Archive a dataset
-app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) => {
+app.post('/api/datasets/:id/archive', requireSession, blockInDemo, async (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
@@ -6209,7 +6209,7 @@ app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) =>
     const archivePath = getUserDatasetArchivePath(req.sessionUser, ds.id);
     if (fs.existsSync(datasetDir)) {
       const userDir = getUserDatasetsDir(req.sessionUser);
-      execFileSync('tar', ['-czf', archivePath, '-C', userDir, ds.id], { timeout: 180000 });
+      await runCommandAsync('tar', ['-czf', archivePath, '-C', userDir, ds.id], { timeout: 180000 });
       fs.rmSync(datasetDir, { recursive: true, force: true });
     }
 
@@ -6224,7 +6224,7 @@ app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) =>
 });
 
 // POST /api/datasets/:id/unarchive – Unarchive a dataset
-app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, (req, res) => {
+app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, async (req, res) => {
   try {
     const datasets = readUserDatasets(req.sessionUser);
     const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'archived');
@@ -6234,7 +6234,7 @@ app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, (req, res) 
     const archivePath = getUserDatasetArchivePath(req.sessionUser, ds.id);
     if (!fs.existsSync(archivePath)) return res.status(404).json({ success: false, error: 'Archive file not found' });
     const userDir = getUserDatasetsDir(req.sessionUser);
-    execFileSync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
+    await runCommandAsync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
     fs.unlinkSync(archivePath);
 
     datasets[dsIdx] = { ...ds, status: 'active', archivedAt: null };
@@ -7723,7 +7723,7 @@ async function performArchiveRepo(username, repoId) {
   const archivePath = getUserRepoArchivePath(username, repoId);
   if (fs.existsSync(bareDir)) {
     const userDir = getUserReposDir(username);
-    execFileSync('tar', ['-czf', archivePath, '-C', userDir, `${repoId}.git`], { timeout: 180000 });
+    await runCommandAsync('tar', ['-czf', archivePath, '-C', userDir, `${repoId}.git`], { timeout: 180000 });
     fs.rmSync(bareDir, { recursive: true, force: true });
   }
 
@@ -7735,16 +7735,15 @@ async function performArchiveRepo(username, repoId) {
   auditLog({ event: 'REPO_ARCHIVED', message: `Repository "${repo.name}" archived`, username });
 }
 
-function performUnarchiveRepo(username, repoId) {
+async function performUnarchiveRepo(username, repoId) {
   const repos = readUserRepos(username);
   const repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'archived');
   if (repoIdx === -1) throw new Error('Repository not found or not archived');
   const repo = repos[repoIdx];
-  const { execFileSync } = require('child_process');
   const archivePath = getUserRepoArchivePath(username, repoId);
   if (!fs.existsSync(archivePath)) throw new Error('Archive file not found');
   const userDir = getUserReposDir(username);
-  execFileSync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
+  await runCommandAsync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
   fs.unlinkSync(archivePath);
   repos[repoIdx] = { ...repo, status: 'active', archivedAt: null };
   writeUserRepos(username, repos);
@@ -8066,7 +8065,7 @@ app.post('/api/repositories/:id/unarchive', requireSession, async (req, res) => 
     if (currentStorage >= USER_MAX_STORAGE_BYTES) {
       return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
     }
-    performUnarchiveRepo(req.sessionUser, req.params.id);
+    await performUnarchiveRepo(req.sessionUser, req.params.id);
     auditLog({ event: 'REPO_UNARCHIVED', message: `Repository "${repos.find(r => r.id === req.params.id)?.name ?? req.params.id}" unarchived`, username: req.sessionUser, req });
     res.json({ success: true });
   } catch (err) {
