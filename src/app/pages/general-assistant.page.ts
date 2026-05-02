@@ -341,7 +341,7 @@ import { VoiceService } from '../services/voice.service';
               <button
                 type="button"
                 (click)="errorMessage.set(null)"
-                class="ml-auto text-red-500 hover:text-red-700"
+                class="ml-auto text-red-500 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-red-400 outline-none rounded px-1"
                 aria-label="Dismiss error"
                 title="Dismiss error"
               >✕</button>
