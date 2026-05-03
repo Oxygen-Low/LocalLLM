@@ -1566,6 +1566,7 @@ function runCommandAsync(command, args, options = {}) {
 
     let stdout = '';
     let stderr = '';
+    let timer = null;
 
     if (proc.stdout) {
       proc.stdout.on('data', (data) => {
@@ -1580,6 +1581,7 @@ function runCommandAsync(command, args, options = {}) {
     }
 
     proc.on('close', (code) => {
+      if (timer) clearTimeout(timer);
       if (code === 0) {
         resolve(stdout);
       } else {
@@ -1592,11 +1594,12 @@ function runCommandAsync(command, args, options = {}) {
     });
 
     proc.on('error', (err) => {
+      if (timer) clearTimeout(timer);
       reject(err);
     });
 
     if (options.timeout) {
-      setTimeout(() => {
+      timer = setTimeout(() => {
         proc.kill();
         reject(new Error(`Command timed out after ${options.timeout}ms`));
       }, options.timeout);
