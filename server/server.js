@@ -6198,10 +6198,10 @@ app.delete('/api/datasets/:id', requireSession, blockInDemo, (req, res) => {
 });
 
 // POST /api/datasets/:id/archive – Archive a dataset
-app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) => {
+app.post('/api/datasets/:id/archive', requireSession, blockInDemo, async (req, res) => {
   try {
-    const datasets = readUserDatasets(req.sessionUser);
-    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
+    let datasets = readUserDatasets(req.sessionUser);
+    let dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'active');
     if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Active dataset not found' });
     const ds = datasets[dsIdx];
 
@@ -6209,12 +6209,18 @@ app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) =>
     const archivePath = getUserDatasetArchivePath(req.sessionUser, ds.id);
     if (fs.existsSync(datasetDir)) {
       const userDir = getUserDatasetsDir(req.sessionUser);
-      execFileSync('tar', ['-czf', archivePath, '-C', userDir, ds.id], { timeout: 180000 });
+      await runCommandAsync('tar', ['-czf', archivePath, '-C', userDir, ds.id], { timeout: 180000 });
       fs.rmSync(datasetDir, { recursive: true, force: true });
     }
 
-    datasets[dsIdx] = { ...ds, status: 'archived', archivedAt: new Date().toISOString() };
-    writeUserDatasets(req.sessionUser, datasets);
+    // Re-read datasets to prevent race conditions during long async operations
+    datasets = readUserDatasets(req.sessionUser);
+    dsIdx = datasets.findIndex(d => d.id === req.params.id);
+    if (dsIdx !== -1) {
+      datasets[dsIdx] = { ...datasets[dsIdx], status: 'archived', archivedAt: new Date().toISOString() };
+      writeUserDatasets(req.sessionUser, datasets);
+    }
+
     auditLog({ event: 'DATASET_ARCHIVED', message: `Dataset "${ds.name}" archived`, username: req.sessionUser, req });
     res.json({ success: true });
   } catch (err) {
@@ -6224,21 +6230,27 @@ app.post('/api/datasets/:id/archive', requireSession, blockInDemo, (req, res) =>
 });
 
 // POST /api/datasets/:id/unarchive – Unarchive a dataset
-app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, (req, res) => {
+app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, async (req, res) => {
   try {
-    const datasets = readUserDatasets(req.sessionUser);
-    const dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'archived');
+    let datasets = readUserDatasets(req.sessionUser);
+    let dsIdx = datasets.findIndex(d => d.id === req.params.id && d.status === 'archived');
     if (dsIdx === -1) return res.status(404).json({ success: false, error: 'Archived dataset not found' });
     const ds = datasets[dsIdx];
 
     const archivePath = getUserDatasetArchivePath(req.sessionUser, ds.id);
     if (!fs.existsSync(archivePath)) return res.status(404).json({ success: false, error: 'Archive file not found' });
     const userDir = getUserDatasetsDir(req.sessionUser);
-    execFileSync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
+    await runCommandAsync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
     fs.unlinkSync(archivePath);
 
-    datasets[dsIdx] = { ...ds, status: 'active', archivedAt: null };
-    writeUserDatasets(req.sessionUser, datasets);
+    // Re-read datasets to prevent race conditions during long async operations
+    datasets = readUserDatasets(req.sessionUser);
+    dsIdx = datasets.findIndex(d => d.id === req.params.id);
+    if (dsIdx !== -1) {
+      datasets[dsIdx] = { ...datasets[dsIdx], status: 'active', archivedAt: null };
+      writeUserDatasets(req.sessionUser, datasets);
+    }
+
     auditLog({ event: 'DATASET_UNARCHIVED', message: `Dataset "${ds.name}" unarchived`, username: req.sessionUser, req });
     res.json({ success: true });
   } catch (err) {
@@ -7656,8 +7668,8 @@ loadReposIntoRegistry();
 // ---------------------------------------------------------------------------
 
 async function performArchiveRepo(username, repoId) {
-  const repos = readUserRepos(username);
-  const repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'active');
+  let repos = readUserRepos(username);
+  let repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'active');
   if (repoIdx === -1) return;
   const repo = repos[repoIdx];
   const { execFileSync } = require('child_process');
@@ -7723,31 +7735,43 @@ async function performArchiveRepo(username, repoId) {
   const archivePath = getUserRepoArchivePath(username, repoId);
   if (fs.existsSync(bareDir)) {
     const userDir = getUserReposDir(username);
-    execFileSync('tar', ['-czf', archivePath, '-C', userDir, `${repoId}.git`], { timeout: 180000 });
+    await runCommandAsync('tar', ['-czf', archivePath, '-C', userDir, `${repoId}.git`], { timeout: 180000 });
     fs.rmSync(bareDir, { recursive: true, force: true });
   }
 
-  repos[repoIdx] = { ...repo, status: 'archived', archivedAt: new Date().toISOString(), containerId: null, containerName: null };
-  writeUserRepos(username, repos);
+  // Re-read repos to prevent race conditions during long async operations
+  repos = readUserRepos(username);
+  repoIdx = repos.findIndex(r => r.id === repoId);
+  if (repoIdx !== -1) {
+    repos[repoIdx] = { ...repos[repoIdx], status: 'archived', archivedAt: new Date().toISOString(), containerId: null, containerName: null };
+    writeUserRepos(username, repos);
+  }
 
   const entry = repoRegistry.get(repoId);
   if (entry) { clearTimeout(entry.archiveTimer); repoRegistry.delete(repoId); }
   auditLog({ event: 'REPO_ARCHIVED', message: `Repository "${repo.name}" archived`, username });
 }
 
-function performUnarchiveRepo(username, repoId) {
-  const repos = readUserRepos(username);
-  const repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'archived');
+async function performUnarchiveRepo(username, repoId) {
+  let repos = readUserRepos(username);
+  let repoIdx = repos.findIndex(r => r.id === repoId && r.status === 'archived');
   if (repoIdx === -1) throw new Error('Repository not found or not archived');
   const repo = repos[repoIdx];
   const { execFileSync } = require('child_process');
   const archivePath = getUserRepoArchivePath(username, repoId);
   if (!fs.existsSync(archivePath)) throw new Error('Archive file not found');
   const userDir = getUserReposDir(username);
-  execFileSync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
+  await runCommandAsync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
   fs.unlinkSync(archivePath);
-  repos[repoIdx] = { ...repo, status: 'active', archivedAt: null };
-  writeUserRepos(username, repos);
+
+  // Re-read repos to prevent race conditions during long async operations
+  repos = readUserRepos(username);
+  repoIdx = repos.findIndex(r => r.id === repoId);
+  if (repoIdx !== -1) {
+    repos[repoIdx] = { ...repos[repoIdx], status: 'active', archivedAt: null };
+    writeUserRepos(username, repos);
+  }
+
   registerRepoInMemory(username, repoId);
   auditLog({ event: 'REPO_UNARCHIVED', message: `Repository "${repo.name}" unarchived`, username });
 }
@@ -8066,7 +8090,7 @@ app.post('/api/repositories/:id/unarchive', requireSession, async (req, res) => 
     if (currentStorage >= USER_MAX_STORAGE_BYTES) {
       return res.status(409).json({ success: false, error: 'Storage quota exceeded' });
     }
-    performUnarchiveRepo(req.sessionUser, req.params.id);
+    await performUnarchiveRepo(req.sessionUser, req.params.id);
     auditLog({ event: 'REPO_UNARCHIVED', message: `Repository "${repos.find(r => r.id === req.params.id)?.name ?? req.params.id}" unarchived`, username: req.sessionUser, req });
     res.json({ success: true });
   } catch (err) {
