@@ -129,6 +129,24 @@ function withModelsLock(fn) {
   return next;
 }
 
+// In-process mutexes for user repos/datasets metadata (prevents read-modify-write races during archive operations)
+const _userReposLocks = new Map(); // username -> Promise
+const _userDatasetsLocks = new Map(); // username -> Promise
+
+function withUserReposLock(username, fn) {
+  const current = _userReposLocks.get(username) || Promise.resolve();
+  const next = current.then(fn, fn);
+  _userReposLocks.set(username, next.catch(() => {}));
+  return next;
+}
+
+function withUserDatasetsLock(username, fn) {
+  const current = _userDatasetsLocks.get(username) || Promise.resolve();
+  const next = current.then(fn, fn);
+  _userDatasetsLocks.set(username, next.catch(() => {}));
+  return next;
+}
+
 /**
  * Read the local models registry from disk.
  * Returns an array of { id, name, filename, uploadedAt }.
@@ -6213,13 +6231,16 @@ app.post('/api/datasets/:id/archive', requireSession, blockInDemo, async (req, r
       fs.rmSync(datasetDir, { recursive: true, force: true });
     }
 
-    // Re-read datasets to prevent race conditions during long async operations
-    datasets = readUserDatasets(req.sessionUser);
-    dsIdx = datasets.findIndex(d => d.id === req.params.id);
-    if (dsIdx !== -1) {
-      datasets[dsIdx] = { ...datasets[dsIdx], status: 'archived', archivedAt: new Date().toISOString() };
-      writeUserDatasets(req.sessionUser, datasets);
-    }
+    // Acquire lock before re-reading to prevent race conditions during concurrent archive operations
+    await withUserDatasetsLock(req.sessionUser, async () => {
+      // Re-read datasets to prevent race conditions during long async operations
+      datasets = readUserDatasets(req.sessionUser);
+      dsIdx = datasets.findIndex(d => d.id === req.params.id);
+      if (dsIdx !== -1) {
+        datasets[dsIdx] = { ...datasets[dsIdx], status: 'archived', archivedAt: new Date().toISOString() };
+        writeUserDatasets(req.sessionUser, datasets);
+      }
+    });
 
     auditLog({ event: 'DATASET_ARCHIVED', message: `Dataset "${ds.name}" archived`, username: req.sessionUser, req });
     res.json({ success: true });
@@ -6243,13 +6264,16 @@ app.post('/api/datasets/:id/unarchive', requireSession, blockInDemo, async (req,
     await runCommandAsync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
     fs.unlinkSync(archivePath);
 
-    // Re-read datasets to prevent race conditions during long async operations
-    datasets = readUserDatasets(req.sessionUser);
-    dsIdx = datasets.findIndex(d => d.id === req.params.id);
-    if (dsIdx !== -1) {
-      datasets[dsIdx] = { ...datasets[dsIdx], status: 'active', archivedAt: null };
-      writeUserDatasets(req.sessionUser, datasets);
-    }
+    // Acquire lock before re-reading to prevent race conditions during concurrent unarchive operations
+    await withUserDatasetsLock(req.sessionUser, async () => {
+      // Re-read datasets to prevent race conditions during long async operations
+      datasets = readUserDatasets(req.sessionUser);
+      dsIdx = datasets.findIndex(d => d.id === req.params.id);
+      if (dsIdx !== -1) {
+        datasets[dsIdx] = { ...datasets[dsIdx], status: 'active', archivedAt: null };
+        writeUserDatasets(req.sessionUser, datasets);
+      }
+    });
 
     auditLog({ event: 'DATASET_UNARCHIVED', message: `Dataset "${ds.name}" unarchived`, username: req.sessionUser, req });
     res.json({ success: true });
@@ -7739,13 +7763,16 @@ async function performArchiveRepo(username, repoId) {
     fs.rmSync(bareDir, { recursive: true, force: true });
   }
 
-  // Re-read repos to prevent race conditions during long async operations
-  repos = readUserRepos(username);
-  repoIdx = repos.findIndex(r => r.id === repoId);
-  if (repoIdx !== -1) {
-    repos[repoIdx] = { ...repos[repoIdx], status: 'archived', archivedAt: new Date().toISOString(), containerId: null, containerName: null };
-    writeUserRepos(username, repos);
-  }
+  // Acquire lock before re-reading to prevent race conditions during concurrent archive operations
+  await withUserReposLock(username, async () => {
+    // Re-read repos to prevent race conditions during long async operations
+    repos = readUserRepos(username);
+    repoIdx = repos.findIndex(r => r.id === repoId);
+    if (repoIdx !== -1) {
+      repos[repoIdx] = { ...repos[repoIdx], status: 'archived', archivedAt: new Date().toISOString(), containerId: null, containerName: null };
+      writeUserRepos(username, repos);
+    }
+  });
 
   const entry = repoRegistry.get(repoId);
   if (entry) { clearTimeout(entry.archiveTimer); repoRegistry.delete(repoId); }
@@ -7764,13 +7791,16 @@ async function performUnarchiveRepo(username, repoId) {
   await runCommandAsync('tar', ['-xzf', archivePath, '-C', userDir], { timeout: 180000 });
   fs.unlinkSync(archivePath);
 
-  // Re-read repos to prevent race conditions during long async operations
-  repos = readUserRepos(username);
-  repoIdx = repos.findIndex(r => r.id === repoId);
-  if (repoIdx !== -1) {
-    repos[repoIdx] = { ...repos[repoIdx], status: 'active', archivedAt: null };
-    writeUserRepos(username, repos);
-  }
+  // Acquire lock before re-reading to prevent race conditions during concurrent unarchive operations
+  await withUserReposLock(username, async () => {
+    // Re-read repos to prevent race conditions during long async operations
+    repos = readUserRepos(username);
+    repoIdx = repos.findIndex(r => r.id === repoId);
+    if (repoIdx !== -1) {
+      repos[repoIdx] = { ...repos[repoIdx], status: 'active', archivedAt: null };
+      writeUserRepos(username, repos);
+    }
+  });
 
   registerRepoInMemory(username, repoId);
   auditLog({ event: 'REPO_UNARCHIVED', message: `Repository "${repo.name}" unarchived`, username });
