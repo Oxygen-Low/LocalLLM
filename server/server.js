@@ -7937,19 +7937,19 @@ app.post('/api/repositories', requireSession, async (req, res) => {
     try {
       const bareDir = getUserRepoBareDir(req.sessionUser, repoId);
       fs.mkdirSync(bareDir, { recursive: true });
-      execFileSync('git', ['init', '--bare', bareDir], { timeout: 30000 });
+      await runCommandAsync('git', ['init', '--bare', bareDir], { timeout: 30000 });
 
       if (initReadme) {
         const os = require('os');
         const tmpDir = path.join(os.tmpdir(), `localllm-init-${repoId}`);
         try {
-          execFileSync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
+          await runCommandAsync('git', ['clone', bareDir, tmpDir], { timeout: 30000 });
           fs.writeFileSync(path.join(tmpDir, 'README.md'), `# ${name}\n\n${description || ''}\n`);
-          execFileSync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
-          execFileSync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
-          execFileSync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
-          execFileSync('git', ['-C', tmpDir, 'commit', '-m', 'Initial commit'], { timeout: 10000 });
-          execFileSync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
+          await runCommandAsync('git', ['-C', tmpDir, 'config', 'user.email', 'localllm@local'], { timeout: 5000 });
+          await runCommandAsync('git', ['-C', tmpDir, 'config', 'user.name', 'LocalLLM'], { timeout: 5000 });
+          await runCommandAsync('git', ['-C', tmpDir, 'add', '.'], { timeout: 5000 });
+          await runCommandAsync('git', ['-C', tmpDir, 'commit', '-m', 'Initial commit'], { timeout: 10000 });
+          await runCommandAsync('git', ['-C', tmpDir, 'push', 'origin', 'HEAD'], { timeout: 30000 });
         } finally {
           try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
         }
@@ -8242,7 +8242,7 @@ app.post('/api/repositories/:id/export-github', requireSession, async (req, res)
       fs.writeFileSync(pushTmpAskPass, `#!/bin/sh\necho "$GIT_TOKEN"\n`, { mode: 0o700 });
       const pushEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: pushTmpAskPass, GIT_TOKEN: github.token };
       try {
-        execFileSync('git', ['-C', bareDir, 'push', '--mirror', ghRepoData.clone_url], { timeout: 300000, env: pushEnv });
+        await runCommandAsync('git', ['-C', bareDir, 'push', '--mirror', ghRepoData.clone_url], { timeout: 300000, env: pushEnv });
       } finally {
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
       }
