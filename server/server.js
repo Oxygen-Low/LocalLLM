@@ -4626,7 +4626,6 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       ].join(' && ');
 
       try {
-        const { execFileSync } = require('child_process');
         const dockerArgs = [
           'run', '-d',
           '--name', containerName,
@@ -4640,7 +4639,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
           'bash', '-c', initScript,
         ];
 
-        const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+        const dockerIdRaw = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+        const dockerId = dockerIdRaw.trim();
 
         const containerEntry = {
           id: containerId,
@@ -4665,11 +4665,12 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         writeUserContainers(req.sessionUser, containers);
 
         // Link container back to the local repo
-        const repoIdx = repos.findIndex(r => r.id === localRepoId);
+        const updatedRepos = readUserRepos(req.sessionUser);
+        const repoIdx = updatedRepos.findIndex(r => r.id === localRepoId);
         if (repoIdx !== -1) {
-          repos[repoIdx].containerId = containerId;
-          repos[repoIdx].containerName = containerName;
-          writeUserRepos(req.sessionUser, repos);
+          updatedRepos[repoIdx].containerId = containerId;
+          updatedRepos[repoIdx].containerName = containerName;
+          writeUserRepos(req.sessionUser, updatedRepos);
         }
 
         auditLog({ event: 'CONTAINER_CREATED', message: `Container created for local repo "${localRepo.name}"`, username: req.sessionUser, req });
@@ -4720,8 +4721,6 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
     }
 
     try {
-      const { execFileSync } = require('child_process');
-
       // Build a shell script that conditionally uses a git credential helper when a
       // token is available (private repos). For public repos no token is required.
       // The token is passed via environment variable and never appears in the process
@@ -4743,7 +4742,7 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'tail -f /dev/null',
       ].join(' && ');
 
-      // Use execFileSync with argument array to prevent shell injection.
+        // Use runCommandAsync with argument array to prevent shell injection.
       // Only pass GIT_TOKEN env var when a token is available.
       const dockerArgs = [
         'run', '-d',
@@ -4758,7 +4757,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'bash', '-c', initScript,
       ];
 
-      const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+        const dockerIdRaw = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+        const dockerId = dockerIdRaw.trim();
 
       // Track container
       const containerEntry = {
@@ -4907,7 +4907,7 @@ app.post('/api/coding-agent/containers/:id/start', requireSession, (req, res) =>
 });
 
 // POST /api/coding-agent/containers/:id/exec - Execute a command in a container
-app.post('/api/coding-agent/containers/:id/exec', requireSession, (req, res) => {
+app.post('/api/coding-agent/containers/:id/exec', requireSession, async (req, res) => {
   try {
     const containers = readUserContainers(req.sessionUser);
     const container = containers.find(c => c.id === req.params.id);
@@ -4923,22 +4923,21 @@ app.post('/api/coding-agent/containers/:id/exec', requireSession, (req, res) => 
     touchContainerActivity(container.id);
 
     try {
-      const { execFileSync } = require('child_process');
       // Use docker exec with explicit arguments; pass command via base64 to avoid
       // any shell metacharacter issues on the outer shell. Inside the container,
       // bash -c executes the decoded command.
       const b64Cmd = Buffer.from(command).toString('base64');
-      const output = execFileSync('docker', [
+      const output = await runCommandAsync('docker', [
         'exec', container.dockerName,
         'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
       ], {
         timeout: 30000,
-        encoding: 'utf-8',
         maxBuffer: 1024 * 1024,
       });
       res.json({ success: true, output });
     } catch (execErr) {
-      res.json({ success: true, output: execErr.stderr || execErr.stdout || execErr.message, exitCode: execErr.status || 1 });
+      const timedOut = execErr.message && execErr.message.includes('timed out');
+      res.json({ success: true, output: (execErr.stderr || execErr.stdout || execErr.message) + (timedOut ? '\n[Command timed out after 30 seconds]' : ''), exitCode: execErr.status || 1 });
     }
   } catch (err) {
     console.error('Exec container error:', err);
@@ -5093,7 +5092,7 @@ app.delete('/api/coding-agent/containers/:id', requireSession, (req, res) => {
 });
 
 // POST /api/coding-agent/containers/:id/agent-exec - Execute command with 10-min timeout for AI agent
-app.post('/api/coding-agent/containers/:id/agent-exec', requireSession, (req, res) => {
+app.post('/api/coding-agent/containers/:id/agent-exec', requireSession, async (req, res) => {
   try {
     const containers = readUserContainers(req.sessionUser);
     const container = containers.find(c => c.id === req.params.id);
@@ -5109,19 +5108,17 @@ app.post('/api/coding-agent/containers/:id/agent-exec', requireSession, (req, re
     touchContainerActivity(container.id);
 
     try {
-      const { execFileSync } = require('child_process');
       const b64Cmd = Buffer.from(command).toString('base64');
-      const output = execFileSync('docker', [
+      const output = await runCommandAsync('docker', [
         'exec', container.dockerName,
         'bash', '-c', `cd /workspace && echo '${b64Cmd}' | base64 -d | bash`,
       ], {
         timeout: AGENT_EXEC_TIMEOUT_MS,
-        encoding: 'utf-8',
         maxBuffer: 1024 * 1024,
       });
       res.json({ success: true, output });
     } catch (execErr) {
-      const timedOut = execErr.killed || (execErr.signal === 'SIGTERM');
+      const timedOut = execErr.message && execErr.message.includes('timed out');
       res.json({
         success: true,
         output: (execErr.stderr || execErr.stdout || execErr.message) + (timedOut ? '\n[Command timed out after 10 minutes]' : ''),
