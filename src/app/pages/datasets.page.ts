@@ -56,7 +56,7 @@ interface QueueItem {
             </div>
           </div>
           @if (pageView() === 'list') {
-            <button (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+            <button type="button" (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
               + {{ t.translate('datasets.newDataset') }}
             </button>
           }
@@ -108,26 +108,26 @@ interface QueueItem {
               <div class="text-5xl mb-4">📊</div>
               <h3 class="text-lg font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.noDatasets') }}</h3>
               <p class="text-muted text-sm mb-6">{{ t.translate('datasets.noDatasetsHint') }}</p>
-              <button (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+              <button type="button" (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
                 + {{ t.translate('datasets.newDataset') }}
               </button>
             </div>
           } @else {
             <!-- Filter tabs -->
             <div class="flex gap-2 mb-4">
-              <button (click)="listFilter.set('all')"
+              <button type="button" (click)="listFilter.set('all')"
                 class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 [attr.aria-pressed]="listFilter() === 'all'"
                 [ngClass]="listFilter() === 'all' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterAll') }} ({{ datasets().length }})
               </button>
-              <button (click)="listFilter.set('active')"
+              <button type="button" (click)="listFilter.set('active')"
                 class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 [attr.aria-pressed]="listFilter() === 'active'"
                 [ngClass]="listFilter() === 'active' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterActive') }} ({{ datasets().filter(d => d.status === 'active').length }})
               </button>
-              <button (click)="listFilter.set('archived')"
+              <button type="button" (click)="listFilter.set('archived')"
                 class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 [attr.aria-pressed]="listFilter() === 'archived'"
                 [ngClass]="listFilter() === 'archived' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
@@ -164,7 +164,7 @@ interface QueueItem {
                     </div>
                     <div class="flex items-center gap-2 flex-shrink-0">
                       @if (ds.status === 'active') {
-                        <button (click)="viewDataset(ds)"
+                        <button type="button" (click)="viewDataset(ds)"
                           class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors"
                           title="View & Edit">
                           {{ t.translate('datasets.view') }}
@@ -174,24 +174,24 @@ interface QueueItem {
                           title="Download">
                           ↓
                         </a>
-                        <button (click)="startRefine(ds)"
+                        <button type="button" (click)="startRefine(ds)"
                           class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm transition-colors"
                           [disabled]="actionInProgress()">
                           {{ t.translate('datasets.refine') }}
                         </button>
-                        <button (click)="archiveDataset(ds)"
+                        <button type="button" (click)="archiveDataset(ds)"
                           class="px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm transition-colors"
                           [disabled]="actionInProgress()">
                           {{ t.translate('datasets.archive') }}
                         </button>
                       } @else {
-                        <button (click)="unarchiveDataset(ds)"
+                        <button type="button" (click)="unarchiveDataset(ds)"
                           class="px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-sm transition-colors"
                           [disabled]="actionInProgress()">
                           {{ t.translate('datasets.unarchive') }}
                         </button>
                       }
-                      <button (click)="confirmDelete(ds)"
+                      <button type="button" (click)="confirmDelete(ds)"
                         class="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm transition-colors"
                         [disabled]="actionInProgress()">
                         {{ t.translate('datasets.delete') }}
@@ -212,11 +212,11 @@ interface QueueItem {
                   {{ t.translate('datasets.confirmDeleteMessage').replace('{name}', datasetToDelete()!.name) }}
                 </p>
                 <div class="flex gap-3 justify-end">
-                  <button (click)="datasetToDelete.set(null)"
+                  <button type="button" (click)="datasetToDelete.set(null)"
                     class="px-4 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 text-sm font-medium hover:bg-secondary-50 transition-colors">
                     {{ t.translate('datasets.cancel') }}
                   </button>
-                  <button (click)="deleteDataset(datasetToDelete()!)"
+                  <button type="button" (click)="deleteDataset(datasetToDelete()!)"
                     class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors">
                     {{ t.translate('datasets.delete') }}
                   </button>
@@ -235,7 +235,7 @@ interface QueueItem {
             <!-- Back button and title -->
             <div class="flex items-center justify-between flex-wrap gap-4">
               <div class="flex items-center gap-3">
-                <button (click)="backToList()"
+                <button type="button" (click)="backToList()"
                   class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
                   ← {{ t.translate('datasets.backToList') }}
                 </button>
@@ -246,16 +246,16 @@ interface QueueItem {
               <div class="flex items-center gap-2">
                 @if (viewHasChanges()) {
                   <span class="text-xs text-amber-600 font-medium">{{ t.translate('datasets.unsavedChanges') }}</span>
-                  <button (click)="discardViewChanges()"
+                  <button type="button" (click)="discardViewChanges()"
                     class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors">
                     {{ t.translate('datasets.discardChanges') }}
                   </button>
                 }
-                <button (click)="addViewRow()"
+                <button type="button" (click)="addViewRow()"
                   class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors">
                   + {{ t.translate('datasets.addRow') }}
                 </button>
-                <button (click)="saveViewChanges()"
+                <button type="button" (click)="saveViewChanges()"
                   [disabled]="isSavingView() || !viewHasChanges()"
                   class="px-4 py-1.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                   @if (isSavingView()) { {{ t.translate('datasets.savingChanges') }} } @else { {{ t.translate('datasets.saveChanges') }} }
@@ -287,7 +287,7 @@ interface QueueItem {
               <div class="text-center py-16 bg-white rounded-xl border border-secondary-200 shadow-sm">
                 <div class="text-5xl mb-4">📋</div>
                 <p class="text-muted text-sm mb-4">{{ t.translate('datasets.noRows') }}</p>
-                <button (click)="addViewRow()"
+                <button type="button" (click)="addViewRow()"
                   class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
                   + {{ t.translate('datasets.addRow') }}
                 </button>
@@ -384,7 +384,7 @@ interface QueueItem {
 
               <!-- Bottom actions -->
               <div class="flex items-center justify-between">
-                <button (click)="addViewRow()"
+                <button type="button" (click)="addViewRow()"
                   class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors">
                   + {{ t.translate('datasets.addRow') }}
                 </button>
@@ -392,7 +392,7 @@ interface QueueItem {
                   @if (viewSaveSuccess()) {
                     <span class="text-sm text-green-600 font-medium">{{ t.translate('datasets.changesSaved') }}</span>
                   }
-                  <button (click)="saveViewChanges()"
+                  <button type="button" (click)="saveViewChanges()"
                     [disabled]="isSavingView() || !viewHasChanges()"
                     class="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                     @if (isSavingView()) { {{ t.translate('datasets.savingChanges') }} } @else { {{ t.translate('datasets.saveChanges') }} }
@@ -411,7 +411,7 @@ interface QueueItem {
         <!-- Back to list button -->
         @if (currentStep() === 'configure') {
           <div class="mb-4">
-            <button (click)="backToList()"
+            <button type="button" (click)="backToList()"
               class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
               ← {{ t.translate('datasets.backToList') }}
             </button>
@@ -422,7 +422,7 @@ interface QueueItem {
         @if (currentStep() === 'configure') {
           <div class="max-w-2xl mx-auto mb-6">
             <div class="flex rounded-lg border border-secondary-200 bg-white overflow-hidden">
-              <button
+              <button type="button"
                 (click)="datasetMode.set('generate')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
                 [attr.aria-pressed]="datasetMode() === 'generate'"
@@ -430,7 +430,7 @@ interface QueueItem {
               >
                 Generate with AI
               </button>
-              <button
+              <button type="button"
                 (click)="datasetMode.set('import')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
                 [attr.aria-pressed]="datasetMode() === 'import'"
@@ -438,7 +438,7 @@ interface QueueItem {
               >
                 Import from HuggingFace
               </button>
-              <button
+              <button type="button"
                 (click)="datasetMode.set('queue')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
                 [attr.aria-pressed]="datasetMode() === 'queue'"
@@ -446,7 +446,7 @@ interface QueueItem {
               >
                 {{ t.translate('datasets.queueTab') }}
               </button>
-              <button
+              <button type="button"
                 (click)="datasetMode.set('refine')"
                 class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
                 [attr.aria-pressed]="datasetMode() === 'refine'"
@@ -469,7 +469,7 @@ interface QueueItem {
                   {{ t.translate('datasets.datasetTypeLabel') }}
                 </label>
                 <div class="grid grid-cols-2 gap-3">
-                  <button
+                  <button type="button"
                     (click)="generateDatasetType = 'standard'"
                     class="text-left p-3 rounded-lg border-2 transition-all"
                     [attr.aria-pressed]="generateDatasetType === 'standard'"
@@ -484,7 +484,7 @@ interface QueueItem {
                       {{ t.translate('datasets.typeStandardDesc') }}
                     </p>
                   </button>
-                  <button
+                  <button type="button"
                     (click)="generateDatasetType = 'post-training'"
                     class="text-left p-3 rounded-lg border-2 transition-all"
                     [attr.aria-pressed]="generateDatasetType === 'post-training'"
@@ -530,7 +530,7 @@ interface QueueItem {
                 } @else {
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     @for (p of availableProviders(); track p.id) {
-                      <button
+                      <button type="button"
                         (click)="selectProvider(p)"
                         class="text-left p-3 rounded-lg border transition-all"
                         [attr.aria-pressed]="selectedProvider()?.id === p.id"
@@ -632,7 +632,7 @@ interface QueueItem {
               </div>
 
               <!-- Generate button -->
-              <button
+              <button type="button"
                 (click)="generateDataset()"
                 [disabled]="!canGenerate()"
                 class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -713,7 +713,7 @@ interface QueueItem {
               }
 
               <!-- Import button -->
-              <button
+              <button type="button"
                 (click)="importFromHuggingFace()"
                 [disabled]="!canImport() || isImporting()"
                 class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -771,7 +771,7 @@ interface QueueItem {
                 } @else {
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     @for (p of availableProviders(); track p.id) {
-                      <button
+                      <button type="button"
                         (click)="selectQueueProvider(p)"
                         class="text-left p-3 rounded-lg border transition-all"
                         [attr.aria-pressed]="queueSelectedProvider()?.id === p.id"
@@ -864,7 +864,7 @@ interface QueueItem {
               </div>
 
               <!-- Add to queue button -->
-              <button
+              <button type="button"
                 (click)="addToQueue()"
                 [disabled]="!canAddToQueue()"
                 class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -928,7 +928,7 @@ interface QueueItem {
                             <span class="text-xs text-green-700 font-medium">{{ item.rowCount }} rows</span>
                           }
                           @if (item.status === 'pending' && !isQueueRunning()) {
-                            <button (click)="removeFromQueue(item.id)"
+                            <button type="button" (click)="removeFromQueue(item.id)"
                               class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors">
                               {{ t.translate('datasets.removeFromQueue') }}
                             </button>
@@ -956,17 +956,17 @@ interface QueueItem {
                 <div class="flex gap-3 pt-2">
                   @if (!isQueueRunning()) {
                     @if (queueHasPending()) {
-                      <button (click)="startQueue()"
+                      <button type="button" (click)="startQueue()"
                         class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors">
                         {{ t.translate('datasets.startQueue') }}
                       </button>
                     }
-                    <button (click)="clearQueue()"
+                    <button type="button" (click)="clearQueue()"
                       class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
                       {{ t.translate('datasets.clearQueue') }}
                     </button>
                   } @else {
-                    <button (click)="stopQueue()"
+                    <button type="button" (click)="stopQueue()"
                       class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors">
                       {{ t.translate('datasets.stopQueue') }}
                     </button>
@@ -1050,7 +1050,7 @@ interface QueueItem {
                 } @else {
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     @for (p of availableProviders(); track p.id) {
-                      <button
+                      <button type="button"
                         (click)="selectRefineProvider(p)"
                         class="text-left p-3 rounded-lg border transition-all"
                         [attr.aria-pressed]="refineSelectedProvider()?.id === p.id"
@@ -1094,7 +1094,7 @@ interface QueueItem {
               </div>
 
               <!-- Add to queue button -->
-              <button
+              <button type="button"
                 (click)="addRefineToQueue()"
                 [disabled]="!canAddRefineToQueue()"
                 class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -1158,7 +1158,7 @@ interface QueueItem {
                             <span class="text-xs text-green-700 font-medium">{{ item.rowCount }} rows</span>
                           }
                           @if (item.status === 'pending' && !isQueueRunning()) {
-                            <button (click)="removeFromQueue(item.id)"
+                            <button type="button" (click)="removeFromQueue(item.id)"
                               class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors">
                               {{ t.translate('datasets.removeFromQueue') }}
                             </button>
@@ -1186,17 +1186,17 @@ interface QueueItem {
                 <div class="flex gap-3 pt-2">
                   @if (!isQueueRunning()) {
                     @if (queueHasPending()) {
-                      <button (click)="startQueue()"
+                      <button type="button" (click)="startQueue()"
                         class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors">
                         {{ t.translate('datasets.startQueue') }}
                       </button>
                     }
-                    <button (click)="clearQueue()"
+                    <button type="button" (click)="clearQueue()"
                       class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
                       {{ t.translate('datasets.clearQueue') }}
                     </button>
                   } @else {
-                    <button (click)="stopQueue()"
+                    <button type="button" (click)="stopQueue()"
                       class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors">
                       {{ t.translate('datasets.stopQueue') }}
                     </button>
@@ -1256,7 +1256,7 @@ interface QueueItem {
                     <p class="text-sm text-muted mt-1">{{ t.translate('datasets.emptyGeneration') }}</p>
                   }
                 </div>
-                <button
+                <button type="button"
                   (click)="resetWizard()"
                   class="px-4 py-2 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors"
                 >
@@ -1322,7 +1322,7 @@ interface QueueItem {
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
                 <!-- Download -->
-                <button
+                <button type="button"
                   (click)="downloadDataset()"
                   class="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 font-semibold transition-colors"
                 >
@@ -1335,7 +1335,7 @@ interface QueueItem {
                 <!-- Save -->
                 <div class="space-y-3">
                   @if (!showSaveForm()) {
-                    <button
+                    <button type="button"
                       (click)="showSaveForm.set(true)"
                       class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-green-200 bg-green-50 hover:bg-green-100 text-green-700 font-semibold transition-colors"
                     >
@@ -1359,14 +1359,14 @@ interface QueueItem {
                         class="w-full px-3 py-2 rounded-lg border border-secondary-200 text-sm"
                       />
                       <div class="flex gap-2">
-                        <button
+                        <button type="button"
                           (click)="saveDataset()"
                           [disabled]="isSaving() || !saveDatasetName.trim()"
                           class="flex-1 px-3 py-2 rounded-lg bg-green-600 text-white font-medium text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"
                         >
                           @if (isSaving()) { {{ t.translate('datasets.saving') }} } @else { {{ t.translate('datasets.save') }} }
                         </button>
-                        <button
+                        <button type="button"
                           (click)="showSaveForm.set(false)"
                           class="px-3 py-2 rounded-lg border border-secondary-200 bg-white text-sm"
                         >
