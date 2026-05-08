@@ -72,8 +72,7 @@ import { environment } from '../../environments/environment';
                   [placeholder]="passwordPlaceholder()"
                   (input)="onPasswordInput()"
                 />
-                <button
-                  type="button"
+                <button type="button"
                   (click)="showPassword.set(!showPassword())"
                   class="absolute inset-y-0 right-0 flex items-center pr-3 text-secondary-400 hover:text-secondary-600 transition-colors"
                   [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
@@ -92,8 +91,7 @@ import { environment } from '../../environments/environment';
               </div>
             </div>
 
-            <button
-              type="submit"
+            <button type="submit"
               [disabled]="isLoading()"
               class="w-full btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >

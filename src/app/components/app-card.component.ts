@@ -49,8 +49,7 @@ export interface AIApp {
 
       @if (disabled()) {
         <!-- Disabled state: no navigation, show notice -->
-        <button
-          type="button"
+        <button type="button"
           disabled
           aria-disabled="true"
           class="w-full px-4 py-2 rounded-lg border border-secondary-200 text-secondary-400 font-medium text-center text-sm cursor-not-allowed select-none"
@@ -59,8 +58,7 @@ export interface AIApp {
         </button>
       } @else {
         <!-- Button -->
-        <button
-          type="button"
+        <button type="button"
           [routerLink]="['/app', app().id]"
           class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
         >
