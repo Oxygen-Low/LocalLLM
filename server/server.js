@@ -1207,6 +1207,42 @@ function ensureWithinDir(parentDir, absolutePath) {
   return resolvedChild;
 }
 
+function migrateUserBooksAndDirs(oldUsername, newUsername) {
+  const oldDir = path.join(BOOKS_DIR, path.basename(sanitizeUsernameForPath(oldUsername)));
+  const newDir = path.join(BOOKS_DIR, path.basename(sanitizeUsernameForPath(newUsername)));
+
+  if (fs.existsSync(oldDir)) {
+    if (fs.existsSync(newDir)) {
+      // Merge contents if newDir already exists
+      const entries = fs.readdirSync(oldDir);
+      for (const entry of entries) {
+        const oldPath = path.join(oldDir, entry);
+        const newPath = path.join(newDir, entry);
+        if (!fs.existsSync(newPath)) {
+          fs.renameSync(oldPath, newPath);
+        } else {
+          fs.unlinkSync(oldPath);
+        }
+      }
+      fs.rmdirSync(oldDir);
+    } else {
+      fs.renameSync(oldDir, newDir);
+    }
+  }
+
+  const spaces = readBooksSpaces();
+  let changed = false;
+  for (const space of spaces) {
+    if (space.username === oldUsername) {
+      space.username = newUsername;
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeBooksSpaces(spaces);
+  }
+}
+
 async function ensureAdminAccount() {
   const users = readUsers();
   if (users.some((u) => u.username === ADMIN_USERNAME)) {
@@ -1980,6 +2016,15 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
       try {
         if (fs.readdirSync(oldChatsDir).length === 0) fs.rmdirSync(oldChatsDir);
       } catch { /* ignore */ }
+    }
+
+    // Migrate Books and Directories
+    try {
+      migrateUserBooksAndDirs(oldUsername, normalizedNew);
+    } catch (migrateErr) {
+      console.error('Change-username: failed to migrate books for %s:', oldUsername, migrateErr);
+      // Not strictly fatal to the whole username change as the DB update can still proceed,
+      // but we should log it.
     }
 
     // Update user record
@@ -3847,16 +3892,42 @@ app.delete('/api/adventures/:id', requireSession, async (req, res) => {
 const bookUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      const dir = getUserBooksDir(req.sessionUser);
-      cb(null, dir);
+      try {
+        const dir = getUserBooksDir(req.sessionUser);
+        cb(null, dir);
+      } catch (e) {
+        cb(e);
+      }
     },
     filename: (req, file, cb) => {
       const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
       cb(null, `${crypto.randomUUID()}-${safe}`);
     }
   }),
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.txt' && ext !== '.md') {
+      return cb(new Error('InvalidFileType'));
+    }
+    cb(null, true);
+  },
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
+
+function handleBookUpload(req, res, next) {
+  bookUpload.single('book')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ success: false, error: 'UploadTooLarge' });
+      }
+      if (err.message === 'InvalidFileType') {
+        return res.status(400).json({ success: false, error: 'InvalidFileType' });
+      }
+      return res.status(400).json({ success: false, error: err.message || 'UploadError' });
+    }
+    next();
+  });
+}
 
 // GET /api/books/spaces - List user spaces
 app.get('/api/books/spaces', requireSession, (req, res) => {
@@ -3919,11 +3990,13 @@ app.delete('/api/books/spaces/:id', requireSession, (req, res) => {
     const space = spaces[index];
     // Delete files
     const userDir = getUserBooksDir(req.sessionUser);
-    const resolvedUserDir = path.resolve(userDir) + path.sep;
     for (const b of space.books) {
-      const filePath = path.resolve(userDir, b.filename);
-      if (filePath.startsWith(resolvedUserDir)) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      try {
+        const filePath = path.join(userDir, b.filename);
+        const safePath = ensureWithinDir(userDir, filePath);
+        if (fs.existsSync(safePath)) fs.unlinkSync(safePath);
+      } catch (e) {
+        console.warn(`[books] Skipping delete for suspicious path: ${b.filename}`);
       }
     }
 
@@ -3937,18 +4010,14 @@ app.delete('/api/books/spaces/:id', requireSession, (req, res) => {
 });
 
 // POST /api/books/spaces/:id/books - Upload book
-app.post('/api/books/spaces/:id/books', requireSession, bookUpload.single('book'), (req, res) => {
+app.post('/api/books/spaces/:id/books', requireSession, handleBookUpload, (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
 
     const spaces = readBooksSpaces();
     const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
     if (!space) {
-      const bookDir = getUserBooksDir(req.sessionUser);
-      const resolvedPath = path.resolve(req.file.path);
-      if (resolvedPath.startsWith(path.resolve(bookDir) + path.sep)) {
-        if (fs.existsSync(resolvedPath)) fs.unlinkSync(resolvedPath);
-      }
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(404).json({ success: false, error: 'Space not found' });
     }
 
@@ -3959,8 +4028,18 @@ app.post('/api/books/spaces/:id/books', requireSession, bookUpload.single('book'
       uploadedAt: new Date().toISOString()
     };
     space.books.push(book);
+    const originalUpdatedAt = space.updatedAt;
     space.updatedAt = new Date().toISOString();
-    writeBooksSpaces(spaces);
+
+    try {
+      writeBooksSpaces(spaces);
+    } catch (writeErr) {
+      // Revert in-memory changes
+      space.books.pop();
+      space.updatedAt = originalUpdatedAt;
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      throw writeErr;
+    }
 
     res.json({ success: true, book });
   } catch (err) {
@@ -3981,9 +4060,12 @@ app.delete('/api/books/spaces/:id/books/:bookId', requireSession, (req, res) => 
 
     const book = space.books[bookIndex];
     const bookDir = getUserBooksDir(req.sessionUser);
-    const filePath = path.resolve(bookDir, book.filename);
-    if (filePath.startsWith(path.resolve(bookDir) + path.sep)) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    try {
+      const filePath = path.join(bookDir, book.filename);
+      const safePath = ensureWithinDir(bookDir, filePath);
+      if (fs.existsSync(safePath)) fs.unlinkSync(safePath);
+    } catch (e) {
+      console.warn(`[books] Skipping delete for suspicious path: ${book.filename}`);
     }
 
     space.books.splice(bookIndex, 1);
@@ -5544,7 +5626,8 @@ function deleteAllUserAdventures(username) {
 function readBooksSpaces() {
   if (!fs.existsSync(BOOKS_SPACES_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(BOOKS_SPACES_FILE, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(BOOKS_SPACES_FILE, 'utf-8'));
+    return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
