@@ -3919,9 +3919,12 @@ app.delete('/api/books/spaces/:id', requireSession, (req, res) => {
     const space = spaces[index];
     // Delete files
     const userDir = getUserBooksDir(req.sessionUser);
+    const resolvedUserDir = path.resolve(userDir) + path.sep;
     for (const b of space.books) {
-      const filePath = path.join(userDir, b.filename);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const filePath = path.resolve(userDir, b.filename);
+      if (filePath.startsWith(resolvedUserDir)) {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      }
     }
 
     spaces.splice(index, 1);
@@ -3941,7 +3944,11 @@ app.post('/api/books/spaces/:id/books', requireSession, bookUpload.single('book'
     const spaces = readBooksSpaces();
     const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
     if (!space) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      const bookDir = getUserBooksDir(req.sessionUser);
+      const resolvedPath = path.resolve(req.file.path);
+      if (resolvedPath.startsWith(path.resolve(bookDir) + path.sep)) {
+        if (fs.existsSync(resolvedPath)) fs.unlinkSync(resolvedPath);
+      }
       return res.status(404).json({ success: false, error: 'Space not found' });
     }
 
@@ -3973,8 +3980,11 @@ app.delete('/api/books/spaces/:id/books/:bookId', requireSession, (req, res) => 
     if (bookIndex === -1) return res.status(404).json({ success: false, error: 'Book not found' });
 
     const book = space.books[bookIndex];
-    const filePath = path.join(getUserBooksDir(req.sessionUser), book.filename);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    const bookDir = getUserBooksDir(req.sessionUser);
+    const filePath = path.resolve(bookDir, book.filename);
+    if (filePath.startsWith(path.resolve(bookDir) + path.sep)) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
 
     space.books.splice(bookIndex, 1);
     space.updatedAt = new Date().toISOString();
