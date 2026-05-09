@@ -392,7 +392,7 @@ export class BooksPageComponent implements OnInit {
     if (!file || !this.currentSpace()) return;
 
     if (file.size > 10 * 1024 * 1024) {
-      this.error.set('File too large. Maximum size is 10MB.');
+      this.error.set(this.t.translate('books.errors.fileTooLarge'));
       event.target.value = '';
       return;
     }

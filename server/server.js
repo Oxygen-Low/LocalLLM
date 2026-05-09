@@ -4014,10 +4014,13 @@ app.post('/api/books/spaces/:id/books', requireSession, handleBookUpload, (req, 
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
 
+    const userDir = getUserBooksDir(req.sessionUser);
+    const safeFilePath = ensureWithinDir(userDir, req.file.path);
+
     const spaces = readBooksSpaces();
     const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
     if (!space) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      if (fs.existsSync(safeFilePath)) fs.unlinkSync(safeFilePath);
       return res.status(404).json({ success: false, error: 'Space not found' });
     }
 
@@ -4037,7 +4040,7 @@ app.post('/api/books/spaces/:id/books', requireSession, handleBookUpload, (req, 
       // Revert in-memory changes
       space.books.pop();
       space.updatedAt = originalUpdatedAt;
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      if (fs.existsSync(safeFilePath)) fs.unlinkSync(safeFilePath);
       throw writeErr;
     }
 
@@ -4092,8 +4095,9 @@ app.post('/api/books/spaces/:id/generate-task', requireSession, async (req, res)
     const userDir = getUserBooksDir(req.sessionUser);
     for (const b of space.books) {
       const filePath = path.join(userDir, b.filename);
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf-8');
+      const safePath = ensureWithinDir(userDir, filePath);
+      if (fs.existsSync(safePath)) {
+        const content = fs.readFileSync(safePath, 'utf-8');
         combinedContext += `\n--- Book: ${b.name} ---\n${content.substring(0, 5000)}\n`;
       }
     }
