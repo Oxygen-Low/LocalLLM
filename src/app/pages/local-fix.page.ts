@@ -37,7 +37,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                   </ol>
                 </div>
 
-                <button (click)="goToStep('configure')" class="btn-primary w-full">
+                <button type="button" (click)="goToStep('configure')" class="btn-primary w-full">
                   {{ t.translate('localFix.setup.continue') }}
                 </button>
 
@@ -54,7 +54,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
           <div class="flex-1 flex items-center justify-center">
             <div class="max-w-lg w-full mx-4">
               <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-8">
-                <button (click)="goToStep('setup')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('setup')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -93,7 +93,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                   </div>
                 }
 
-                <button
+                <button type="button"
                   (click)="goToStep('describe-issue')"
                   [disabled]="!instanceUrl || !userId"
                   class="btn-primary w-full mt-6"
@@ -112,7 +112,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
           <div class="flex-1 flex items-center justify-center">
             <div class="max-w-lg w-full mx-4">
               <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-8">
-                <button (click)="goToStep('configure')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('configure')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -185,7 +185,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                   </div>
                 }
 
-                <button
+                <button type="button"
                   (click)="startSession()"
                   [disabled]="!issueDescription || isLoading()"
                   class="btn-primary w-full mt-6"
@@ -225,7 +225,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                     {{ currentSession()?.status === 'active' ? '● Active' : '○ ' + currentSession()?.status }}
                   </span>
                 </div>
-                <button
+                <button type="button"
                   (click)="endSession()"
                   [disabled]="isLoading()"
                   class="px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors"
@@ -288,13 +288,13 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                       <div class="flex items-center justify-between bg-white rounded-lg border border-amber-200 p-3 mb-2">
                         <code class="text-sm font-mono text-secondary-800 break-all">{{ cmd.command }}</code>
                         <div class="flex gap-2 ml-4 flex-shrink-0">
-                          <button
+                          <button type="button"
                             (click)="approveCommand(cmd.id)"
                             class="px-3 py-1 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition-colors"
                           >
                             ✓ {{ t.translate('localFix.session.approve') }}
                           </button>
-                          <button
+                          <button type="button"
                             (click)="rejectCommand(cmd.id)"
                             class="px-3 py-1 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
                           >
@@ -317,7 +317,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                       class="flex-1 px-3 py-2 border border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                       [disabled]="isSending()"
                     />
-                    <button
+                    <button type="button"
                       (click)="sendMessage()"
                       [disabled]="!chatMessage || isSending()"
                       class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -337,7 +337,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                 <div class="w-80 border-l border-secondary-200 bg-white flex flex-col overflow-hidden">
                   <div class="p-4 border-b border-secondary-200 flex items-center justify-between">
                     <h3 class="font-semibold text-secondary-900 text-sm">{{ t.translate('localFix.session.setupScript') }}</h3>
-                    <button (click)="showScriptPanel.set(false)" class="text-secondary-400 hover:text-secondary-600">
+                    <button type="button" (click)="showScriptPanel.set(false)" class="text-secondary-400 hover:text-secondary-600">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                       </svg>
@@ -347,7 +347,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                     <div>
                       <div class="flex items-center justify-between mb-2">
                         <p class="text-xs font-semibold text-secondary-700 uppercase">Windows (.bat)</p>
-                        <button (click)="copyScript('bat')" class="text-xs text-primary-600 hover:text-primary-700">
+                        <button type="button" (click)="copyScript('bat')" class="text-xs text-primary-600 hover:text-primary-700">
                           {{ t.translate('localFix.session.copy') }}
                         </button>
                       </div>
@@ -356,7 +356,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                     <div>
                       <div class="flex items-center justify-between mb-2">
                         <p class="text-xs font-semibold text-secondary-700 uppercase">Linux/Mac (.sh)</p>
-                        <button (click)="copyScript('sh')" class="text-xs text-primary-600 hover:text-primary-700">
+                        <button type="button" (click)="copyScript('sh')" class="text-xs text-primary-600 hover:text-primary-700">
                           {{ t.translate('localFix.session.copy') }}
                         </button>
                       </div>
@@ -392,7 +392,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                   </li>
                 </ul>
 
-                <button (click)="resetWizard()" class="btn-primary w-full mb-3">
+                <button type="button" (click)="resetWizard()" class="btn-primary w-full mb-3">
                   {{ t.translate('localFix.completed.newSession') }}
                 </button>
                 <a routerLink="/dashboard" class="inline-block text-sm text-muted hover:text-secondary-700 transition-colors">
