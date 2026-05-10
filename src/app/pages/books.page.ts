@@ -159,9 +159,9 @@ import { TranslationService } from '../services/translation.service';
                 <div class="space-y-8">
                   <div>
                     <label class="block text-sm font-bold text-secondary-700 mb-4">{{ t.translate('books.practice.question') }}</label>
-                    <div class="grid grid-cols-3 gap-4">
+                    <div class="grid grid-cols-3 gap-4" role="radiogroup" [attr.aria-label]="t.translate('books.practice.question')">
                       @for (type of ['book', 'paragraph', 'sentence']; track type) {
-                        <button type="button" (click)="practiceType.set(type)" [class.border-primary-600]="practiceType() === type" [class.bg-primary-50]="practiceType() === type" [class.text-primary-700]="practiceType() === type" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-secondary-100 hover:border-primary-200 transition-all text-center">
+                        <button type="button" role="radio" [attr.aria-checked]="practiceType() === type" (click)="practiceType.set(type)" [class.border-primary-600]="practiceType() === type" [class.bg-primary-50]="practiceType() === type" [class.text-primary-700]="practiceType() === type" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-secondary-100 hover:border-primary-200 transition-all text-center">
                           <span class="text-2xl">@if(type==='book'){📖}@else if(type==='paragraph'){📝}@else{🖋️}</span>
                           <span class="text-sm font-bold capitalize">{{ t.translate('books.practice.types.' + type) }}</span>
                         </button>
