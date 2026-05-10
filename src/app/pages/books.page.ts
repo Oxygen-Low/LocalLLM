@@ -85,17 +85,17 @@ import { TranslationService } from '../services/translation.service';
             <h2 class="text-2xl font-bold text-secondary-900 mb-6">{{ t.translate('books.create.title') }}</h2>
             <div class="space-y-6">
               <div>
-                <label class="block text-sm font-bold text-secondary-700 mb-2">{{ t.translate('books.create.name') }}</label>
-                <input [(ngModel)]="newSpaceData.title" type="text" [placeholder]="t.translate('books.create.namePlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none">
+                <label for="create-space-title" class="block text-sm font-bold text-secondary-700 mb-2">{{ t.translate('books.create.name') }}</label>
+                <input id="create-space-title" [(ngModel)]="newSpaceData.title" type="text" [placeholder]="t.translate('books.create.namePlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none">
               </div>
               <div>
-                <label class="block text-sm font-bold text-secondary-700 mb-2">{{ t.translate('books.create.inspiration') }}</label>
-                <input [(ngModel)]="newSpaceData.inspiration" type="text" [placeholder]="t.translate('books.create.inspirationPlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none">
+                <label for="create-space-inspiration" class="block text-sm font-bold text-secondary-700 mb-2">{{ t.translate('books.create.inspiration') }}</label>
+                <input id="create-space-inspiration" [(ngModel)]="newSpaceData.inspiration" type="text" [placeholder]="t.translate('books.create.inspirationPlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none">
                 <p class="text-[11px] text-muted mt-2 px-1">{{ t.translate('books.create.inspirationHint') }}</p>
               </div>
               <div>
-                <label class="block text-sm font-bold text-secondary-700 mb-2">{{ t.translate('books.create.description') }}</label>
-                <textarea [(ngModel)]="newSpaceData.description" rows="4" [placeholder]="t.translate('books.create.descriptionPlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none resize-none"></textarea>
+                <label for="create-space-description" class="block text-sm font-bold text-secondary-700 mb-2">{{ t.translate('books.create.description') }}</label>
+                <textarea id="create-space-description" [(ngModel)]="newSpaceData.description" rows="4" [placeholder]="t.translate('books.create.descriptionPlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none resize-none"></textarea>
               </div>
               <div class="flex gap-4 pt-4">
                 <button type="button" (click)="viewMode.set('list')" class="flex-1 px-6 py-3 rounded-xl border border-secondary-300 font-bold hover:bg-secondary-50 transition-colors">{{ t.translate('books.create.cancel') }}</button>
@@ -408,6 +408,8 @@ export class BooksPageComponent implements OnInit {
                   e.error?.error === 'UploadTooLarge' ? 'books.errors.fileTooLarge' :
                   'books.errors.uploadBook';
       this.error.set(this.t.translate(msg));
+    } finally {
+      (event.target as HTMLInputElement).value = '';
     }
   }
 

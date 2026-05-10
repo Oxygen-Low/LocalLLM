@@ -1099,7 +1099,7 @@ const translations: TranslationDictionary = {
   'apps.books.description': {
     en: 'Practice your creative writing skills. Create themed spaces, upload inspiration books, and get detailed AI feedback on your writing tasks.',
     ko: '창의적인 글쓰기 기술을 연습하세요. 테마 공간을 만들고 영감을 주는 책을 업로드하고 글쓰기 과제에 대한 자세한 AI 피드백을 받으세요.',
-    ja: 'クリエイティブライティングのスキルを練習しましょう。テーマ別のスペースを作成し、インスピレーションとなる本をアップ로드して、執筆タスクに対する詳細なAIフィードバックを受け取ります。',
+    ja: 'クリエイティブライティングのスキルを練習しましょう。テーマ別のスペースを作成し、インスピレーションとなる本をアップロードして、執筆タスクに対する詳細なAIフィードバックを受け取ります。',
     ru: 'Практикуйте навыки творческого письма. Создавайте тематические пространства, загружайте книги для вдохновения и получайте подробные отзывы ИИ о своих текстах.',
   },
   'books.title': {
