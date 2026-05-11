@@ -294,7 +294,7 @@ import { LlmService } from '../services/llm.service';
 
                                 <!-- Auto-generate Section -->
                                 <div class="mt-2 pt-2 border-t border-secondary-100">
-                                  <button (click)="toggleAutoGen(universe.id)" class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
+                                  <button type="button" (click)="toggleAutoGen(universe.id)" class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
                                     <span>✨</span> {{ autoGenExpanded()[universe.id] ? 'Cancel auto-generation' : 'Auto-generate character' }}
                                   </button>
 
@@ -323,7 +323,7 @@ import { LlmService } from '../services/llm.service';
                                         </div>
                                       }
 
-                                      <button (click)="onAutoGenerateCharacter(universe.id)" [disabled]="isAutoGenerating()[universe.id] || (getAutoGenMode(universe.id) === 'search' ? !autoGenQuery[universe.id]?.trim() : !autoGenLinks[universe.id]?.trim())" class="w-full py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50">
+                                      <button type="button" (click)="onAutoGenerateCharacter(universe.id)" [disabled]="isAutoGenerating()[universe.id] || (getAutoGenMode(universe.id) === 'search' ? !autoGenQuery[universe.id]?.trim() : !autoGenLinks[universe.id]?.trim())" class="w-full py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50">
                                         {{ isAutoGenerating()[universe.id] ? 'Generating...' : 'Generate & Save Character' }}
                                       </button>
                                     </div>

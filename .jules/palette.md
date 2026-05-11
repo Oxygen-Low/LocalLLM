@@ -11,3 +11,6 @@
 - **Issue:** Various buttons across the application, specifically within `datasets.page.ts`, lacked the `type="button"` attribute. This causes issues with accessibility and can lead to unintended form submissions.
 - **Fix:** Added `type="button"` to all `<button>` elements in `datasets.page.ts` that were missing it.
 - **Impact:** Ensures better accessibility and prevents accidental form submissions for a smoother user experience, particularly for keyboard users or screen readers.
+## Adding `type="button"` for Accessibility
+* When rendering `<button>` elements in HTML, they default to `type="submit"`. This can cause issues in forms or applications where buttons are meant to trigger JavaScript functions rather than page navigations/submissions.
+* Always explicitly declare `<button type="button">` for non-submit buttons to ensure robust accessibility, prevent accidental form submissions, and clarify the component's intent.

@@ -17,8 +17,8 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
         <div class="flex items-center justify-between mb-8 border-b-2 border-[#8b7355] pb-4">
           <h1 class="text-3xl font-bold italic text-[#5d4037] drop-shadow-sm">The Adventure Chronicles</h1>
           <div class="flex gap-4 font-sans">
-            <button (click)="viewMode.set('list')" class="px-4 py-2 rounded border border-[#8b7355] hover:bg-[#e8e4d9] transition-colors text-sm font-bold text-[#5d4037]">Library</button>
-            <button (click)="viewMode.set('setup')" class="px-4 py-2 rounded bg-[#8b7355] text-white hover:bg-[#7a624a] transition-colors text-sm font-bold shadow-sm">New Tale</button>
+            <button type="button" (click)="viewMode.set('list')" class="px-4 py-2 rounded border border-[#8b7355] hover:bg-[#e8e4d9] transition-colors text-sm font-bold text-[#5d4037]">Library</button>
+            <button type="button" (click)="viewMode.set('setup')" class="px-4 py-2 rounded bg-[#8b7355] text-white hover:bg-[#7a624a] transition-colors text-sm font-bold shadow-sm">New Tale</button>
           </div>
         </div>
 
@@ -108,7 +108,7 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                 <div>
                   <label class="block text-sm font-bold text-secondary-700 mb-1 font-sans">Narrator LLM</label>
                   <div class="relative">
-                    <button (click)="showNarratorDropdown.set(!showNarratorDropdown())" class="w-full text-left px-4 py-2 rounded border border-secondary-300 text-xs flex justify-between items-center bg-white">
+                    <button type="button" (click)="showNarratorDropdown.set(!showNarratorDropdown())" class="w-full text-left px-4 py-2 rounded border border-secondary-300 text-xs flex justify-between items-center bg-white">
                       <span class="truncate">{{ getProviderLabel(setupData.narratorConfig) }}</span>
                       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
@@ -117,12 +117,12 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                         @for (p of providers(); track p.id) {
                           @if (p.models) {
                             @for (m of p.models; track getModelId(m)) {
-                              <button (click)="setupData.narratorConfig = {provider: p.id, model: getModelId(m)}; showNarratorDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
+                              <button type="button" (click)="setupData.narratorConfig = {provider: p.id, model: getModelId(m)}; showNarratorDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
                                 {{ p.name }} - {{ getModelDisplayName(m) }}
                               </button>
                             }
                           } @else {
-                            <button (click)="setupData.narratorConfig = {provider: p.id, model: p.model || ''}; showNarratorDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
+                            <button type="button" (click)="setupData.narratorConfig = {provider: p.id, model: p.model || ''}; showNarratorDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
                               {{ p.name }}
                             </button>
                           }
@@ -134,7 +134,7 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                 <div>
                   <label class="block text-sm font-bold text-secondary-700 mb-1 font-sans">Character LLM</label>
                   <div class="relative">
-                    <button (click)="showCharacterDropdown.set(!showCharacterDropdown())" class="w-full text-left px-4 py-2 rounded border border-secondary-300 text-xs flex justify-between items-center bg-white">
+                    <button type="button" (click)="showCharacterDropdown.set(!showCharacterDropdown())" class="w-full text-left px-4 py-2 rounded border border-secondary-300 text-xs flex justify-between items-center bg-white">
                       <span class="truncate">{{ getProviderLabel(setupData.characterConfig) }}</span>
                       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
@@ -143,12 +143,12 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                         @for (p of providers(); track p.id) {
                           @if (p.models) {
                             @for (m of p.models; track getModelId(m)) {
-                              <button (click)="setupData.characterConfig = {provider: p.id, model: getModelId(m)}; showCharacterDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
+                              <button type="button" (click)="setupData.characterConfig = {provider: p.id, model: getModelId(m)}; showCharacterDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
                                 {{ p.name }} - {{ getModelDisplayName(m) }}
                               </button>
                             }
                           } @else {
-                            <button (click)="setupData.characterConfig = {provider: p.id, model: p.model || ''}; showCharacterDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
+                            <button type="button" (click)="setupData.characterConfig = {provider: p.id, model: p.model || ''}; showCharacterDropdown.set(false)" class="w-full text-left px-4 py-2 text-[10px] hover:bg-secondary-50 border-b border-secondary-50">
                               {{ p.name }}
                             </button>
                           }
@@ -159,7 +159,7 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                 </div>
               </div>
 
-              <button (click)="startAdventure()" [disabled]="isStarting() || !setupData.universeId || !setupData.personaId" class="w-full py-4 rounded bg-[#5d4037] text-white font-bold hover:bg-[#4e342e] transition-colors disabled:opacity-50 mt-4 flex items-center justify-center gap-2 shadow-md">
+              <button type="button" (click)="startAdventure()" [disabled]="isStarting() || !setupData.universeId || !setupData.personaId" class="w-full py-4 rounded bg-[#5d4037] text-white font-bold hover:bg-[#4e342e] transition-colors disabled:opacity-50 mt-4 flex items-center justify-center gap-2 shadow-md">
                 @if (isStarting()) {
                   <svg class="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                   The Narrator is preparing the scene...
@@ -216,19 +216,19 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
               </div>
 
               <!-- Page Turn Buttons -->
-              <button (click)="prevPage()" [disabled]="currentPage() === 0" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
+              <button type="button" (click)="prevPage()" [disabled]="currentPage() === 0" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button (click)="nextPage()" [disabled]="(currentPage() + 2) * 5 >= currentBook().length" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
+              <button type="button" (click)="nextPage()" [disabled]="(currentPage() + 2) * 5 >= currentBook().length" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
 
               <!-- Perspective Switcher (Only if ended) -->
               @if (currentAdventure()?.status === 'ended') {
                 <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-[#8b7355] text-white px-4 py-1.5 rounded-full text-[10px] font-sans font-bold flex gap-4 z-20 shadow-lg border border-[#7a624a]">
-                  <button (click)="setPerspective('user')" [class.text-white]="currentPerspective() === 'user'" [class.text-white/50]="currentPerspective() !== 'user'" class="hover:text-white transition-colors">YOU</button>
+                  <button type="button" (click)="setPerspective('user')" [class.text-white]="currentPerspective() === 'user'" [class.text-white/50]="currentPerspective() !== 'user'" class="hover:text-white transition-colors">YOU</button>
                   @for (npcId of currentAdventure()?.npcIds; track npcId) {
-                    <button (click)="setPerspective(npcId)" [class.text-white]="currentPerspective() === npcId" [class.text-white/50]="currentPerspective() !== npcId" class="hover:text-white transition-colors uppercase">{{ getCharacterName(npcId) }}</button>
+                    <button type="button" (click)="setPerspective(npcId)" [class.text-white]="currentPerspective() === npcId" [class.text-white/50]="currentPerspective() !== npcId" class="hover:text-white transition-colors uppercase">{{ getCharacterName(npcId) }}</button>
                   }
                 </div>
               }
@@ -240,15 +240,15 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                 <div class="flex flex-col gap-4">
                   <div class="flex gap-2">
                     <input [(ngModel)]="userAction" (keydown.enter)="executeTurn()" [disabled]="isProcessing()" type="text" placeholder="I open the heavy oak door..." class="flex-1 px-4 py-3 rounded border border-secondary-300 outline-none focus:ring-2 focus:ring-[#8b7355] shadow-inner text-sm">
-                    <button (click)="executeTurn()" [disabled]="isProcessing() || !userAction.trim()" class="px-6 py-3 rounded bg-[#5d4037] text-white font-bold hover:bg-[#4e342e] disabled:opacity-50 shadow-md transition-all">
+                    <button type="button" (click)="executeTurn()" [disabled]="isProcessing() || !userAction.trim()" class="px-6 py-3 rounded bg-[#5d4037] text-white font-bold hover:bg-[#4e342e] disabled:opacity-50 shadow-md transition-all">
                       Act
                     </button>
-                    <button (click)="skipTurn()" [disabled]="isProcessing()" class="px-6 py-3 rounded border border-[#8b7355] text-[#8b7355] font-bold hover:bg-secondary-50 disabled:opacity-50 shadow-sm transition-all">
+                    <button type="button" (click)="skipTurn()" [disabled]="isProcessing()" class="px-6 py-3 rounded border border-[#8b7355] text-[#8b7355] font-bold hover:bg-secondary-50 disabled:opacity-50 shadow-sm transition-all">
                       Wait
                     </button>
                   </div>
                   <div class="flex justify-between items-center">
-                    <button (click)="endAdventure()" class="text-red-600 hover:text-red-700 text-xs font-bold uppercase tracking-widest">End Adventure</button>
+                    <button type="button" (click)="endAdventure()" class="text-red-600 hover:text-red-700 text-xs font-bold uppercase tracking-widest">End Adventure</button>
                     @if (isProcessing()) {
                       <div class="flex items-center gap-2 text-xs text-[#8b7355] font-bold animate-pulse">
                         <svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -261,8 +261,8 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
                  <div class="flex flex-col md:flex-row justify-between items-center gap-4">
                    <p class="text-secondary-600 italic text-sm">This tale has concluded. You may read the perspectives of all participants.</p>
                    <div class="flex gap-4">
-                    <button (click)="resumeAdventure()" class="px-6 py-2 rounded bg-green-700 text-white font-bold hover:bg-green-800 text-sm shadow-md transition-all">Resume Tale</button>
-                    <button (click)="confirmDelete()" class="px-6 py-2 rounded bg-red-600 text-white font-bold hover:bg-red-700 text-sm shadow-md transition-all">Burn Book</button>
+                    <button type="button" (click)="resumeAdventure()" class="px-6 py-2 rounded bg-green-700 text-white font-bold hover:bg-green-800 text-sm shadow-md transition-all">Resume Tale</button>
+                    <button type="button" (click)="confirmDelete()" class="px-6 py-2 rounded bg-red-600 text-white font-bold hover:bg-red-700 text-sm shadow-md transition-all">Burn Book</button>
                    </div>
                  </div>
                }

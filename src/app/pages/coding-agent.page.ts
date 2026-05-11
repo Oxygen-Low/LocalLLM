@@ -73,7 +73,7 @@ interface ToolCall {
                       <p>You can still use <strong>public repositories</strong> by entering a URL. To access private repositories, <a routerLink="/settings" class="underline hover:text-blue-600">configure a GitHub token in Settings</a>.</p>
                     </div>
                   }
-                  <button (click)="goToStep('select-repo')" class="btn-primary">
+                  <button type="button" (click)="goToStep('select-repo')" class="btn-primary">
                     Select Repository
                   </button>
                 }
@@ -87,7 +87,7 @@ interface ToolCall {
           <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
             <div class="flex items-center justify-between mb-6">
               <div>
-                <button (click)="goToStep('check-github')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-2 inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('check-github')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-2 inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -116,7 +116,7 @@ interface ToolCall {
                   placeholder="https://github.com/owner/repo"
                   class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
                 />
-                <button (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0">
+                <button type="button" (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0">
                   Use URL
                 </button>
               </div>
@@ -244,7 +244,7 @@ interface ToolCall {
             <!-- Continue button -->
             @if (selectedRepo() || selectedLocalRepo()) {
               <div class="pt-4 border-t border-secondary-200 mt-4">
-                <button (click)="goToStep('select-mode')" class="btn-primary w-full sm:w-auto">
+                <button type="button" (click)="goToStep('select-mode')" class="btn-primary w-full sm:w-auto">
                   Continue with {{ selectedLocalRepo()?.name || selectedRepo()?.name }}
                 </button>
               </div>
@@ -256,7 +256,7 @@ interface ToolCall {
         @case ('select-mode') {
           <div class="flex-1 flex items-center justify-center px-4">
             <div class="max-w-2xl w-full">
-              <button (click)="goToStep('select-repo')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="goToStep('select-repo')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                 </svg>
@@ -330,7 +330,7 @@ interface ToolCall {
         <!-- Step 3b: Container Manager -->
         @case ('container-manager') {
           <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
-            <button (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -446,7 +446,7 @@ interface ToolCall {
         <!-- Background Mode: Running -->
         @case ('background-running') {
           <div class="flex-1 flex flex-col max-w-3xl mx-auto w-full px-4 py-8">
-            <button (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -531,7 +531,7 @@ interface ToolCall {
                         </svg>
                       </a>
                     }
-                    <button (click)="goToStep('select-repo')" class="btn-secondary">
+                    <button type="button" (click)="goToStep('select-repo')" class="btn-secondary">
                       New Task
                     </button>
                   </div>
@@ -547,7 +547,7 @@ interface ToolCall {
             <!-- Toolbar -->
             <div class="flex items-center justify-between px-4 py-2 bg-white border-b border-secondary-200">
               <div class="flex items-center gap-3">
-                <button (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -588,7 +588,7 @@ interface ToolCall {
               <div class="bg-secondary-900 border-b border-secondary-700 max-h-48 overflow-y-auto">
                 <div class="flex items-center justify-between px-4 py-1.5 border-b border-secondary-700">
                   <span class="text-xs font-semibold text-secondary-400 uppercase tracking-wider">Agent Terminal</span>
-                  <button (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors">Clear</button>
+                  <button type="button" (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors">Clear</button>
                 </div>
                 <pre class="p-3 text-xs text-green-400 font-mono whitespace-pre-wrap">{{ agentTerminalOutput() || '(No output yet)' }}</pre>
               </div>
