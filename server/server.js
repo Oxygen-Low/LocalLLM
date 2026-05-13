@@ -4640,7 +4640,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
           'bash', '-c', initScript,
         ];
 
-        const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+        const dockerIdRaw = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+        const dockerId = dockerIdRaw.trim();
 
         const containerEntry = {
           id: containerId,
@@ -4660,16 +4661,17 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
           inactivityTimer: setTimeout(() => stopContainerByInactivity(containerId), CONTAINER_INACTIVITY_TIMEOUT_MS),
         });
 
-        const containers = readUserContainers(req.sessionUser);
-        containers.push(containerEntry);
-        writeUserContainers(req.sessionUser, containers);
+        const freshContainers = readUserContainers(req.sessionUser);
+        freshContainers.push(containerEntry);
+        writeUserContainers(req.sessionUser, freshContainers);
 
         // Link container back to the local repo
-        const repoIdx = repos.findIndex(r => r.id === localRepoId);
+        const freshRepos = readUserRepos(req.sessionUser);
+        const repoIdx = freshRepos.findIndex(r => r.id === localRepoId);
         if (repoIdx !== -1) {
-          repos[repoIdx].containerId = containerId;
-          repos[repoIdx].containerName = containerName;
-          writeUserRepos(req.sessionUser, repos);
+          freshRepos[repoIdx].containerId = containerId;
+          freshRepos[repoIdx].containerName = containerName;
+          writeUserRepos(req.sessionUser, freshRepos);
         }
 
         auditLog({ event: 'CONTAINER_CREATED', message: `Container created for local repo "${localRepo.name}"`, username: req.sessionUser, req });
@@ -4758,7 +4760,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'bash', '-c', initScript,
       ];
 
-      const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+      const dockerIdRaw = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+      const dockerId = dockerIdRaw.trim();
 
       // Track container
       const containerEntry = {
@@ -4779,9 +4782,9 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       });
 
       // Persist to disk
-      const containers = readUserContainers(req.sessionUser);
-      containers.push(containerEntry);
-      writeUserContainers(req.sessionUser, containers);
+      const freshContainers = readUserContainers(req.sessionUser);
+      freshContainers.push(containerEntry);
+      writeUserContainers(req.sessionUser, freshContainers);
 
       auditLog({ event: 'CONTAINER_CREATED', message: `Container created for ${repoFullName} (${mode})`, username: req.sessionUser, req });
       res.json({ success: true, container: containerEntry });
