@@ -88,6 +88,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/adventure.page').then(m => m.AdventurePageComponent),
         canActivate: [authGuard],
       },
+      {
+        path: 'app/books',
+        loadComponent: () => import('./pages/books.page').then(m => m.BooksPageComponent),
+        canActivate: [authGuard],
+      },
     ],
   },
   {

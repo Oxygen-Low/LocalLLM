@@ -26,6 +26,8 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const PERSONAS_DIR = path.join(DATA_DIR, 'personas');
 const ADVENTURES_DIR = path.join(DATA_DIR, 'adventures');
+const BOOKS_DIR = path.join(DATA_DIR, 'books');
+const BOOKS_SPACES_FILE = path.join(DATA_DIR, 'books_spaces.json');
 const AUDIT_LOG_FILE = path.join(DATA_DIR, 'audit.log');
 const PYTHON_VENV_DIR = path.join(DATA_DIR, 'python_env');
 const PYTHON_SERVICE_SCRIPT = path.join(__dirname, 'python_service.py');
@@ -685,6 +687,12 @@ if (!fs.existsSync(PERSONAS_DIR)) {
 if (!fs.existsSync(ADVENTURES_DIR)) {
   fs.mkdirSync(ADVENTURES_DIR, { recursive: true });
 }
+if (!fs.existsSync(BOOKS_DIR)) {
+  fs.mkdirSync(BOOKS_DIR, { recursive: true });
+}
+if (!fs.existsSync(BOOKS_SPACES_FILE)) {
+  fs.writeFileSync(BOOKS_SPACES_FILE, JSON.stringify([]), 'utf-8');
+}
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf-8');
 }
@@ -1197,6 +1205,42 @@ function ensureWithinDir(parentDir, absolutePath) {
     throw new Error('Path traversal detected');
   }
   return resolvedChild;
+}
+
+function migrateUserBooksAndDirs(oldUsername, newUsername) {
+  const oldDir = path.join(BOOKS_DIR, path.basename(sanitizeUsernameForPath(oldUsername)));
+  const newDir = path.join(BOOKS_DIR, path.basename(sanitizeUsernameForPath(newUsername)));
+
+  if (fs.existsSync(oldDir)) {
+    if (fs.existsSync(newDir)) {
+      // Merge contents if newDir already exists
+      const entries = fs.readdirSync(oldDir);
+      for (const entry of entries) {
+        const oldPath = path.join(oldDir, entry);
+        const newPath = path.join(newDir, entry);
+        if (!fs.existsSync(newPath)) {
+          fs.renameSync(oldPath, newPath);
+        } else {
+          fs.unlinkSync(oldPath);
+        }
+      }
+      fs.rmdirSync(oldDir);
+    } else {
+      fs.renameSync(oldDir, newDir);
+    }
+  }
+
+  const spaces = readBooksSpaces();
+  let changed = false;
+  for (const space of spaces) {
+    if (space.username === oldUsername) {
+      space.username = newUsername;
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeBooksSpaces(spaces);
+  }
 }
 
 async function ensureAdminAccount() {
@@ -1974,6 +2018,15 @@ app.put('/api/auth/change-username', authLimiter, requireSession, async (req, re
       } catch { /* ignore */ }
     }
 
+    // Migrate Books and Directories
+    try {
+      migrateUserBooksAndDirs(oldUsername, normalizedNew);
+    } catch (migrateErr) {
+      console.error('Change-username: failed to migrate books for %s:', oldUsername, migrateErr);
+      // Not strictly fatal to the whole username change as the DB update can still proceed,
+      // but we should log it.
+    }
+
     // Update user record
     users[userIndex] = { ...users[userIndex], username: normalizedNew };
     writeUsers(users);
@@ -2044,6 +2097,9 @@ app.delete('/api/auth/account', authLimiter, requireSession, async (req, res) =>
 
     // Clean up all adventures owned by this user
     deleteAllUserAdventures(normalizedUsername);
+
+    // Clean up all books and spaces owned by this user
+    deleteAllUserBooks(normalizedUsername);
 
     // Clean up personas file
     const personaFile = getPersonasFile(normalizedUsername);
@@ -2300,6 +2356,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
       deleteAllUserRepos(normalizedUsername);
       deleteAllUserDatasets(normalizedUsername);
       deleteAllUserAdventures(normalizedUsername);
+      deleteAllUserBooks(normalizedUsername);
 
       const personaFile = getPersonasFile(normalizedUsername);
       if (fs.existsSync(personaFile)) {
@@ -3828,6 +3885,289 @@ app.delete('/api/adventures/:id', requireSession, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Books App - Spaces and Writing Practice
+// ---------------------------------------------------------------------------
+
+const bookUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      try {
+        const dir = getUserBooksDir(req.sessionUser);
+        cb(null, dir);
+      } catch (e) {
+        cb(e);
+      }
+    },
+    filename: (req, file, cb) => {
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${crypto.randomUUID()}-${safe}`);
+    }
+  }),
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.txt' && ext !== '.md') {
+      return cb(new Error('InvalidFileType'));
+    }
+    cb(null, true);
+  },
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
+function handleBookUpload(req, res, next) {
+  bookUpload.single('book')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ success: false, error: 'UploadTooLarge' });
+      }
+      if (err.message === 'InvalidFileType') {
+        return res.status(400).json({ success: false, error: 'InvalidFileType' });
+      }
+      return res.status(400).json({ success: false, error: err.message || 'UploadError' });
+    }
+    next();
+  });
+}
+
+// GET /api/books/spaces - List user spaces
+app.get('/api/books/spaces', requireSession, (req, res) => {
+  try {
+    const spaces = readBooksSpaces().filter(s => s.username === req.sessionUser);
+    res.json({ success: true, spaces });
+  } catch (err) {
+    console.error('List spaces error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/books/spaces - Create space
+app.post('/api/books/spaces', requireSession, (req, res) => {
+  try {
+    const { title, inspiration, description } = req.body;
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ success: false, error: 'Title is required' });
+    }
+    const spaces = readBooksSpaces();
+    const space = {
+      id: crypto.randomUUID(),
+      username: req.sessionUser,
+      title: title.trim(),
+      inspiration: inspiration || '',
+      description: description || '',
+      books: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    spaces.push(space);
+    writeBooksSpaces(spaces);
+    res.status(201).json({ success: true, space });
+  } catch (err) {
+    console.error('Create space error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// GET /api/books/spaces/:id - Get space
+app.get('/api/books/spaces/:id', requireSession, (req, res) => {
+  try {
+    const spaces = readBooksSpaces();
+    const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
+    if (!space) return res.status(404).json({ success: false, error: 'Space not found' });
+    res.json({ success: true, space });
+  } catch (err) {
+    console.error('Get space error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/books/spaces/:id - Delete space
+app.delete('/api/books/spaces/:id', requireSession, (req, res) => {
+  try {
+    const spaces = readBooksSpaces();
+    const index = spaces.findIndex(s => s.id === req.params.id && s.username === req.sessionUser);
+    if (index === -1) return res.status(404).json({ success: false, error: 'Space not found' });
+
+    const space = spaces[index];
+    // Delete files
+    const userDir = getUserBooksDir(req.sessionUser);
+    for (const b of space.books) {
+      try {
+        const filePath = path.join(userDir, b.filename);
+        const safePath = ensureWithinDir(userDir, filePath);
+        if (fs.existsSync(safePath)) fs.unlinkSync(safePath);
+      } catch (e) {
+        console.warn(`[books] Skipping delete for suspicious path: ${b.filename}`);
+      }
+    }
+
+    spaces.splice(index, 1);
+    writeBooksSpaces(spaces);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete space error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/books/spaces/:id/books - Upload book
+app.post('/api/books/spaces/:id/books', requireSession, handleBookUpload, (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+
+    const userDir = getUserBooksDir(req.sessionUser);
+    const safeFilePath = ensureWithinDir(userDir, req.file.path);
+
+    const spaces = readBooksSpaces();
+    const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
+    if (!space) {
+      if (fs.existsSync(safeFilePath)) fs.unlinkSync(safeFilePath);
+      return res.status(404).json({ success: false, error: 'Space not found' });
+    }
+
+    const book = {
+      id: crypto.randomUUID(),
+      name: req.file.originalname,
+      filename: req.file.filename,
+      uploadedAt: new Date().toISOString()
+    };
+    space.books.push(book);
+    const originalUpdatedAt = space.updatedAt;
+    space.updatedAt = new Date().toISOString();
+
+    try {
+      writeBooksSpaces(spaces);
+    } catch (writeErr) {
+      // Revert in-memory changes
+      space.books.pop();
+      space.updatedAt = originalUpdatedAt;
+      if (fs.existsSync(safeFilePath)) fs.unlinkSync(safeFilePath);
+      throw writeErr;
+    }
+
+    res.json({ success: true, book });
+  } catch (err) {
+    console.error('Upload book error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/books/spaces/:id/books/:bookId - Delete book
+app.delete('/api/books/spaces/:id/books/:bookId', requireSession, (req, res) => {
+  try {
+    const spaces = readBooksSpaces();
+    const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
+    if (!space) return res.status(404).json({ success: false, error: 'Space not found' });
+
+    const bookIndex = space.books.findIndex(b => b.id === req.params.bookId);
+    if (bookIndex === -1) return res.status(404).json({ success: false, error: 'Book not found' });
+
+    const book = space.books[bookIndex];
+    const bookDir = getUserBooksDir(req.sessionUser);
+    try {
+      const filePath = path.join(bookDir, book.filename);
+      const safePath = ensureWithinDir(bookDir, filePath);
+      if (fs.existsSync(safePath)) fs.unlinkSync(safePath);
+    } catch (e) {
+      console.warn(`[books] Skipping delete for suspicious path: ${book.filename}`);
+    }
+
+    space.books.splice(bookIndex, 1);
+    space.updatedAt = new Date().toISOString();
+    writeBooksSpaces(spaces);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete book error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/books/spaces/:id/generate-task
+app.post('/api/books/spaces/:id/generate-task', requireSession, async (req, res) => {
+  try {
+    const { type, generateSample } = req.body; // type: 'book' | 'paragraph' | 'sentence'
+    const spaces = readBooksSpaces();
+    const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
+    if (!space) return res.status(404).json({ success: false, error: 'Space not found' });
+
+    let combinedContext = `Space Title: ${space.title}\nSpace Description: ${space.description}\nInspiration: ${space.inspiration}\n`;
+
+    const userDir = getUserBooksDir(req.sessionUser);
+    for (const b of space.books) {
+      const filePath = path.join(userDir, b.filename);
+      const safePath = ensureWithinDir(userDir, filePath);
+      if (fs.existsSync(safePath)) {
+        const content = fs.readFileSync(safePath, 'utf-8');
+        combinedContext += `\n--- Book: ${b.name} ---\n${content.substring(0, 5000)}\n`;
+      }
+    }
+
+    const prompt = `You are a creative writing coach. Based on the following context, generate a writing task for a ${type}.
+${combinedContext}
+
+Generate:
+1. Two fictional characters that fit perfectly into this world (name, brief background, personality).
+2. A setting (location, time, status).
+3. A specific writing task (e.g., "Character A tells character B a secret they've been keeping for years").
+${generateSample ? '4. A small portion of auto-generated text (a few sentences) to set the mood.' : ''}
+
+Respond ONLY with a JSON object:
+{
+  "characters": [{"name": "...", "description": "..."}],
+  "setting": "...",
+  "task": "...",
+  "sample": "..." // if requested
+}`;
+
+    const completion = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }]);
+    const taskData = JSON.parse(completion.replace(/```json\n?|\n?```/g, '').trim());
+
+    res.json({ success: true, task: taskData });
+  } catch (err) {
+    console.error('Generate task error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+// POST /api/books/spaces/:id/evaluate
+app.post('/api/books/spaces/:id/evaluate', requireSession, async (req, res) => {
+  try {
+    const { task, writtenContent } = req.body;
+    const spaces = readBooksSpaces();
+    const space = spaces.find(s => s.id === req.params.id && s.username === req.sessionUser);
+    if (!space) return res.status(404).json({ success: false, error: 'Space not found' });
+
+    const prompt = `You are an expert editor and writing coach.
+Evaluate the following written scene based on the assigned task.
+
+Task: ${JSON.stringify(task)}
+Written Content:
+${writtenContent}
+
+Provide detailed feedback:
+1. Comments on specific words, sentences, or paragraphs (vocabulary, grammar, impact).
+2. Overall feedback on the entire piece (pacing, tone, character voice).
+3. Suggestions for improvement.
+
+Respond ONLY with a JSON object:
+{
+  "overallFeedback": "...",
+  "suggestions": "...",
+  "inlineComments": [
+    {"text": "...", "comment": "...", "type": "word|sentence|paragraph"}
+  ]
+}`;
+
+    const completion = await getLLMCompletion(req.sessionUser, [{ role: 'user', content: prompt }]);
+    const evaluation = JSON.parse(completion.replace(/```json\n?|\n?```/g, '').trim());
+
+    res.json({ success: true, evaluation });
+  } catch (err) {
+    console.error('Evaluate writing error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // GET /api/user/personas – List user's personas
 app.get('/api/user/personas', requireSession, (req, res) => {
   try {
@@ -5284,6 +5624,42 @@ function deleteAllUserAdventures(username) {
     }
   } catch (err) {
     console.error('deleteAllUserAdventures error for %s: %s', username, err.message);
+  }
+}
+
+function readBooksSpaces() {
+  if (!fs.existsSync(BOOKS_SPACES_FILE)) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync(BOOKS_SPACES_FILE, 'utf-8'));
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBooksSpaces(spaces) {
+  fs.writeFileSync(BOOKS_SPACES_FILE, JSON.stringify(spaces, null, 2), 'utf-8');
+}
+
+function getUserBooksDir(username) {
+  const safe = path.basename(sanitizeUsernameForPath(username));
+  const dir = path.join(BOOKS_DIR, safe);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return ensureWithinDir(BOOKS_DIR, dir);
+}
+
+function deleteAllUserBooks(username) {
+  try {
+    const safeUsername = path.basename(sanitizeUsernameForPath(username));
+    const userDir = path.join(BOOKS_DIR, safeUsername);
+    if (fs.existsSync(userDir)) {
+      fs.rmSync(userDir, { recursive: true, force: true });
+    }
+    const spaces = readBooksSpaces();
+    const filtered = spaces.filter(s => s.username !== username);
+    writeBooksSpaces(filtered);
+  } catch (err) {
+    console.error('deleteAllUserBooks error for %s: %s', username, err.message);
   }
 }
 
@@ -10469,4 +10845,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT, readAdventure, writeAdventure, listAdventures, deleteAdventure };
+module.exports = { app, createHttpServer, saveAllData, setupGracefulShutdown, ensureAdminAccount, readUsers, writeUsers, readUniverses, writeUniverses, readSettings, writeSettings, isPrivateIP, validateOutboundUrl, validateResolvedIP, ssrfSafeUrlValidation, auditLog, validateUsername, AUDIT_LOG_FILE, createSessionToken, validateSession, invalidateSession, invalidateUserSessions, sessions, checkServerLockout, recordServerFailedAttempt, clearServerLoginAttempts, loginAttempts, validatePasswordHash, authLimiter, encryptData, decryptData, AI_PROVIDERS, VALID_PROVIDERS, sanitizeUsernameForPath, ensureWithinDir, getUserApiKeysFile, DATA_DIR, passwordChangeCooldowns, usernameChangeCooldowns, PASSWORD_CHANGE_COOLDOWN_MS, USERNAME_CHANGE_COOLDOWN_MS, checkCooldown, enhanceMessagesForThink, readLocalModels, writeLocalModels, MODELS_DIR, sendSSE, parseSSEStream, readUserIntegrations, writeUserIntegration, removeUserIntegration, containerRegistry, CONTAINERS_DIR, isDockerAvailable, deleteAllUserContainers, cleanupStaleContainers, CONTAINER_STALE_THRESHOLD_MS, REPOS_DIR, repoRegistry, readUserRepos, writeUserRepos, getUserRepoBareDir, getUserStorageBytes, deleteAllUserRepos, performArchiveRepo, performUnarchiveRepo, registerRepoInMemory, isGitAvailable, REPO_MAX_SIZE_BYTES, USER_MAX_STORAGE_BYTES, REPO_INACTIVITY_MS, MAX_ACTIVE_CONTAINERS_PER_WORKSPACE, AGENT_EXEC_TIMEOUT_MS, AGENT_MEMORIES_DIR, readAgentMemories, writeAgentMemories, MAX_MEMORY_CONTENT_LENGTH, MAX_MEMORIES_PER_REPO, startPythonProcess, stopPythonProcess, PYTHON_VENV_DIR, checkKoboldStatus, checkOllamaStatus, KOBOLD_URL, OLLAMA_URL, performAutoSync, autoSyncStatus, estimateTokenCount, getMaxDatasetTokens, DEFAULT_MAX_DATASET_TOKENS_GB, ensureSelfSignedCert, CERTS_DIR, CERT_KEY_FILE, CERT_FILE, DATASETS_DIR, readUserDatasets, writeUserDatasets, getUserDatasetDir, deleteAllUserDatasets, TRAININGS_DIR, TRAINING_OUTPUTS_DIR, readUserTrainings, writeUserTrainings, LOCAL_FIX_DIR, readUserLocalFixSessions, writeUserLocalFixSessions, MCP_SERVER_MAX_COUNT, readAdventure, writeAdventure, listAdventures, deleteAdventure, readBooksSpaces, writeBooksSpaces, getUserBooksDir, deleteAllUserBooks };
