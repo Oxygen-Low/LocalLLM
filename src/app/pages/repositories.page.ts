@@ -35,10 +35,10 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
           </div>
           @if (currentView() === 'list') {
             <div class="flex gap-2 flex-wrap">
-              <button (click)="showImportGitHub()" class="btn-secondary text-sm">
+              <button type="button" (click)="showImportGitHub()" class="btn-secondary text-sm">
                 ↓ Import from GitHub
               </button>
-              <button (click)="showCreate()" class="btn-primary text-sm">
+              <button type="button" (click)="showCreate()" class="btn-primary text-sm">
                 + New Repository
               </button>
             </div>
@@ -93,8 +93,8 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                 <h3 class="text-lg font-semibold text-secondary-900 mb-2">No repositories yet</h3>
                 <p class="text-muted text-sm mb-6">Create a new repository or import one from GitHub</p>
                 <div class="flex justify-center gap-3">
-                  <button (click)="showImportGitHub()" class="btn-secondary text-sm">↓ Import from GitHub</button>
-                  <button (click)="showCreate()" class="btn-primary text-sm">+ New Repository</button>
+                  <button type="button" (click)="showImportGitHub()" class="btn-secondary text-sm">↓ Import from GitHub</button>
+                  <button type="button" (click)="showCreate()" class="btn-primary text-sm">+ New Repository</button>
                 </div>
               </div>
             } @else {
@@ -124,23 +124,23 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                       </div>
                       <div class="flex gap-2 flex-wrap items-center">
                         @if (repo.status === 'active') {
-                          <button (click)="viewRepo(repo)" class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors">
+                          <button type="button" (click)="viewRepo(repo)" class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors">
                             Details
                           </button>
-                          <button (click)="openInCodingAgent(repo)" class="px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 text-sm hover:bg-purple-200 transition-colors">
+                          <button type="button" (click)="openInCodingAgent(repo)" class="px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 text-sm hover:bg-purple-200 transition-colors">
                             💻 Open in Coding Agent
                           </button>
-                          <button (click)="confirmArchive(repo)" [disabled]="operatingOn() === repo.id"
+                          <button type="button" (click)="confirmArchive(repo)" [disabled]="operatingOn() === repo.id"
                                   class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors disabled:opacity-50">
                             Archive
                           </button>
                         } @else {
-                          <button (click)="doUnarchive(repo)" [disabled]="operatingOn() === repo.id"
+                          <button type="button" (click)="doUnarchive(repo)" [disabled]="operatingOn() === repo.id"
                                   class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors disabled:opacity-50">
                             @if (operatingOn() === repo.id) { Restoring… } @else { Restore }
                           </button>
                         }
-                        <button (click)="confirmDelete(repo)" [disabled]="operatingOn() === repo.id"
+                        <button type="button" (click)="confirmDelete(repo)" [disabled]="operatingOn() === repo.id"
                                 class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-sm hover:bg-red-50 transition-colors disabled:opacity-50">
                           Delete
                         </button>
@@ -157,7 +157,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
           <!-- ============================================================ -->
           @case ('create') {
             <div class="max-w-lg">
-              <button (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Back
               </button>
@@ -179,7 +179,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                     <input type="checkbox" [(ngModel)]="createInitReadme" class="rounded"/>
                     <span class="text-sm text-secondary-700">Initialize with a README.md</span>
                   </label>
-                  <button (click)="doCreate()" [disabled]="isCreating() || !createName.trim()"
+                  <button type="button" (click)="doCreate()" [disabled]="isCreating() || !createName.trim()"
                           class="btn-primary w-full disabled:opacity-50">
                     @if (isCreating()) { Creating… } @else { Create Repository }
                   </button>
@@ -193,7 +193,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
           <!-- ============================================================ -->
           @case ('detail') {
             @if (selectedRepo()) {
-              <button (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Back to Repositories
               </button>
@@ -241,17 +241,17 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                             ●●●●●●●●●●●●●●●●●●●●●●●●
                           }
                         </div>
-                        <button (click)="showAuthKey.set(!showAuthKey())" class="px-3 py-2 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors flex-shrink-0">
+                        <button type="button" (click)="showAuthKey.set(!showAuthKey())" class="px-3 py-2 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors flex-shrink-0">
                           {{ showAuthKey() ? 'Hide' : 'Show' }}
                         </button>
                         @if (selectedRepo()!.authKey) {
-                          <button (click)="copyToClipboard(selectedRepo()!.authKey!)" class="px-3 py-2 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors flex-shrink-0">
+                          <button type="button" (click)="copyToClipboard(selectedRepo()!.authKey!)" class="px-3 py-2 rounded-lg border border-secondary-200 text-sm hover:bg-secondary-50 transition-colors flex-shrink-0">
                             Copy
                           </button>
                         }
                       </div>
                     </div>
-                    <button (click)="doRegenerateKey()" [disabled]="operatingOn() === selectedRepo()!.id"
+                    <button type="button" (click)="doRegenerateKey()" [disabled]="operatingOn() === selectedRepo()!.id"
                             class="text-sm text-amber-600 hover:text-amber-800 transition-colors disabled:opacity-50">
                       ↻ Regenerate auth key
                     </button>
@@ -262,17 +262,17 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                   <div class="bg-white rounded-xl border border-secondary-200 shadow-sm p-6">
                     <h3 class="font-semibold text-secondary-900 mb-4">Actions</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <button (click)="openInCodingAgent(selectedRepo()!)" class="flex items-center gap-2 p-3 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors text-sm font-medium">
+                      <button type="button" (click)="openInCodingAgent(selectedRepo()!)" class="flex items-center gap-2 p-3 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors text-sm font-medium">
                         <span>💻</span> Open in Coding Agent
                       </button>
-                      <button (click)="showExportGitHub()" class="flex items-center gap-2 p-3 rounded-lg border border-secondary-200 hover:bg-secondary-50 transition-colors text-sm font-medium">
+                      <button type="button" (click)="showExportGitHub()" class="flex items-center gap-2 p-3 rounded-lg border border-secondary-200 hover:bg-secondary-50 transition-colors text-sm font-medium">
                         <span>↑</span> Export to GitHub
                       </button>
-                      <button (click)="confirmArchive(selectedRepo()!)" [disabled]="operatingOn() === selectedRepo()!.id"
+                      <button type="button" (click)="confirmArchive(selectedRepo()!)" [disabled]="operatingOn() === selectedRepo()!.id"
                               class="flex items-center gap-2 p-3 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors text-sm font-medium disabled:opacity-50">
                         <span>⧖</span> Archive Repository
                       </button>
-                      <button (click)="confirmDelete(selectedRepo()!)" [disabled]="operatingOn() === selectedRepo()!.id"
+                      <button type="button" (click)="confirmDelete(selectedRepo()!)" [disabled]="operatingOn() === selectedRepo()!.id"
                               class="flex items-center gap-2 p-3 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors text-sm font-medium disabled:opacity-50">
                         <span>🗑</span> Delete Repository
                       </button>
@@ -288,7 +288,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
           <!-- ============================================================ -->
           @case ('import-github') {
             <div class="max-w-lg">
-              <button (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Back
               </button>
@@ -314,7 +314,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                   <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-800 text-xs">
                     <strong>Note:</strong> Large repositories may take several minutes to clone. The server must have internet access.
                   </div>
-                  <button (click)="doImport()" [disabled]="isImporting() || !importUrl.trim()"
+                  <button type="button" (click)="doImport()" [disabled]="isImporting() || !importUrl.trim()"
                           class="btn-primary w-full disabled:opacity-50">
                     @if (isImporting()) { Cloning… this may take a moment } @else { Import Repository }
                   </button>
@@ -328,7 +328,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
           <!-- ============================================================ -->
           @case ('export-github') {
             <div class="max-w-lg">
-              <button (click)="currentView.set('detail')" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="currentView.set('detail')" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Back
               </button>
@@ -349,7 +349,7 @@ type PageView = 'list' | 'create' | 'detail' | 'import-github' | 'export-github'
                     <input type="checkbox" [(ngModel)]="exportDeleteLocal" class="rounded"/>
                     <span class="text-sm text-secondary-700">Delete this Local.LLM repository after export</span>
                   </label>
-                  <button (click)="doExport()" [disabled]="isExporting()"
+                  <button type="button" (click)="doExport()" [disabled]="isExporting()"
                           class="btn-primary w-full disabled:opacity-50">
                     @if (isExporting()) { Exporting… } @else { Export to GitHub }
                   </button>
