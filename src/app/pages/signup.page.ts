@@ -71,8 +71,7 @@ import { environment } from '../../environments/environment';
                   class="w-full px-4 py-3 pr-12 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
                   placeholder="Create a password"
                 />
-                <button
-                  type="button"
+                <button type="button"
                   (click)="showPassword.set(!showPassword())"
                   class="absolute inset-y-0 right-0 flex items-center pr-3 text-secondary-400 hover:text-secondary-600 transition-colors"
                   [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
@@ -124,8 +123,7 @@ import { environment } from '../../environments/environment';
                   class="w-full px-4 py-3 pr-12 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
                   placeholder="Confirm your password"
                 />
-                <button
-                  type="button"
+                <button type="button"
                   (click)="showConfirmPassword.set(!showConfirmPassword())"
                   class="absolute inset-y-0 right-0 flex items-center pr-3 text-secondary-400 hover:text-secondary-600 transition-colors"
                   [attr.aria-label]="showConfirmPassword() ? 'Hide confirm password' : 'Show confirm password'"
@@ -144,8 +142,7 @@ import { environment } from '../../environments/environment';
               </div>
             </div>
 
-            <button
-              type="submit"
+            <button type="submit"
               [disabled]="isLoading()"
               class="w-full btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >

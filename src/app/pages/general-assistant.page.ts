@@ -24,8 +24,7 @@ import { VoiceService } from '../services/voice.service';
       >
         <!-- New Chat Button -->
         <div class="p-3">
-          <button
-            type="button"
+          <button type="button"
             (click)="createNewChat()"
             class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-secondary-700 hover:bg-secondary-800 transition-colors text-sm font-medium"
           >
@@ -47,8 +46,7 @@ import { VoiceService } from '../services/voice.service';
                 (click)="loadChat(chat.id)"
                 class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0"
               >{{ chat.title }}</button>
-              <button
-                type="button"
+              <button type="button"
                 (click)="deleteExistingChat(chat.id, $event)"
                 class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 hover:text-red-400 transition-all outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded"
                 aria-label="Delete chat"
@@ -87,8 +85,7 @@ import { VoiceService } from '../services/voice.service';
       <div class="flex-1 flex flex-col min-w-0">
         <!-- Top Bar -->
         <div class="flex items-center gap-3 px-4 py-3 border-b border-secondary-200 bg-white">
-          <button
-            type="button"
+          <button type="button"
             (click)="toggleSidebar()"
             class="p-2 rounded-lg hover:bg-secondary-100 transition-colors"
             aria-label="Toggle sidebar"
@@ -175,8 +172,7 @@ import { VoiceService } from '../services/voice.service';
                           [ngClass]="msg.role === 'user' ? 'justify-end' : 'justify-start'"
                         >
                           @if (msg.role === 'assistant' && (msg.alternatives?.length ?? 0) > 1) {
-                            <button
-                              type="button"
+                            <button type="button"
                               (click)="navigateAlternative($index, -1)"
                               [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === 0"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -188,8 +184,7 @@ import { VoiceService } from '../services/voice.service';
                               </svg>
                             </button>
                             <span class="text-xs text-secondary-400 select-none px-0.5">{{ (msg.alternativeIndex ?? 0) + 1 }}/{{ msg.alternatives?.length }}</span>
-                            <button
-                              type="button"
+                            <button type="button"
                               (click)="navigateAlternative($index, 1)"
                               [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === (msg.alternatives?.length ?? 1) - 1"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -202,8 +197,7 @@ import { VoiceService } from '../services/voice.service';
                             </button>
                           }
                           @if (msg.role === 'assistant' && !isLoading()) {
-                            <button
-                              type="button"
+                            <button type="button"
                               (click)="retryAssistantMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-secondary-400 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -216,8 +210,7 @@ import { VoiceService } from '../services/voice.service';
                             </button>
                           }
                           @if (msg.role === 'user' && !isLoading()) {
-                            <button
-                              type="button"
+                            <button type="button"
                               (click)="startEditUserMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
                               class="p-1 rounded text-secondary-400 hover:text-secondary-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-secondary-400 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -230,8 +223,7 @@ import { VoiceService } from '../services/voice.service';
                             </button>
                           }
                           @if (!isLoading()) {
-                            <button
-                              type="button"
+                            <button type="button"
                               (click)="deleteMessage($index)"
                               [disabled]="editingMessageIndex() !== null"
                               class="p-1 rounded text-secondary-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -338,8 +330,7 @@ import { VoiceService } from '../services/voice.service';
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               {{ errorMessage() }}
-              <button
-                type="button"
+              <button type="button"
                 (click)="errorMessage.set(null)"
                 class="ml-auto text-red-500 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-red-400 outline-none rounded px-1"
                 aria-label="Dismiss error"
@@ -355,8 +346,7 @@ import { VoiceService } from '../services/voice.service';
             <!-- Provider Selector -->
             <div class="flex items-center gap-2 mb-3">
               <div class="relative" #providerDropdown>
-                <button
-                  type="button"
+                <button type="button"
                   (click)="toggleProviderDropdown($event)"
                   aria-haspopup="listbox"
                   [attr.aria-expanded]="showProviderDropdown()"
@@ -436,8 +426,7 @@ import { VoiceService } from '../services/voice.service';
 
               <!-- MCPs Dropdown -->
               <div class="relative" #mcpDropdown>
-                <button
-                  type="button"
+                <button type="button"
                   (click)="toggleMcpDropdown($event)"
                   aria-haspopup="menu"
                   [attr.aria-expanded]="showMcpDropdown()"
@@ -508,8 +497,7 @@ import { VoiceService } from '../services/voice.service';
               </div>
 
               <!-- Think Toggle -->
-              <button
-                type="button"
+              <button type="button"
                 (click)="thinkEnabled.set(!thinkEnabled())"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
                 [ngClass]="thinkEnabled()
@@ -525,8 +513,7 @@ import { VoiceService } from '../services/voice.service';
               <!-- Character Selector -->
               @if (universes().length > 0) {
                 <div class="relative" #characterDropdown>
-                  <button
-                    type="button"
+                  <button type="button"
                     (click)="toggleCharacterDropdown($event)"
                     aria-haspopup="listbox"
                     [attr.aria-expanded]="showCharacterDropdown()"
@@ -577,8 +564,7 @@ import { VoiceService } from '../services/voice.service';
 
               <!-- Persona Selector -->
               <div class="relative" #personaDropdown>
-                <button
-                  type="button"
+                <button type="button"
                   (click)="togglePersonaDropdown($event)"
                   aria-haspopup="listbox"
                   [attr.aria-expanded]="showPersonaDropdown()"
@@ -645,8 +631,7 @@ import { VoiceService } from '../services/voice.service';
                 ></textarea>
               </div>
               @if (voiceService.recognitionSupported) {
-                <button
-                  type="button"
+                <button type="button"
                   (click)="enterVoiceMode()"
                   [disabled]="isLoading()"
                   class="p-3 rounded-xl border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
@@ -658,8 +643,7 @@ import { VoiceService } from '../services/voice.service';
                   </svg>
                 </button>
               }
-              <button
-                type="button"
+              <button type="button"
                 (click)="sendCurrentMessage()"
                 [disabled]="isLoading() || !userMessage.trim() || !selectedProvider()"
                 class="p-3 rounded-xl bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"

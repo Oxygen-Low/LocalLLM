@@ -11,3 +11,6 @@
 - **Issue:** Various buttons across the application, specifically within `datasets.page.ts`, lacked the `type="button"` attribute. This causes issues with accessibility and can lead to unintended form submissions.
 - **Fix:** Added `type="button"` to all `<button>` elements in `datasets.page.ts` that were missing it.
 - **Impact:** Ensures better accessibility and prevents accidental form submissions for a smoother user experience, particularly for keyboard users or screen readers.
+- **Issue:** Various buttons across the application, specifically within several pages like `login.page.ts`, `adventure.page.ts`, `settings.page.ts`, `admin.page.ts`, etc., lacked the `type` attribute (e.g., `type="button"`). This causes issues with accessibility, as buttons default to `type="submit"`, potentially leading to accidental form submissions.
+- **Fix:** Used `sed` commands to bulk-add `type="button"` to all `<button>` elements that were missing it, and cleaned up any duplicated `type` attributes. Preserved `type="submit"` where appropriate.
+- **Impact:** Ensures better accessibility and prevents accidental form submissions for a smoother user experience, particularly for keyboard users or screen readers. Ensures conformity with accessibility patterns.
