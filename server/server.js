@@ -1602,6 +1602,9 @@ function timingSafeCompare(a, b) {
  */
 function runCommandAsync(command, args, options = {}) {
   const { spawn } = require('child_process');
+  const maxBuffer = (Number.isFinite(Number(options.maxBuffer)) && Number(options.maxBuffer) > 0)
+    ? Number(options.maxBuffer)
+    : 200 * 1024;
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, {
       ...options,
@@ -1610,17 +1613,49 @@ function runCommandAsync(command, args, options = {}) {
 
     let stdout = '';
     let stderr = '';
+    let stdoutLen = 0;
+    let stderrLen = 0;
     let timer = null;
+    let completed = false;
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
 
     if (proc.stdout) {
       proc.stdout.on('data', (data) => {
+        if (completed) return;
+        stdoutLen += data.length;
         stdout += data.toString();
+        if (stdoutLen > maxBuffer) {
+          completed = true;
+          proc.kill();
+          cleanup();
+          const err = new Error(`stdout maxBuffer exceeded (${stdoutLen} bytes)`);
+          err.stdout = stdout;
+          err.stderr = stderr;
+          reject(err);
+        }
       });
     }
 
     if (proc.stderr) {
       proc.stderr.on('data', (data) => {
+        if (completed) return;
+        stderrLen += data.length;
         stderr += data.toString();
+        if (stderrLen > maxBuffer) {
+          completed = true;
+          proc.kill();
+          cleanup();
+          const err = new Error(`stderr maxBuffer exceeded (${stderrLen} bytes)`);
+          err.stdout = stdout;
+          err.stderr = stderr;
+          reject(err);
+        }
       });
     }
 
@@ -1630,7 +1665,9 @@ function runCommandAsync(command, args, options = {}) {
     }
 
     proc.on('close', (code) => {
-      if (timer) clearTimeout(timer);
+      if (completed) return;
+      completed = true;
+      cleanup();
       if (code === 0) {
         resolve(stdout);
       } else {
@@ -1643,12 +1680,16 @@ function runCommandAsync(command, args, options = {}) {
     });
 
     proc.on('error', (err) => {
-      if (timer) clearTimeout(timer);
+      if (completed) return;
+      completed = true;
+      cleanup();
       reject(err);
     });
 
     if (options.timeout) {
       timer = setTimeout(() => {
+        if (completed) return;
+        completed = true;
         proc.kill();
         reject(new Error(`Command timed out after ${options.timeout}ms`));
       }, options.timeout);
