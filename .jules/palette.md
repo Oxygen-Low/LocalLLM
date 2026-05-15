@@ -14,3 +14,7 @@
 - **Issue:** Various buttons across the application, specifically within several pages like `login.page.ts`, `adventure.page.ts`, `settings.page.ts`, `admin.page.ts`, etc., lacked the `type` attribute (e.g., `type="button"`). This causes issues with accessibility, as buttons default to `type="submit"`, potentially leading to accidental form submissions.
 - **Fix:** Used `sed` commands to bulk-add `type="button"` to all `<button>` elements that were missing it, and cleaned up any duplicated `type` attributes. Preserved `type="submit"` where appropriate.
 - **Impact:** Ensures better accessibility and prevents accidental form submissions for a smoother user experience, particularly for keyboard users or screen readers. Ensures conformity with accessibility patterns.
+- **Issue:** The error and success dismissal buttons in `personas.page.ts` and `repositories.page.ts` lacked focus rings when navigated via keyboard.
+- **Fix:** Added `focus-visible:ring-2 focus-visible:ring-red-400 outline-none rounded px-1` to error buttons and `focus-visible:ring-2 focus-visible:ring-green-400 outline-none rounded px-1` to success buttons.
+- **Impact:** Improved keyboard navigation accessibility by providing clear visual focus indicators.
+- **Verification:** Verified code changes are correctly rendered via file inspection and ensured frontend tests passed.
