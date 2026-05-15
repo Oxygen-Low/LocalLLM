@@ -1602,7 +1602,9 @@ function timingSafeCompare(a, b) {
  */
 function runCommandAsync(command, args, options = {}) {
   const { spawn } = require('child_process');
-  const maxBuffer = options.maxBuffer || 200 * 1024;
+  const maxBuffer = (Number.isFinite(Number(options.maxBuffer)) && Number(options.maxBuffer) > 0)
+    ? Number(options.maxBuffer)
+    : 200 * 1024;
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, {
       ...options,
