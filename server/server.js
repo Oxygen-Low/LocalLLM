@@ -1624,6 +1624,11 @@ function runCommandAsync(command, args, options = {}) {
       });
     }
 
+    if (options.input) {
+      proc.stdin.write(options.input);
+      proc.stdin.end();
+    }
+
     proc.on('close', (code) => {
       if (timer) clearTimeout(timer);
       if (code === 0) {
@@ -3145,11 +3150,10 @@ app.post('/api/mcp-servers/:id/tools', requireSession, async (req, res) => {
     const initNotification = JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
     try {
-      const { execFileSync } = require('child_process');
       const mcpInput = `${initRequest}\n${initNotification}\n${toolsRequest}\n`;
       const b64Input = Buffer.from(mcpInput).toString('base64');
 
-      const output = execFileSync('docker', [
+      const output = await runCommandAsync('docker', [
         'run', '--rm', '-i',
         '--network=none',
         '--memory=256m',
@@ -3236,10 +3240,9 @@ app.post('/api/mcp-servers/:id/call', requireSession, async (req, res) => {
     const toolCallRequest = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: toolName, arguments: args || {} } });
 
     try {
-      const { execFileSync } = require('child_process');
       const mcpInput = `${initRequest}\n${initNotification}\n${toolCallRequest}\n`;
 
-      const output = execFileSync('docker', [
+      const output = await runCommandAsync('docker', [
         'run', '--rm', '-i',
         '--network=bridge',
         '--memory=256m',
