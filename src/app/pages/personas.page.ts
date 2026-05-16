@@ -124,7 +124,7 @@ type PageView = 'list' | 'create' | 'edit';
           <!-- CREATE / EDIT VIEW                                            -->
           <!-- ============================================================ -->
           <div class="max-w-2xl">
-            <button type="button" (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="backToList()" class="text-sm text-muted hover:text-secondary-700 mb-4 inline-flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
               Back to List
             </button>

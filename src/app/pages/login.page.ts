@@ -74,7 +74,7 @@ import { environment } from '../../environments/environment';
                 />
                 <button type="button"
                   (click)="showPassword.set(!showPassword())"
-                  class="absolute inset-y-0 right-0 flex items-center pr-3 text-secondary-400 hover:text-secondary-600 transition-colors"
+                  class="absolute inset-y-0 right-0 flex items-center pr-3 text-secondary-400 hover:text-secondary-600 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
                 >
                   @if (showPassword()) {

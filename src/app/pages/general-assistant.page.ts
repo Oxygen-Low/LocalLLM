@@ -26,7 +26,7 @@ import { VoiceService } from '../services/voice.service';
         <div class="p-3">
           <button type="button"
             (click)="createNewChat()"
-            class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-secondary-700 hover:bg-secondary-800 transition-colors text-sm font-medium"
+            class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-secondary-700 hover:bg-secondary-800 transition-colors text-sm font-medium focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -44,7 +44,7 @@ import { VoiceService } from '../services/voice.service';
             >
               <button type="button"
                 (click)="loadChat(chat.id)"
-                class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0"
+                class="truncate flex-1 text-left bg-transparent border-none text-inherit p-0 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >{{ chat.title }}</button>
               <button type="button"
                 (click)="deleteExistingChat(chat.id, $event)"
@@ -87,7 +87,7 @@ import { VoiceService } from '../services/voice.service';
         <div class="flex items-center gap-3 px-4 py-3 border-b border-secondary-200 bg-white">
           <button type="button"
             (click)="toggleSidebar()"
-            class="p-2 rounded-lg hover:bg-secondary-100 transition-colors"
+            class="p-2 rounded-lg hover:bg-secondary-100 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
             aria-label="Toggle sidebar"
             title="Toggle sidebar"
           >
@@ -151,11 +151,11 @@ import { VoiceService } from '../services/voice.service';
                           <div class="flex gap-2 justify-end">
                             <button type="button"
                               (click)="cancelEdit()"
-                              class="px-3 py-1.5 rounded-lg text-sm border border-secondary-200 hover:bg-secondary-50 transition-colors"
+                              class="px-3 py-1.5 rounded-lg text-sm border border-secondary-200 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                             >Cancel</button>
                             <button type="button"
                               (click)="saveUserEdit($index)"
-                              class="px-3 py-1.5 rounded-lg text-sm bg-primary-600 text-white hover:bg-primary-700 transition-colors"
+                              class="px-3 py-1.5 rounded-lg text-sm bg-primary-600 text-white hover:bg-primary-700 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                             >Save &amp; Re-send</button>
                           </div>
                         </div>
@@ -175,7 +175,7 @@ import { VoiceService } from '../services/voice.service';
                             <button type="button"
                               (click)="navigateAlternative($index, -1)"
                               [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === 0"
-                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                               aria-label="Previous response"
                               title="Previous response"
                             >
@@ -187,7 +187,7 @@ import { VoiceService } from '../services/voice.service';
                             <button type="button"
                               (click)="navigateAlternative($index, 1)"
                               [disabled]="isLoading() || (msg.alternativeIndex ?? 0) === (msg.alternatives?.length ?? 1) - 1"
-                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              class="p-1 rounded text-secondary-400 hover:text-secondary-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                               aria-label="Next response"
                               title="Next response"
                             >
@@ -304,16 +304,16 @@ import { VoiceService } from '../services/voice.service';
                   Ask me anything. I can help with writing, coding, analysis, creative tasks, and more.
                 </p>
                 <div class="grid grid-cols-2 gap-3">
-                  <button type="button" (click)="sendQuickPrompt('Explain quantum computing in simple terms')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('Explain quantum computing in simple terms')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     💡 Explain quantum computing
                   </button>
-                  <button type="button" (click)="sendQuickPrompt('Write a short poem about the ocean')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('Write a short poem about the ocean')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     ✍️ Write a short poem
                   </button>
-                  <button type="button" (click)="sendQuickPrompt('Help me debug a JavaScript function')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('Help me debug a JavaScript function')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     🔧 Debug JavaScript code
                   </button>
-                  <button type="button" (click)="sendQuickPrompt('What are good habits for productivity?')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors">
+                  <button type="button" (click)="sendQuickPrompt('What are good habits for productivity?')" class="p-3 rounded-xl border border-secondary-200 bg-white hover:bg-secondary-50 text-left text-sm text-secondary-700 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     📋 Productivity tips
                   </button>
                 </div>
@@ -350,7 +350,7 @@ import { VoiceService } from '../services/voice.service';
                   (click)="toggleProviderDropdown($event)"
                   aria-haspopup="listbox"
                   [attr.aria-expanded]="showProviderDropdown()"
-                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-sm transition-colors"
+                  class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                 >
                   <span class="w-2 h-2 rounded-full" [ngClass]="selectedProvider() ? 'bg-green-500' : 'bg-secondary-400'"></span>
                   <span class="text-secondary-700 max-w-[200px] truncate">
@@ -377,7 +377,7 @@ import { VoiceService } from '../services/voice.service';
                         <div>
                           <button type="button"
                             (click)="toggleModelList(p, $event)"
-                            class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
+                            class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                             [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                           >
                             <span class="w-2 h-2 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
@@ -394,7 +394,7 @@ import { VoiceService } from '../services/voice.service';
                               @for (m of p.models; track getModelId(m)) {
                                 <button type="button"
                                   (click)="selectProviderModel(p, m)"
-                                  class="w-full text-left pl-9 pr-4 py-2 text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2"
+                                  class="w-full text-left pl-9 pr-4 py-2 text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                   [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
                                 >
                                   <span class="w-1.5 h-1.5 rounded-full" [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-600' : 'bg-secondary-300'"></span>
@@ -407,7 +407,7 @@ import { VoiceService } from '../services/voice.service';
                       } @else {
                         <button type="button"
                           (click)="selectProvider(p)"
-                          class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3"
+                          class="w-full text-left px-4 py-2.5 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-3 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                           [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                         >
                           <span class="w-2 h-2 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
@@ -430,7 +430,7 @@ import { VoiceService } from '../services/voice.service';
                   (click)="toggleMcpDropdown($event)"
                   aria-haspopup="menu"
                   [attr.aria-expanded]="showMcpDropdown()"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                   [ngClass]="webSearchEnabled() || enabledMcpServerIds().length > 0
                     ? 'border-primary-300 bg-primary-50 text-primary-700'
                     : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -452,7 +452,7 @@ import { VoiceService } from '../services/voice.service';
                   <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
                     <button type="button"
                       (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
-                      class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                      class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                       [ngClass]="webSearchEnabled() ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                     >
                       <div class="flex items-center gap-2">
@@ -470,7 +470,7 @@ import { VoiceService } from '../services/voice.service';
                     @for (mcp of availableMcpServers(); track mcp.id) {
                       <button type="button"
                         (click)="toggleMcpServer(mcp)"
-                        class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                        class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center justify-between focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         [ngClass]="isMcpServerEnabled(mcp.id) ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                       >
                         <div class="flex items-center gap-2 min-w-0">
@@ -499,7 +499,7 @@ import { VoiceService } from '../services/voice.service';
               <!-- Think Toggle -->
               <button type="button"
                 (click)="thinkEnabled.set(!thinkEnabled())"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [ngClass]="thinkEnabled()
                   ? 'border-primary-300 bg-primary-50 text-primary-700'
                   : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -517,7 +517,7 @@ import { VoiceService } from '../services/voice.service';
                     (click)="toggleCharacterDropdown($event)"
                     aria-haspopup="listbox"
                     [attr.aria-expanded]="showCharacterDropdown()"
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     [ngClass]="selectedCharacter()
                       ? 'border-purple-300 bg-purple-50 text-purple-700'
                       : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -535,7 +535,7 @@ import { VoiceService } from '../services/voice.service';
                     <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-64 overflow-y-auto">
                       <button type="button"
                         (click)="selectCharacter(null)"
-                        class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors"
+                        class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         [ngClass]="!selectedCharacter() ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                       >
                         <div class="font-medium">No character</div>
@@ -549,7 +549,7 @@ import { VoiceService } from '../services/voice.service';
                           @for (char of universe.characters; track char.id) {
                             <button type="button"
                               (click)="selectCharacter(char)"
-                              class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                              class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                               [ngClass]="selectedCharacter()?.id === char.id ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                             >
                               <span class="font-medium">{{ char.name }}</span>
@@ -568,7 +568,7 @@ import { VoiceService } from '../services/voice.service';
                   (click)="togglePersonaDropdown($event)"
                   aria-haspopup="listbox"
                   [attr.aria-expanded]="showPersonaDropdown()"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                   [ngClass]="selectedPersona()
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -586,7 +586,7 @@ import { VoiceService } from '../services/voice.service';
                   <div class="absolute bottom-full left-0 mb-1 w-64 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-64 overflow-y-auto">
                     <button type="button"
                       (click)="selectPersona(null)"
-                      class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors"
+                      class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                       [ngClass]="!selectedPersona() ? 'bg-blue-50 text-blue-700' : 'text-secondary-700'"
                     >
                       <div class="font-medium">No persona</div>
@@ -599,7 +599,7 @@ import { VoiceService } from '../services/voice.service';
                       @for (p of personas(); track p.id) {
                         <button type="button"
                           (click)="selectPersona(p)"
-                          class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                          class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-50 transition-colors flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                           [ngClass]="selectedPersona()?.id === p.id ? 'bg-blue-50 text-blue-700' : 'text-secondary-700'"
                         >
                           <span class="font-medium">{{ p.name }}</span>
@@ -634,7 +634,7 @@ import { VoiceService } from '../services/voice.service';
                 <button type="button"
                   (click)="enterVoiceMode()"
                   [disabled]="isLoading()"
-                  class="p-3 rounded-xl border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  class="p-3 rounded-xl border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   aria-label="Voice mode"
                   title="Voice mode"
                 >
@@ -646,7 +646,7 @@ import { VoiceService } from '../services/voice.service';
               <button type="button"
                 (click)="sendCurrentMessage()"
                 [disabled]="isLoading() || !userMessage.trim() || !selectedProvider()"
-                class="p-3 rounded-xl bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                class="p-3 rounded-xl bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 aria-label="Send message"
                 title="Send message"
               >
@@ -665,7 +665,7 @@ import { VoiceService } from '../services/voice.service';
           <!-- Close button -->
           <button type="button"
             (click)="exitVoiceMode()"
-            class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors"
+            class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
             aria-label="Exit voice mode"
           >
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -715,7 +715,7 @@ import { VoiceService } from '../services/voice.service';
           <button type="button"
             (click)="toggleVoiceListening()"
             [disabled]="voiceProcessing()"
-            class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50"
+            class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
             [ngClass]="voiceService.isListening()
               ? 'bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30'
               : 'bg-white/10 hover:bg-white/20 border-2 border-white/30'"
@@ -732,7 +732,7 @@ import { VoiceService } from '../services/voice.service';
               (click)="showVoicePicker.set(!showVoicePicker())"
               aria-haspopup="listbox"
               [attr.aria-expanded]="showVoicePicker()"
-              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707a1 1 0 011.707.707v14a1 1 0 01-1.707.707L5.586 15z" />
@@ -747,7 +747,7 @@ import { VoiceService } from '../services/voice.service';
                 @for (v of voiceService.availableVoices(); track $index) {
                   <button type="button"
                     (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                     [ngClass]="voiceService.selectedVoiceIndex() === $index ? 'bg-primary-700/40 text-primary-300' : 'text-white/80'"
                   >
                     {{ v.label }}

@@ -187,7 +187,7 @@ interface ProviderConfig {
                     @if (apiKeyStatus()[provider.id]?.configured) {
                       <button type="button"
                         (click)="removeProviderKey(provider.id)"
-                        class="text-xs text-red-500 hover:text-red-700 transition-colors"
+                        class="text-xs text-red-500 hover:text-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                       >
                         Remove Key
                       </button>
@@ -224,13 +224,13 @@ interface ProviderConfig {
                         <button type="button"
                           (click)="saveProviderKey(provider.id)"
                           [disabled]="isSavingKey()"
-                          class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                          class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           {{ isSavingKey() ? 'Saving...' : 'Save' }}
                         </button>
                         <button type="button"
                           (click)="cancelEditProvider()"
-                          class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                          class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         >
                           Cancel
                         </button>
@@ -250,7 +250,7 @@ interface ProviderConfig {
                       </div>
                       <button type="button"
                         (click)="startEditProvider(provider.id)"
-                        class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                        class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                       >
                         {{ apiKeyStatus()[provider.id]?.configured ? 'Update' : 'Configure' }}
                       </button>
@@ -286,7 +286,7 @@ interface ProviderConfig {
                 @if (hfConfigured()) {
                   <button type="button"
                     (click)="removeHuggingFaceToken()"
-                    class="text-xs text-red-500 hover:text-red-700 transition-colors"
+                    class="text-xs text-red-500 hover:text-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                   >
                     Remove Token
                   </button>
@@ -316,13 +316,13 @@ interface ProviderConfig {
                     <button type="button"
                       (click)="saveHuggingFaceToken()"
                       [disabled]="isSavingHuggingFace()"
-                      class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                      class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     >
                       {{ isSavingHuggingFace() ? 'Validating...' : 'Save Token' }}
                     </button>
                     <button type="button"
                       (click)="cancelEditHuggingFace()"
-                      class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                      class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                     >
                       Cancel
                     </button>
@@ -342,7 +342,7 @@ interface ProviderConfig {
                   </div>
                   <button type="button"
                     (click)="startEditHuggingFace()"
-                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   >
                     {{ hfConfigured() ? 'Update' : 'Configure' }}
                   </button>
@@ -376,7 +376,7 @@ interface ProviderConfig {
                 @if (githubConfigured()) {
                   <button type="button"
                     (click)="removeGitHubToken()"
-                    class="text-xs text-red-500 hover:text-red-700 transition-colors"
+                    class="text-xs text-red-500 hover:text-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                   >
                     Remove Token
                   </button>
@@ -406,13 +406,13 @@ interface ProviderConfig {
                     <button type="button"
                       (click)="saveGitHubToken()"
                       [disabled]="isSavingGitHub()"
-                      class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                      class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     >
                       {{ isSavingGitHub() ? 'Validating...' : 'Save Token' }}
                     </button>
                     <button type="button"
                       (click)="cancelEditGitHub()"
-                      class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                      class="px-4 py-2 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                     >
                       Cancel
                     </button>
@@ -432,7 +432,7 @@ interface ProviderConfig {
                   </div>
                   <button type="button"
                     (click)="startEditGitHub()"
-                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                    class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   >
                     {{ githubConfigured() ? 'Update' : 'Configure' }}
                   </button>
@@ -462,7 +462,7 @@ interface ProviderConfig {
                           <span class="text-xs text-green-600 font-medium">✓ Configured</span>
                           <button type="button"
                             (click)="removeMcpAuth(mcp.id)"
-                            class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors"
+                            class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                           >
                             Remove
                           </button>
@@ -483,7 +483,7 @@ interface ProviderConfig {
                         <button type="button"
                           (click)="saveMcpAuth(mcp.id)"
                           [disabled]="isSavingMcpAuth()"
-                          class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                          class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           {{ isSavingMcpAuth() ? 'Saving...' : 'Save' }}
                         </button>
@@ -491,7 +491,7 @@ interface ProviderConfig {
                     } @else {
                       <button type="button"
                         (click)="editingMcpAuth.set(mcp.id)"
-                        class="text-xs text-primary-600 hover:text-primary-700"
+                        class="text-xs text-primary-600 hover:text-primary-700 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                       >
                         Update token
                       </button>
@@ -610,7 +610,7 @@ interface ProviderConfig {
             @if (!showDeleteConfirm()) {
               <button type="button"
                 (click)="showDeleteConfirm.set(true)"
-                class="px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                class="px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
               >
                 Delete Account
               </button>
@@ -645,7 +645,7 @@ interface ProviderConfig {
                   <button type="button"
                     (click)="onDeleteAccount()"
                     [disabled]="isDeletingAccount()"
-                    class="px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="px-6 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                   >
                     {{ isDeletingAccount() ? 'Deleting...' : 'Yes, Delete My Account' }}
                   </button>

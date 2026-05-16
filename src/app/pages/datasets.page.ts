@@ -56,7 +56,7 @@ interface QueueItem {
             </div>
           </div>
           @if (pageView() === 'list') {
-            <button type="button" (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+            <button type="button" (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
               + {{ t.translate('datasets.newDataset') }}
             </button>
           }
@@ -108,7 +108,7 @@ interface QueueItem {
               <div class="text-5xl mb-4">📊</div>
               <h3 class="text-lg font-semibold text-secondary-900 mb-2">{{ t.translate('datasets.noDatasets') }}</h3>
               <p class="text-muted text-sm mb-6">{{ t.translate('datasets.noDatasetsHint') }}</p>
-              <button type="button" (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+              <button type="button" (click)="showCreate()" class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                 + {{ t.translate('datasets.newDataset') }}
               </button>
             </div>
@@ -116,19 +116,19 @@ interface QueueItem {
             <!-- Filter tabs -->
             <div class="flex gap-2 mb-4">
               <button type="button" (click)="listFilter.set('all')"
-                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="listFilter() === 'all'"
                 [ngClass]="listFilter() === 'all' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterAll') }} ({{ datasets().length }})
               </button>
               <button type="button" (click)="listFilter.set('active')"
-                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="listFilter() === 'active'"
                 [ngClass]="listFilter() === 'active' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterActive') }} ({{ datasets().filter(d => d.status === 'active').length }})
               </button>
               <button type="button" (click)="listFilter.set('archived')"
-                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="listFilter() === 'archived'"
                 [ngClass]="listFilter() === 'archived' ? 'bg-primary-600 text-white' : 'bg-white border border-secondary-200 text-secondary-700 hover:bg-secondary-50'">
                 {{ t.translate('datasets.filterArchived') }} ({{ datasets().filter(d => d.status === 'archived').length }})
@@ -165,7 +165,7 @@ interface QueueItem {
                     <div class="flex items-center gap-2 flex-shrink-0">
                       @if (ds.status === 'active') {
                         <button type="button" (click)="viewDataset(ds)"
-                          class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors"
+                          class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                           title="View & Edit">
                           {{ t.translate('datasets.view') }}
                         </button>
@@ -175,24 +175,24 @@ interface QueueItem {
                           ↓
                         </a>
                         <button type="button" (click)="startRefine(ds)"
-                          class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm transition-colors"
+                          class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                           [disabled]="actionInProgress()">
                           {{ t.translate('datasets.refine') }}
                         </button>
                         <button type="button" (click)="archiveDataset(ds)"
-                          class="px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm transition-colors"
+                          class="px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-amber-400 outline-none"
                           [disabled]="actionInProgress()">
                           {{ t.translate('datasets.archive') }}
                         </button>
                       } @else {
                         <button type="button" (click)="unarchiveDataset(ds)"
-                          class="px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-sm transition-colors"
+                          class="px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none"
                           [disabled]="actionInProgress()">
                           {{ t.translate('datasets.unarchive') }}
                         </button>
                       }
                       <button type="button" (click)="confirmDelete(ds)"
-                        class="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm transition-colors"
+                        class="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                         [disabled]="actionInProgress()">
                         {{ t.translate('datasets.delete') }}
                       </button>
@@ -213,11 +213,11 @@ interface QueueItem {
                 </p>
                 <div class="flex gap-3 justify-end">
                   <button type="button" (click)="datasetToDelete.set(null)"
-                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 text-sm font-medium hover:bg-secondary-50 transition-colors">
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-white text-secondary-700 text-sm font-medium hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     {{ t.translate('datasets.cancel') }}
                   </button>
                   <button type="button" (click)="deleteDataset(datasetToDelete()!)"
-                    class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors">
+                    class="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                     {{ t.translate('datasets.delete') }}
                   </button>
                 </div>
@@ -236,7 +236,7 @@ interface QueueItem {
             <div class="flex items-center justify-between flex-wrap gap-4">
               <div class="flex items-center gap-3">
                 <button type="button" (click)="backToList()"
-                  class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+                  class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                   ← {{ t.translate('datasets.backToList') }}
                 </button>
                 <h2 class="text-xl font-bold text-secondary-900">
@@ -247,17 +247,17 @@ interface QueueItem {
                 @if (viewHasChanges()) {
                   <span class="text-xs text-amber-600 font-medium">{{ t.translate('datasets.unsavedChanges') }}</span>
                   <button type="button" (click)="discardViewChanges()"
-                    class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors">
+                    class="px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     {{ t.translate('datasets.discardChanges') }}
                   </button>
                 }
                 <button type="button" (click)="addViewRow()"
-                  class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors">
+                  class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                   + {{ t.translate('datasets.addRow') }}
                 </button>
                 <button type="button" (click)="saveViewChanges()"
                   [disabled]="isSavingView() || !viewHasChanges()"
-                  class="px-4 py-1.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  class="px-4 py-1.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none">
                   @if (isSavingView()) { {{ t.translate('datasets.savingChanges') }} } @else { {{ t.translate('datasets.saveChanges') }} }
                 </button>
               </div>
@@ -288,7 +288,7 @@ interface QueueItem {
                 <div class="text-5xl mb-4">📋</div>
                 <p class="text-muted text-sm mb-4">{{ t.translate('datasets.noRows') }}</p>
                 <button type="button" (click)="addViewRow()"
-                  class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors">
+                  class="px-4 py-2 rounded-lg bg-primary-600 text-white font-semibold text-sm hover:bg-primary-700 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                   + {{ t.translate('datasets.addRow') }}
                 </button>
               </div>
@@ -385,7 +385,7 @@ interface QueueItem {
               <!-- Bottom actions -->
               <div class="flex items-center justify-between">
                 <button type="button" (click)="addViewRow()"
-                  class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors">
+                  class="px-3 py-1.5 rounded-lg border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                   + {{ t.translate('datasets.addRow') }}
                 </button>
                 <div class="flex items-center gap-2">
@@ -394,7 +394,7 @@ interface QueueItem {
                   }
                   <button type="button" (click)="saveViewChanges()"
                     [disabled]="isSavingView() || !viewHasChanges()"
-                    class="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    class="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none">
                     @if (isSavingView()) { {{ t.translate('datasets.savingChanges') }} } @else { {{ t.translate('datasets.saveChanges') }} }
                   </button>
                 </div>
@@ -412,7 +412,7 @@ interface QueueItem {
         @if (currentStep() === 'configure') {
           <div class="mb-4">
             <button type="button" (click)="backToList()"
-              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
               ← {{ t.translate('datasets.backToList') }}
             </button>
           </div>
@@ -424,7 +424,7 @@ interface QueueItem {
             <div class="flex rounded-lg border border-secondary-200 bg-white overflow-hidden">
               <button type="button"
                 (click)="datasetMode.set('generate')"
-                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="datasetMode() === 'generate'"
                 [ngClass]="datasetMode() === 'generate' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
@@ -432,7 +432,7 @@ interface QueueItem {
               </button>
               <button type="button"
                 (click)="datasetMode.set('import')"
-                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="datasetMode() === 'import'"
                 [ngClass]="datasetMode() === 'import' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
@@ -440,7 +440,7 @@ interface QueueItem {
               </button>
               <button type="button"
                 (click)="datasetMode.set('queue')"
-                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="datasetMode() === 'queue'"
                 [ngClass]="datasetMode() === 'queue' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
@@ -448,7 +448,7 @@ interface QueueItem {
               </button>
               <button type="button"
                 (click)="datasetMode.set('refine')"
-                class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+                class="flex-1 px-4 py-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 [attr.aria-pressed]="datasetMode() === 'refine'"
                 [ngClass]="datasetMode() === 'refine' ? 'bg-primary-600 text-white' : 'bg-white text-secondary-700 hover:bg-secondary-50'"
               >
@@ -471,7 +471,7 @@ interface QueueItem {
                 <div class="grid grid-cols-2 gap-3">
                   <button type="button"
                     (click)="generateDatasetType = 'standard'"
-                    class="text-left p-3 rounded-lg border-2 transition-all"
+                    class="text-left p-3 rounded-lg border-2 transition-all focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     [attr.aria-pressed]="generateDatasetType === 'standard'"
                     [ngClass]="generateDatasetType === 'standard'
                       ? 'border-primary-500 bg-primary-50'
@@ -486,7 +486,7 @@ interface QueueItem {
                   </button>
                   <button type="button"
                     (click)="generateDatasetType = 'post-training'"
-                    class="text-left p-3 rounded-lg border-2 transition-all"
+                    class="text-left p-3 rounded-lg border-2 transition-all focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     [attr.aria-pressed]="generateDatasetType === 'post-training'"
                     [ngClass]="generateDatasetType === 'post-training'
                       ? 'border-purple-500 bg-purple-50'
@@ -532,7 +532,7 @@ interface QueueItem {
                     @for (p of availableProviders(); track p.id) {
                       <button type="button"
                         (click)="selectProvider(p)"
-                        class="text-left p-3 rounded-lg border transition-all"
+                        class="text-left p-3 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         [attr.aria-pressed]="selectedProvider()?.id === p.id"
                         [ngClass]="selectedProvider()?.id === p.id
                           ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
@@ -635,7 +635,7 @@ interface QueueItem {
               <button type="button"
                 (click)="generateDataset()"
                 [disabled]="!canGenerate()"
-                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >
                 {{ t.translate('datasets.generateButton') }}
               </button>
@@ -716,7 +716,7 @@ interface QueueItem {
               <button type="button"
                 (click)="importFromHuggingFace()"
                 [disabled]="!canImport() || isImporting()"
-                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >
                 {{ isImporting() ? 'Importing...' : 'Import Dataset' }}
               </button>
@@ -773,7 +773,7 @@ interface QueueItem {
                     @for (p of availableProviders(); track p.id) {
                       <button type="button"
                         (click)="selectQueueProvider(p)"
-                        class="text-left p-3 rounded-lg border transition-all"
+                        class="text-left p-3 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         [attr.aria-pressed]="queueSelectedProvider()?.id === p.id"
                         [ngClass]="queueSelectedProvider()?.id === p.id
                           ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
@@ -867,7 +867,7 @@ interface QueueItem {
               <button type="button"
                 (click)="addToQueue()"
                 [disabled]="!canAddToQueue()"
-                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >
                 {{ t.translate('datasets.addToQueue') }}
               </button>
@@ -929,7 +929,7 @@ interface QueueItem {
                           }
                           @if (item.status === 'pending' && !isQueueRunning()) {
                             <button type="button" (click)="removeFromQueue(item.id)"
-                              class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors">
+                              class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                               {{ t.translate('datasets.removeFromQueue') }}
                             </button>
                           }
@@ -957,17 +957,17 @@ interface QueueItem {
                   @if (!isQueueRunning()) {
                     @if (queueHasPending()) {
                       <button type="button" (click)="startQueue()"
-                        class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors">
+                        class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none">
                         {{ t.translate('datasets.startQueue') }}
                       </button>
                     }
                     <button type="button" (click)="clearQueue()"
-                      class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+                      class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                       {{ t.translate('datasets.clearQueue') }}
                     </button>
                   } @else {
                     <button type="button" (click)="stopQueue()"
-                      class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors">
+                      class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                       {{ t.translate('datasets.stopQueue') }}
                     </button>
                     <span class="flex items-center gap-2 text-sm text-muted">
@@ -1052,7 +1052,7 @@ interface QueueItem {
                     @for (p of availableProviders(); track p.id) {
                       <button type="button"
                         (click)="selectRefineProvider(p)"
-                        class="text-left p-3 rounded-lg border transition-all"
+                        class="text-left p-3 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         [attr.aria-pressed]="refineSelectedProvider()?.id === p.id"
                         [ngClass]="refineSelectedProvider()?.id === p.id
                           ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50'
@@ -1097,7 +1097,7 @@ interface QueueItem {
               <button type="button"
                 (click)="addRefineToQueue()"
                 [disabled]="!canAddRefineToQueue()"
-                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                class="w-full px-4 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >
                 {{ t.translate('datasets.addRefineToQueue') }}
               </button>
@@ -1159,7 +1159,7 @@ interface QueueItem {
                           }
                           @if (item.status === 'pending' && !isQueueRunning()) {
                             <button type="button" (click)="removeFromQueue(item.id)"
-                              class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors">
+                              class="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                               {{ t.translate('datasets.removeFromQueue') }}
                             </button>
                           }
@@ -1187,17 +1187,17 @@ interface QueueItem {
                   @if (!isQueueRunning()) {
                     @if (queueHasPending()) {
                       <button type="button" (click)="startQueue()"
-                        class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors">
+                        class="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none">
                         {{ t.translate('datasets.startQueue') }}
                       </button>
                     }
                     <button type="button" (click)="clearQueue()"
-                      class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors">
+                      class="px-4 py-2.5 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                       {{ t.translate('datasets.clearQueue') }}
                     </button>
                   } @else {
                     <button type="button" (click)="stopQueue()"
-                      class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors">
+                      class="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                       {{ t.translate('datasets.stopQueue') }}
                     </button>
                     <span class="flex items-center gap-2 text-sm text-muted">
@@ -1258,7 +1258,7 @@ interface QueueItem {
                 </div>
                 <button type="button"
                   (click)="resetWizard()"
-                  class="px-4 py-2 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors"
+                  class="px-4 py-2 rounded-lg border border-secondary-200 bg-white hover:bg-secondary-50 text-secondary-700 font-medium text-sm transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                 >
                   {{ t.translate('datasets.newDataset') }}
                 </button>
@@ -1324,7 +1324,7 @@ interface QueueItem {
                 <!-- Download -->
                 <button type="button"
                   (click)="downloadDataset()"
-                  class="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 font-semibold transition-colors"
+                  class="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1337,7 +1337,7 @@ interface QueueItem {
                   @if (!showSaveForm()) {
                     <button type="button"
                       (click)="showSaveForm.set(true)"
-                      class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-green-200 bg-green-50 hover:bg-green-100 text-green-700 font-semibold transition-colors"
+                      class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-green-200 bg-green-50 hover:bg-green-100 text-green-700 font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none"
                     >
                       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -1362,13 +1362,13 @@ interface QueueItem {
                         <button type="button"
                           (click)="saveDataset()"
                           [disabled]="isSaving() || !saveDatasetName.trim()"
-                          class="flex-1 px-3 py-2 rounded-lg bg-green-600 text-white font-medium text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"
+                          class="flex-1 px-3 py-2 rounded-lg bg-green-600 text-white font-medium text-sm hover:bg-green-700 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-green-400 outline-none"
                         >
                           @if (isSaving()) { {{ t.translate('datasets.saving') }} } @else { {{ t.translate('datasets.save') }} }
                         </button>
                         <button type="button"
                           (click)="showSaveForm.set(false)"
-                          class="px-3 py-2 rounded-lg border border-secondary-200 bg-white text-sm"
+                          class="px-3 py-2 rounded-lg border border-secondary-200 bg-white text-sm focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         >
                           {{ t.translate('datasets.cancel') }}
                         </button>

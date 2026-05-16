@@ -40,7 +40,7 @@ type PageView = 'queue' | 'create';
               </h2>
               <button type="button"
                 (click)="showCreateView()"
-                class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium text-sm"
+                class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium text-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >
                 {{ t.translate('trainLlm.queue.newJob') }}
               </button>
@@ -65,7 +65,7 @@ type PageView = 'queue' | 'create';
                 </p>
                 <button type="button"
                   (click)="showCreateView()"
-                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium text-sm"
+                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium text-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 >
                   {{ t.translate('trainLlm.queue.createFirst') }}
                 </button>
@@ -137,7 +137,7 @@ type PageView = 'queue' | 'create';
                         <button type="button"
                           (click)="downloadGguf(job.id)"
                           [disabled]="downloadingJobId() === job.id"
-                          class="px-3 py-1.5 text-sm text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                          class="px-3 py-1.5 text-sm text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-wait focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           @if (downloadingJobId() === job.id) {
                             {{ t.translate('trainLlm.job.converting') }}
@@ -149,7 +149,7 @@ type PageView = 'queue' | 'create';
                       @if (trainLlmService.isActive(job.status)) {
                         <button type="button"
                           (click)="cancelJob(job.id)"
-                          class="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                          class="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                         >
                           {{ t.translate('trainLlm.job.cancel') }}
                         </button>
@@ -157,7 +157,7 @@ type PageView = 'queue' | 'create';
                       @if (!trainLlmService.isActive(job.status)) {
                         <button type="button"
                           (click)="deleteJob(job.id)"
-                          class="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                          class="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                         >
                           {{ t.translate('trainLlm.job.delete') }}
                         </button>
@@ -176,7 +176,7 @@ type PageView = 'queue' | 'create';
             <div class="flex items-center gap-4 mb-8">
               <button type="button"
                 (click)="showQueueView()"
-                class="text-sm text-primary-600 hover:text-primary-700"
+                class="text-sm text-primary-600 hover:text-primary-700 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
               >
                 {{ t.translate('trainLlm.back') }}
               </button>
@@ -373,14 +373,14 @@ type PageView = 'queue' | 'create';
               <div class="flex items-center justify-end gap-3 pt-2">
                 <button type="button"
                   (click)="showQueueView()"
-                  class="px-4 py-2 text-sm text-secondary-600 border border-secondary-200 rounded-lg hover:bg-secondary-50 transition-colors"
+                  class="px-4 py-2 text-sm text-secondary-600 border border-secondary-200 rounded-lg hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                 >
                   {{ t.translate('trainLlm.create.cancel') }}
                 </button>
                 <button type="button"
                   (click)="createJob()"
                   [disabled]="isCreating()"
-                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                 >
                   @if (isCreating()) {
                     {{ t.translate('trainLlm.create.creating') }}
