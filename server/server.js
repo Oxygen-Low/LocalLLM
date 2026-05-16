@@ -10487,27 +10487,7 @@ const { chromium } = require("playwright-core");
 const dns = require("dns").promises;
 
 // Helper function to check if an IP is private/internal
-function isPrivateIP(ip) {
-  const addr = ip.replace(/^\[|\]$/g, '');
-  if (/^127\./.test(addr)) return true;
-  if (/^10\./.test(addr)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(addr)) return true;
-  if (/^192\.168\./.test(addr)) return true;
-  if (/^169\.254\./.test(addr)) return true;
-  if (addr === '0.0.0.0' || addr === '0') return true;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(addr)) return true;
-  if (/^([0:]+):0*1$/i.test(addr) && !/[2-9a-f]/i.test(addr)) return true;
-  if (/^[0:]+$/i.test(addr) && addr.includes(':') && !/[1-9a-f]/i.test(addr)) return true;
-  if (/^fe80:/i.test(addr)) return true;
-  if (/^f[cd]/i.test(addr)) return true;
-  if (/^::ffff:/i.test(addr)) {
-    const v4 = addr.replace(/^::ffff:/i, '');
-    if (v4.includes('.')) return isPrivateIP(v4);
-    if (/^[0:]*0*1$/i.test(v4) && !/[2-9a-f]/i.test(v4)) return true;
-    if (/^[0:]+$/i.test(v4) && !/[1-9a-f]/i.test(v4)) return true;
-  }
-  return false;
-}
+${isPrivateIP.toString()}
 
 (async () => {
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
