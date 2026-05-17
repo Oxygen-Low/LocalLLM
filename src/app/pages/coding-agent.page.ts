@@ -87,7 +87,7 @@ interface ToolCall {
           <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
             <div class="flex items-center justify-between mb-6">
               <div>
-                <button type="button" (click)="goToStep('check-github')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-2 inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('check-github')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-2 inline-flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -116,7 +116,7 @@ interface ToolCall {
                   placeholder="https://github.com/owner/repo"
                   class="flex-1 px-3 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all text-sm"
                 />
-                <button type="button" (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0">
+                <button type="button" (click)="useCustomUrl()" class="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors flex-shrink-0 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                   Use URL
                 </button>
               </div>
@@ -144,7 +144,7 @@ interface ToolCall {
                   @for (repo of localRepos(); track repo.id) {
                     <button type="button"
                       (click)="selectLocalRepo(repo)"
-                      class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
+                      class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                       [ngClass]="selectedLocalRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
                     >
                       <div class="flex items-start justify-between">
@@ -201,7 +201,7 @@ interface ToolCall {
                   @for (repo of repos(); track repo.id) {
                     <button type="button"
                       (click)="selectRepo(repo)"
-                      class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all"
+                      class="w-full text-left p-4 bg-white rounded-lg border border-secondary-200 hover:border-primary-300 hover:shadow-sm transition-all focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                       [ngClass]="selectedRepo()?.id === repo.id ? 'border-primary-500 ring-2 ring-primary-100' : ''"
                     >
                       <div class="flex items-start justify-between">
@@ -256,7 +256,7 @@ interface ToolCall {
         @case ('select-mode') {
           <div class="flex-1 flex items-center justify-center px-4">
             <div class="max-w-2xl w-full">
-              <button type="button" (click)="goToStep('select-repo')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+              <button type="button" (click)="goToStep('select-repo')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                 </svg>
@@ -299,7 +299,7 @@ interface ToolCall {
                 <button type="button"
                   (click)="startManualMode()"
                   [disabled]="isCreatingContainer()"
-                  class="text-left p-6 bg-white rounded-xl border-2 border-secondary-200 hover:border-blue-300 hover:shadow-md transition-all disabled:opacity-50"
+                  class="text-left p-6 bg-white rounded-xl border-2 border-secondary-200 hover:border-blue-300 hover:shadow-md transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                 >
                   <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center mb-4">
                     <span class="text-2xl">🛠️</span>
@@ -330,7 +330,7 @@ interface ToolCall {
         <!-- Step 3b: Container Manager -->
         @case ('container-manager') {
           <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-8">
-            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -409,13 +409,13 @@ interface ToolCall {
                         @if (container.status === 'running') {
                           <button type="button"
                             (click)="loadContainerWorkspace(container)"
-                            class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 transition-colors"
+                            class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                           >
                             Open
                           </button>
                           <button type="button"
                             (click)="stopContainerById(container.id)"
-                            class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                            class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                           >
                             Stop
                           </button>
@@ -423,13 +423,13 @@ interface ToolCall {
                           <button type="button"
                             (click)="startAndLoadContainer(container)"
                             [disabled]="isStartingContainer()"
-                            class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+                            class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-green-400 outline-none"
                           >
                             {{ isStartingContainer() ? 'Starting...' : 'Start & Open' }}
                           </button>
                           <button type="button"
                             (click)="removeContainerById(container.id)"
-                            class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                            class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                           >
                             Remove
                           </button>
@@ -446,7 +446,7 @@ interface ToolCall {
         <!-- Background Mode: Running -->
         @case ('background-running') {
           <div class="flex-1 flex flex-col max-w-3xl mx-auto w-full px-4 py-8">
-            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1">
+            <button type="button" (click)="goToStep('select-mode')" class="text-sm text-muted hover:text-secondary-700 transition-colors mb-4 inline-flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
@@ -547,7 +547,7 @@ interface ToolCall {
             <!-- Toolbar -->
             <div class="flex items-center justify-between px-4 py-2 bg-white border-b border-secondary-200">
               <div class="flex items-center gap-3">
-                <button type="button" (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1">
+                <button type="button" (click)="goToStep('container-manager')" class="text-sm text-muted hover:text-secondary-700 transition-colors inline-flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -561,7 +561,7 @@ interface ToolCall {
               <div class="flex items-center gap-2">
                 <button type="button"
                   (click)="toggleAgentTerminal()"
-                  class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                  class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                   [attr.aria-pressed]="showAgentTerminal()"
                   [ngClass]="showAgentTerminal() ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-secondary-200 text-secondary-700 hover:bg-secondary-50'"
                 >
@@ -570,13 +570,13 @@ interface ToolCall {
                 <button type="button"
                   (click)="runDevServer()"
                   [disabled]="isRunningDevServer()"
-                  class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+                  class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-green-400 outline-none"
                 >
                   {{ isRunningDevServer() ? 'Starting...' : '▶ Run Dev Server' }}
                 </button>
                 <button type="button"
                   (click)="stopActiveContainer()"
-                  class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                  class="px-3 py-1.5 rounded-lg border border-secondary-200 text-xs font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                 >
                   Stop Container
                 </button>
@@ -588,7 +588,7 @@ interface ToolCall {
               <div class="bg-secondary-900 border-b border-secondary-700 max-h-48 overflow-y-auto">
                 <div class="flex items-center justify-between px-4 py-1.5 border-b border-secondary-700">
                   <span class="text-xs font-semibold text-secondary-400 uppercase tracking-wider">Agent Terminal</span>
-                  <button type="button" (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors">Clear</button>
+                  <button type="button" (click)="clearAgentTerminal()" class="text-xs text-secondary-500 hover:text-secondary-300 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">Clear</button>
                 </div>
                 <pre class="p-3 text-xs text-green-400 font-mono whitespace-pre-wrap">{{ agentTerminalOutput() || '(No output yet)' }}</pre>
               </div>
@@ -610,7 +610,7 @@ interface ToolCall {
                     @for (file of currentFiles(); track file.name) {
                       <button type="button"
                         (click)="onFileClick(file)"
-                        class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2 truncate"
+                        class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-secondary-100 transition-colors flex items-center gap-2 truncate focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         [ngClass]="currentFilePath() === file.name ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                       >
                         @if (file.type === 'directory') {
@@ -635,7 +635,7 @@ interface ToolCall {
                 <div class="flex items-center gap-1 px-3 py-1 bg-secondary-50 border-b border-secondary-200">
                   <button type="button"
                     (click)="activeTab.set('editor')"
-                    class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                    class="px-3 py-1.5 rounded text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     [attr.aria-pressed]="activeTab() === 'editor'"
                     [ngClass]="activeTab() === 'editor' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
@@ -643,7 +643,7 @@ interface ToolCall {
                   </button>
                   <button type="button"
                     (click)="activeTab.set('terminal')"
-                    class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                    class="px-3 py-1.5 rounded text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     [attr.aria-pressed]="activeTab() === 'terminal'"
                     [ngClass]="activeTab() === 'terminal' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
@@ -651,7 +651,7 @@ interface ToolCall {
                   </button>
                   <button type="button"
                     (click)="activeTab.set('preview')"
-                    class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                    class="px-3 py-1.5 rounded text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                     [attr.aria-pressed]="activeTab() === 'preview'"
                     [ngClass]="activeTab() === 'preview' ? 'bg-white text-secondary-900 shadow-sm' : 'text-secondary-500 hover:text-secondary-700'"
                   >
@@ -668,7 +668,7 @@ interface ToolCall {
                         <button type="button"
                           (click)="saveCurrentFile()"
                           [disabled]="isSavingFile()"
-                          class="px-3 py-1 rounded text-xs font-medium bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50"
+                          class="px-3 py-1 rounded text-xs font-medium bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           {{ isSavingFile() ? 'Saving...' : 'Save' }}
                         </button>
@@ -731,7 +731,7 @@ interface ToolCall {
                     <h3 class="text-xs font-semibold text-secondary-500 uppercase tracking-wider">AI Assistant</h3>
                     <button type="button"
                       (click)="showMemoriesPanel.set(!showMemoriesPanel())"
-                      class="text-xs px-2 py-1 rounded transition-colors"
+                      class="text-xs px-2 py-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                       [attr.aria-pressed]="showMemoriesPanel()"
                       [ngClass]="showMemoriesPanel() ? 'bg-purple-100 text-purple-700' : 'text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100'"
                     >
@@ -744,7 +744,7 @@ interface ToolCall {
                     <div class="relative" #providerDropdown>
                       <button type="button"
                         (click)="toggleProviderDropdown($event)"
-                        class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-xs transition-colors"
+                        class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         aria-label="Select AI provider"
                         title="Select AI provider"
                         aria-haspopup="listbox"
@@ -775,7 +775,7 @@ interface ToolCall {
                               <div>
                                 <button type="button"
                                   (click)="toggleModelList(p, $event)"
-                                  class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                                  class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                   [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                                 >
                                   <span class="w-1.5 h-1.5 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
@@ -792,7 +792,7 @@ interface ToolCall {
                                     @for (m of p.models; track getModelId(m)) {
                                       <button type="button"
                                         (click)="selectProviderModel(p, m)"
-                                        class="w-full text-left pl-7 pr-3 py-1.5 text-xs hover:bg-secondary-100 transition-colors flex items-center gap-1.5"
+                                        class="w-full text-left pl-7 pr-3 py-1.5 text-xs hover:bg-secondary-100 transition-colors flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                         [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-50 text-primary-700' : 'text-secondary-600'"
                                       >
                                         <span class="w-1 h-1 rounded-full" [ngClass]="selectedProvider()?.id === p.id && selectedProvider()?.model === getModelId(m) ? 'bg-primary-600' : 'bg-secondary-300'"></span>
@@ -805,7 +805,7 @@ interface ToolCall {
                             } @else {
                               <button type="button"
                                 (click)="selectProvider(p)"
-                                class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2"
+                                class="w-full text-left px-3 py-2 text-xs hover:bg-secondary-50 transition-colors flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                 [ngClass]="selectedProvider()?.id === p.id ? 'bg-primary-50 text-primary-700' : 'text-secondary-700'"
                               >
                                 <span class="w-1.5 h-1.5 rounded-full" [ngClass]="p.available ? 'bg-green-500' : 'bg-secondary-300'"></span>
@@ -827,7 +827,7 @@ interface ToolCall {
                       <div class="relative" #characterDropdown>
                         <button type="button"
                           (click)="toggleCharacterDropdown($event)"
-                          class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
+                          class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                           [ngClass]="selectedCharacter()
                             ? 'border-purple-300 bg-purple-50 text-purple-700'
                             : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -846,7 +846,7 @@ interface ToolCall {
                           <div class="absolute bottom-full left-0 mb-1 w-56 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50 max-h-56 overflow-y-auto">
                             <button type="button"
                               (click)="selectCharacter(null)"
-                              class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors"
+                              class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                               [ngClass]="!selectedCharacter() ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                             >
                               <div class="font-medium">No character</div>
@@ -859,7 +859,7 @@ interface ToolCall {
                                 @for (char of universe.characters; track char.id) {
                                   <button type="button"
                                     (click)="selectCharacter(char)"
-                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors"
+                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                     [ngClass]="selectedCharacter()?.id === char.id ? 'bg-purple-50 text-purple-700' : 'text-secondary-700'"
                                   >
                                     {{ char.name }}
@@ -876,7 +876,7 @@ interface ToolCall {
                     <div class="relative" #mcpDropdown>
                       <button type="button"
                         (click)="toggleMcpDropdown($event)"
-                        class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
+                        class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         [ngClass]="webSearchEnabled() || enabledMcpServerIds().length > 0
                           ? 'border-primary-300 bg-primary-50 text-primary-700'
                           : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -902,7 +902,7 @@ interface ToolCall {
                         <div class="absolute bottom-full left-0 mb-1 w-56 bg-white rounded-lg border border-secondary-200 shadow-lg py-1 z-50">
                           <button type="button"
                             (click)="webSearchEnabled.set(!webSearchEnabled()); showMcpDropdown.set(false)"
-                            class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                            class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                             [ngClass]="webSearchEnabled() ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                           >
                             <div class="flex items-center gap-2">
@@ -920,7 +920,7 @@ interface ToolCall {
                           @for (mcp of availableMcpServers(); track mcp.id) {
                             <button type="button"
                               (click)="toggleMcpServer(mcp)"
-                              class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between"
+                              class="w-full text-left px-3 py-1.5 text-xs hover:bg-secondary-50 transition-colors flex items-center justify-between focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                               [ngClass]="isMcpServerEnabled(mcp.id) ? 'text-primary-700 font-medium' : 'text-secondary-700'"
                             >
                               <div class="flex items-center gap-2 min-w-0">
@@ -949,7 +949,7 @@ interface ToolCall {
                     <!-- Think toggle -->
                     <button type="button"
                       (click)="thinkEnabled.set(!thinkEnabled())"
-                      class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors"
+                      class="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                       [ngClass]="thinkEnabled()
                         ? 'border-primary-300 bg-primary-50 text-primary-700'
                         : 'border-secondary-200 bg-secondary-50 text-secondary-500 hover:bg-secondary-100'"
@@ -971,7 +971,7 @@ interface ToolCall {
                           <span class="flex-1 text-secondary-700 break-words">{{ mem.content }}</span>
                           <button type="button"
                             (click)="deleteMemory(mem.id)"
-                            class="text-secondary-400 hover:text-red-500 flex-shrink-0 p-0.5"
+                            class="text-secondary-400 hover:text-red-500 flex-shrink-0 p-0.5 focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                             aria-label="Delete memory"
                             title="Delete memory"
                           >
@@ -996,7 +996,7 @@ interface ToolCall {
                         <button type="button"
                           (click)="addMemory()"
                           [disabled]="!newMemoryContent.trim()"
-                          class="px-2 py-1 rounded bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                          class="px-2 py-1 rounded bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-purple-400 outline-none"
                         >
                           Add
                         </button>
@@ -1138,7 +1138,7 @@ interface ToolCall {
                       <button type="button"
                         (click)="enterVoiceMode()"
                         [disabled]="isAiResponding()"
-                        class="px-2 py-2 rounded-lg border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
+                        class="px-2 py-2 rounded-lg border border-secondary-200 text-secondary-500 hover:bg-secondary-100 hover:text-secondary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                         aria-label="Voice mode"
                         title="Voice mode"
                       >
@@ -1150,7 +1150,7 @@ interface ToolCall {
                     <button type="button"
                       (click)="sendChatMessage()"
                       [disabled]="isAiResponding() || !chatInput.trim() || !selectedProvider()"
-                      class="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm hover:bg-primary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end"
+                      class="px-3 py-2 rounded-lg bg-primary-600 text-white text-sm hover:bg-primary-700 transition-colors disabled:opacity-50 flex-shrink-0 self-end focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                       aria-label="Send message"
                       title="Send message"
                     >
@@ -1172,7 +1172,7 @@ interface ToolCall {
           <!-- Close button -->
           <button type="button"
             (click)="exitVoiceMode()"
-            class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors"
+            class="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
             aria-label="Exit voice mode"
           >
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1219,7 +1219,7 @@ interface ToolCall {
           <button type="button"
             (click)="toggleVoiceListening()"
             [disabled]="voiceProcessing()"
-            class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50"
+            class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
             [ngClass]="voiceService.isListening()
               ? 'bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30'
               : 'bg-white/10 hover:bg-white/20 border-2 border-white/30'"
@@ -1234,7 +1234,7 @@ interface ToolCall {
           <div class="mt-8 relative">
             <button type="button"
               (click)="showVoicePicker.set(!showVoicePicker())"
-              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707a1 1 0 011.707.707v14a1 1 0 01-1.707.707L5.586 15z" />
@@ -1249,7 +1249,7 @@ interface ToolCall {
                 @for (v of voiceService.availableVoices(); track $index) {
                   <button type="button"
                     (click)="voiceService.selectVoice($index); showVoicePicker.set(false)"
-                    class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate"
+                    class="w-full text-left px-4 py-2 text-sm hover:bg-secondary-700 transition-colors truncate focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                     [ngClass]="voiceService.selectedVoiceIndex() === $index ? 'bg-primary-700/40 text-primary-300' : 'text-white/80'"
                   >
                     {{ v.label }}

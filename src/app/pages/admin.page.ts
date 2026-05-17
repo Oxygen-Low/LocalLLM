@@ -93,7 +93,7 @@ import { LlmService } from '../services/llm.service';
                   </div>
                   <button type="button"
                     (click)="toggleMenu()"
-                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   >
                     {{ menuOpen() ? 'Hide account menu' : 'Account management menu' }}
                   </button>
@@ -132,14 +132,14 @@ import { LlmService } from '../services/llm.service';
                               <button type="button"
                                 (click)="onResetPassword(user.username)"
                                 [disabled]="actionInProgress() === user.username"
-                                class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50"
+                                class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                               >
                                 {{ actionInProgress() === user.username ? 'Resetting...' : 'Require new password' }}
                               </button>
                               <button type="button"
                                 (click)="onDeleteUser(user.username)"
                                 [disabled]="user.username === 'admin' || actionInProgress() === user.username"
-                                class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                               >
                                 {{ actionInProgress() === user.username ? 'Deleting...' : 'Delete account' }}
                               </button>
@@ -163,7 +163,7 @@ import { LlmService } from '../services/llm.service';
                   </div>
                   <button type="button"
                     (click)="toggleUniverseMenu()"
-                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   >
                     {{ universeMenuOpen() ? 'Hide universes' : 'Manage universes' }}
                   </button>
@@ -198,7 +198,7 @@ import { LlmService } from '../services/llm.service';
                         <button type="button"
                           (click)="onCreateUniverse()"
                           [disabled]="!newUniverseName.trim()"
-                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           Create Universe
                         </button>
@@ -231,11 +231,11 @@ import { LlmService } from '../services/llm.service';
                                     <button type="button"
                                       (click)="onSaveUniverse(universe.id)"
                                       [disabled]="!editingUniverseName.trim()"
-                                      class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
+                                      class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                     >Save</button>
                                     <button type="button"
                                       (click)="editingUniverseId.set(null)"
-                                      class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
+                                      class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                     >Cancel</button>
                                   </div>
                                 </div>
@@ -253,11 +253,11 @@ import { LlmService } from '../services/llm.service';
                                   <div class="flex items-center gap-2">
                                     <button type="button"
                                       (click)="onEditUniverse(universe)"
-                                      class="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm transition-colors"
+                                      class="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                     >Edit</button>
                                     <button type="button"
                                       (click)="onDeleteUniverse(universe)"
-                                      class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-sm transition-colors"
+                                      class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                                     >Delete</button>
                                   </div>
                                 </div>
@@ -288,13 +288,13 @@ import { LlmService } from '../services/llm.service';
                                   <button type="button"
                                     (click)="onCreateCharacter(universe.id)"
                                     [disabled]="!newCharacterNames[universe.id]?.trim()"
-                                    class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                    class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                   >Add</button>
                                 </div>
 
                                 <!-- Auto-generate Section -->
                                 <div class="mt-2 pt-2 border-t border-secondary-100">
-                                  <button type="button" (click)="toggleAutoGen(universe.id)" class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
+                                  <button type="button" (click)="toggleAutoGen(universe.id)" class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                                     <span>✨</span> {{ autoGenExpanded()[universe.id] ? 'Cancel auto-generation' : 'Auto-generate character' }}
                                   </button>
 
@@ -323,7 +323,7 @@ import { LlmService } from '../services/llm.service';
                                         </div>
                                       }
 
-                                      <button type="button" (click)="onAutoGenerateCharacter(universe.id)" [disabled]="isAutoGenerating()[universe.id] || (getAutoGenMode(universe.id) === 'search' ? !autoGenQuery[universe.id]?.trim() : !autoGenLinks[universe.id]?.trim())" class="w-full py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50">
+                                      <button type="button" (click)="onAutoGenerateCharacter(universe.id)" [disabled]="isAutoGenerating()[universe.id] || (getAutoGenMode(universe.id) === 'search' ? !autoGenQuery[universe.id]?.trim() : !autoGenLinks[universe.id]?.trim())" class="w-full py-2 bg-primary-600 text-white rounded-lg text-sm font-bold hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                                         {{ isAutoGenerating()[universe.id] ? 'Generating...' : 'Generate & Save Character' }}
                                       </button>
                                     </div>
@@ -333,7 +333,7 @@ import { LlmService } from '../services/llm.service';
                                 <div class="space-y-1">
                                   <button type="button"
                                     (click)="newCharacterRelExpanded[universe.id] = !newCharacterRelExpanded[universe.id]"
-                                    class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+                                    class="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                   >
                                     {{ newCharacterRelExpanded[universe.id] ? '▼' : '▶' }}
                                     Relationships ({{ (newCharacterRelationships[universe.id] || []).length }})
@@ -358,7 +358,7 @@ import { LlmService } from '../services/llm.service';
                                         />
                                         <button type="button"
                                           (click)="addCharacterRelationship(newRelName.value, universe.id); newRelName.value = ''"
-                                          class="px-2 py-1 rounded bg-secondary-200 text-xs"
+                                          class="px-2 py-1 rounded bg-secondary-200 text-xs focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                         >Add</button>
                                       </div>
                                     </div>
@@ -391,7 +391,7 @@ import { LlmService } from '../services/llm.service';
                                           <div class="space-y-2 border border-secondary-100 rounded-lg p-3 bg-secondary-50">
                                             <button type="button"
                                               (click)="relationshipsExpanded.set(!relationshipsExpanded())"
-                                              class="flex items-center justify-between w-full text-sm font-semibold text-secondary-900"
+                                              class="flex items-center justify-between w-full text-sm font-semibold text-secondary-900 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                             >
                                               <span>Relationships ({{ editingCharacterRelationships().length }})</span>
                                               <span>{{ relationshipsExpanded() ? '▲' : '▼' }}</span>
@@ -445,7 +445,7 @@ import { LlmService } from '../services/llm.service';
                                                           @for (item of filteredCharactersForRelationship(); track item.char.id) {
                                                             <button type="button"
                                                               (click)="addRelationship(item)"
-                                                              class="w-full text-left px-3 py-2 text-xs hover:bg-primary-50 transition-colors border-b border-secondary-50 last:border-0"
+                                                              class="w-full text-left px-3 py-2 text-xs hover:bg-primary-50 transition-colors border-b border-secondary-50 last:border-0 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                                             >
                                                               <div class="font-medium text-secondary-900">{{ item.char.name }}</div>
                                                               <div class="text-[10px] text-muted">{{ item.universeName }}</div>
@@ -454,7 +454,7 @@ import { LlmService } from '../services/llm.service';
                                                           @if (relationshipSearchQuery().trim()) {
                                                             <button type="button"
                                                               (click)="addRelationship()"
-                                                              class="w-full text-left px-3 py-2 text-xs bg-secondary-50 hover:bg-secondary-100 transition-colors"
+                                                              class="w-full text-left px-3 py-2 text-xs bg-secondary-50 hover:bg-secondary-100 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                                             >
                                                               Add "<span class="font-medium">{{ relationshipSearchQuery() }}</span>" as name-only
                                                             </button>
@@ -466,12 +466,12 @@ import { LlmService } from '../services/llm.service';
                                                       <button type="button"
                                                         (click)="relationshipSearchMode.set('same')"
                                                         [class]="relationshipSearchMode() === 'same' ? 'bg-primary-100 text-primary-700' : 'bg-white text-secondary-600'"
-                                                        class="px-2 py-1 text-[10px] font-medium transition-colors"
+                                                        class="px-2 py-1 text-[10px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                                       >Same</button>
                                                       <button type="button"
                                                         (click)="relationshipSearchMode.set('other')"
                                                         [class]="relationshipSearchMode() === 'other' ? 'bg-primary-100 text-primary-700' : 'bg-white text-secondary-600'"
-                                                        class="px-2 py-1 text-[10px] font-medium transition-colors border-l border-secondary-200"
+                                                        class="px-2 py-1 text-[10px] font-medium transition-colors border-l border-secondary-200 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                                       >Other</button>
                                                     </div>
                                                   </div>
@@ -484,11 +484,11 @@ import { LlmService } from '../services/llm.service';
                                             <button type="button"
                                               (click)="onSaveCharacter(universe.id, char.id)"
                                               [disabled]="!editingCharacterName.trim()"
-                                              class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50"
+                                              class="px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                             >Save</button>
                                             <button type="button"
                                               (click)="editingCharacterId.set(null)"
-                                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm"
+                                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-secondary-700 hover:bg-secondary-100 text-sm focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                                             >Cancel</button>
                                           </div>
                                         </div>
@@ -512,11 +512,11 @@ import { LlmService } from '../services/llm.service';
                                           <div class="flex items-center gap-2">
                                             <button type="button"
                                               (click)="onEditCharacter(char)"
-                                              class="px-2 py-1 rounded border border-primary-200 text-primary-700 hover:bg-primary-50 text-xs transition-colors"
+                                              class="px-2 py-1 rounded border border-primary-200 text-primary-700 hover:bg-primary-50 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                                             >Edit</button>
                                             <button type="button"
                                               (click)="onDeleteCharacter(universe.id, char)"
-                                              class="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 text-xs transition-colors"
+                                              class="px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                                             >Delete</button>
                                           </div>
                                         </div>
@@ -545,7 +545,7 @@ import { LlmService } from '../services/llm.service';
                   </div>
                   <button type="button"
                     (click)="toggleModelMenu()"
-                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900"
+                    class="px-4 py-2 rounded-lg border border-secondary-200 bg-secondary-50 hover:bg-secondary-100 transition-colors font-medium text-secondary-900 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                   >
                     {{ modelMenuOpen() ? 'Hide models' : 'Manage models' }}
                   </button>
@@ -584,13 +584,13 @@ import { LlmService } from '../services/llm.service';
                             <button type="button"
                               (click)="saveAdminHfToken()"
                               [disabled]="isSavingAdminHf()"
-                              class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+                              class="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                             >
                               {{ isSavingAdminHf() ? 'Validating...' : 'Save' }}
                             </button>
                             <button type="button"
                               (click)="editingAdminHf.set(false); adminHfToken = ''"
-                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                             >
                               Cancel
                             </button>
@@ -611,14 +611,14 @@ import { LlmService } from '../services/llm.service';
                           <div class="flex gap-2">
                             <button type="button"
                               (click)="editingAdminHf.set(true); adminHfToken = ''; adminHfMessage.set(null)"
-                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors"
+                              class="px-3 py-1.5 rounded-lg border border-secondary-200 text-sm font-medium text-secondary-700 hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
                             >
                               {{ adminHfConfigured() ? 'Update' : 'Configure' }}
                             </button>
                             @if (adminHfConfigured()) {
                               <button type="button"
                                 (click)="removeAdminHfToken()"
-                                class="px-3 py-1.5 rounded-lg border border-red-200 text-xs text-red-500 hover:text-red-700 transition-colors"
+                                class="px-3 py-1.5 rounded-lg border border-red-200 text-xs text-red-500 hover:text-red-700 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                               >
                                 Remove
                               </button>
@@ -656,7 +656,7 @@ import { LlmService } from '../services/llm.service';
                         <button type="button"
                           (click)="onUploadModel()"
                           [disabled]="!selectedGgufFile || isUploadingModel()"
-                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           {{ isUploadingModel() ? 'Uploading...' : 'Upload GGUF Model' }}
                         </button>
@@ -690,7 +690,7 @@ import { LlmService } from '../services/llm.service';
                         <button type="button"
                           (click)="onDownloadModel()"
                           [disabled]="!modelRepoId.trim() || isDownloadingModel()"
-                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                          class="w-full px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                         >
                           {{ isDownloadingModel() ? 'Downloading...' : 'Download Model' }}
                         </button>
@@ -741,7 +741,7 @@ import { LlmService } from '../services/llm.service';
                             <button type="button"
                               (click)="onDeleteModel(model)"
                               [disabled]="actionInProgress() === model.id"
-                              class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
+                              class="px-3 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                             >
                               {{ actionInProgress() === model.id ? 'Deleting...' : 'Delete' }}
                             </button>
@@ -852,7 +852,7 @@ import { LlmService } from '../services/llm.service';
                   <button type="button"
                     (click)="onSaveDatasetTokenLimit()"
                     [disabled]="isSavingDatasetTokenLimit()"
-                    class="px-4 py-2 rounded-lg bg-primary-100 border border-primary-200 text-primary-700 hover:bg-primary-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    class="px-4 py-2 rounded-lg bg-primary-100 border border-primary-200 text-primary-700 hover:bg-primary-200 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                   >
                     {{ isSavingDatasetTokenLimit() ? 'Saving...' : 'Save' }}
                   </button>
@@ -939,7 +939,7 @@ import { LlmService } from '../services/llm.service';
                   <button type="button"
                     (click)="onAddMcpServer()"
                     [disabled]="isAddingMcpServer()"
-                    class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                   >
                     {{ isAddingMcpServer() ? 'Adding...' : 'Add MCP Server' }}
                   </button>
@@ -976,7 +976,7 @@ import { LlmService } from '../services/llm.service';
                           <button type="button"
                             (click)="onToggleMcpServer(server)"
                             [disabled]="actionInProgress() !== null"
-                            class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50"
+                            class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                             [ngClass]="server.enabled
                               ? 'border-red-200 text-red-700 hover:bg-red-50'
                               : 'border-green-200 text-green-700 hover:bg-green-50'"
@@ -986,7 +986,7 @@ import { LlmService } from '../services/llm.service';
                           <button type="button"
                             (click)="onDeleteMcpServer(server)"
                             [disabled]="actionInProgress() !== null"
-                            class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-xs font-medium transition-colors disabled:opacity-50"
+                            class="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 text-xs font-medium transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
                           >
                             Delete
                           </button>
@@ -1081,14 +1081,14 @@ import { LlmService } from '../services/llm.service';
                       <button type="button"
                         (click)="onTriggerSync('push')"
                         [disabled]="isSyncing()"
-                        class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm"
+                        class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                       >
                         {{ isSyncing() ? 'Syncing...' : 'Push to remote' }}
                       </button>
                       <button type="button"
                         (click)="onTriggerSync('pull')"
                         [disabled]="isSyncing()"
-                        class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm"
+                        class="px-3 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors disabled:opacity-50 text-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                       >
                         {{ isSyncing() ? 'Syncing...' : 'Pull from remote' }}
                       </button>
@@ -1114,7 +1114,7 @@ import { LlmService } from '../services/llm.service';
                   <button type="button"
                     (click)="onImportSync()"
                     [disabled]="!importSyncDirectory.trim() || isImportingSync()"
-                    class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
+                    class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
                   >
                     {{ isImportingSync() ? 'Importing...' : 'Import' }}
                   </button>

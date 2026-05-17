@@ -52,7 +52,7 @@ export interface AIApp {
         <button type="button"
           disabled
           aria-disabled="true"
-          class="w-full px-4 py-2 rounded-lg border border-secondary-200 text-secondary-400 font-medium text-center text-sm cursor-not-allowed select-none"
+          class="w-full px-4 py-2 rounded-lg border border-secondary-200 text-secondary-400 font-medium text-center text-sm cursor-not-allowed select-none focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none"
         >
           {{ disabledReason() || t.translate('apps.action.disabled') }}
         </button>
@@ -60,7 +60,7 @@ export interface AIApp {
         <!-- Button -->
         <button type="button"
           [routerLink]="['/app', app().id]"
-          class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600"
+          class="w-full px-4 py-2 rounded-lg border border-primary-200 text-primary-600 font-medium hover:bg-primary-50 transition-colors group-hover:border-primary-600 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none"
         >
           {{ t.translate('apps.action.launch') }}
         </button>

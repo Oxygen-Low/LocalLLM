@@ -22,8 +22,8 @@ import { TranslationService } from '../services/translation.service';
             <p class="text-muted text-sm mt-1">{{ t.translate('books.subtitle') }}</p>
           </div>
           <div class="flex gap-3">
-            <button type="button" (click)="viewMode.set('list')" class="px-4 py-2 rounded-lg border border-secondary-300 bg-white hover:bg-secondary-50 transition-colors text-sm font-medium">{{ t.translate('books.nav.library') }}</button>
-            <button type="button" (click)="viewMode.set('create-space')" class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors text-sm font-medium shadow-sm">{{ t.translate('books.nav.newSpace') }}</button>
+            <button type="button" (click)="viewMode.set('list')" class="px-4 py-2 rounded-lg border border-secondary-300 bg-white hover:bg-secondary-50 transition-colors text-sm font-medium focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">{{ t.translate('books.nav.library') }}</button>
+            <button type="button" (click)="viewMode.set('create-space')" class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors text-sm font-medium shadow-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">{{ t.translate('books.nav.newSpace') }}</button>
           </div>
         </div>
 
@@ -33,7 +33,7 @@ import { TranslationService } from '../services/translation.service';
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               {{ error() }}
             </span>
-            <button type="button" (click)="error.set(null)" aria-label="Close error" class="hover:text-red-900">✕</button>
+            <button type="button" (click)="error.set(null)" aria-label="Close error" class="hover:text-red-900 focus-visible:ring-2 focus-visible:ring-red-400 outline-none">✕</button>
           </div>
         }
 
@@ -45,7 +45,7 @@ import { TranslationService } from '../services/translation.service';
                 <div class="p-6">
                   <div class="flex justify-between items-start mb-4">
                     <h3 class="text-xl font-bold text-secondary-900 truncate pr-4">{{ space.title }}</h3>
-                    <button type="button" (click)="deleteSpace(space.id)" [attr.aria-label]="t.translate('books.list.deleteSpace')" class="text-secondary-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100">
+                    <button type="button" (click)="deleteSpace(space.id)" [attr.aria-label]="t.translate('books.list.deleteSpace')" class="text-secondary-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
                   </div>
@@ -63,7 +63,7 @@ import { TranslationService } from '../services/translation.service';
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.246.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                       {{ space.books.length }} {{ t.translate('books.list.booksCount') }}
                     </span>
-                    <button type="button" (click)="openSpace(space)" class="text-sm font-bold text-primary-600 hover:text-primary-700 transition-colors">{{ t.translate('books.list.enterSpace') }} →</button>
+                    <button type="button" (click)="openSpace(space)" class="text-sm font-bold text-primary-600 hover:text-primary-700 transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">{{ t.translate('books.list.enterSpace') }} →</button>
                   </div>
                 </div>
               </div>
@@ -73,7 +73,7 @@ import { TranslationService } from '../services/translation.service';
                 <div class="text-5xl mb-4">🖋️</div>
                 <h3 class="text-lg font-bold text-secondary-900">{{ t.translate('books.list.empty.title') }}</h3>
                 <p class="text-muted mb-6">{{ t.translate('books.list.empty.subtitle') }}</p>
-                <button type="button" (click)="viewMode.set('create-space')" class="px-6 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 shadow-sm transition-all">{{ t.translate('books.list.empty.button') }}</button>
+                <button type="button" (click)="viewMode.set('create-space')" class="px-6 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 shadow-sm transition-all focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">{{ t.translate('books.list.empty.button') }}</button>
               </div>
             }
           </div>
@@ -98,8 +98,8 @@ import { TranslationService } from '../services/translation.service';
                 <textarea id="create-space-description" [(ngModel)]="newSpaceData.description" rows="4" [placeholder]="t.translate('books.create.descriptionPlaceholder')" class="w-full px-4 py-3 rounded-xl border border-secondary-300 focus:ring-2 focus:ring-primary-500 outline-none resize-none"></textarea>
               </div>
               <div class="flex gap-4 pt-4">
-                <button type="button" (click)="viewMode.set('list')" class="flex-1 px-6 py-3 rounded-xl border border-secondary-300 font-bold hover:bg-secondary-50 transition-colors">{{ t.translate('books.create.cancel') }}</button>
-                <button type="button" (click)="createSpace()" [disabled]="!newSpaceData.title.trim() || isProcessing()" class="flex-1 px-6 py-3 rounded-xl bg-primary-600 text-white font-bold hover:bg-primary-700 shadow-md transition-all disabled:opacity-50">
+                <button type="button" (click)="viewMode.set('list')" class="flex-1 px-6 py-3 rounded-xl border border-secondary-300 font-bold hover:bg-secondary-50 transition-colors focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">{{ t.translate('books.create.cancel') }}</button>
+                <button type="button" (click)="createSpace()" [disabled]="!newSpaceData.title.trim() || isProcessing()" class="flex-1 px-6 py-3 rounded-xl bg-primary-600 text-white font-bold hover:bg-primary-700 shadow-md transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                   @if (isProcessing()) { <span class="animate-pulse">{{ t.translate('books.create.creating') }}</span> } @else { {{ t.translate('books.create.submit') }} }
                 </button>
               </div>
@@ -131,7 +131,7 @@ import { TranslationService } from '../services/translation.service';
                           <svg class="w-4 h-4 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                           {{ book.name }}
                         </span>
-                        <button type="button" (click)="deleteBook(book.id)" [attr.aria-label]="t.translate('books.detail.deleteBook')" class="text-secondary-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100">
+                        <button type="button" (click)="deleteBook(book.id)" [attr.aria-label]="t.translate('books.detail.deleteBook')" class="text-secondary-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400 outline-none">
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                       </div>
@@ -161,7 +161,7 @@ import { TranslationService } from '../services/translation.service';
                     <label class="block text-sm font-bold text-secondary-700 mb-4">{{ t.translate('books.practice.question') }}</label>
                     <div class="grid grid-cols-3 gap-4" role="radiogroup" [attr.aria-label]="t.translate('books.practice.question')">
                       @for (type of ['book', 'paragraph', 'sentence']; track type) {
-                        <button type="button" role="radio" [attr.aria-checked]="practiceType() === type" (click)="practiceType.set(type)" [class.border-primary-600]="practiceType() === type" [class.bg-primary-50]="practiceType() === type" [class.text-primary-700]="practiceType() === type" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-secondary-100 hover:border-primary-200 transition-all text-center">
+                        <button type="button" role="radio" [attr.aria-checked]="practiceType() === type" (click)="practiceType.set(type)" [class.border-primary-600]="practiceType() === type" [class.bg-primary-50]="practiceType() === type" [class.text-primary-700]="practiceType() === type" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-secondary-100 hover:border-primary-200 transition-all text-center focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                           <span class="text-2xl">@if(type==='book'){📖}@else if(type==='paragraph'){📝}@else{🖋️}</span>
                           <span class="text-sm font-bold capitalize">{{ t.translate('books.practice.types.' + type) }}</span>
                         </button>
@@ -180,7 +180,7 @@ import { TranslationService } from '../services/translation.service';
                     </label>
                   </div>
 
-                  <button type="button" (click)="startPractice()" [disabled]="isProcessing()" class="w-full py-4 rounded-xl bg-secondary-900 text-white font-bold hover:bg-black shadow-lg transition-all flex items-center justify-center gap-3">
+                  <button type="button" (click)="startPractice()" [disabled]="isProcessing()" class="w-full py-4 rounded-xl bg-secondary-900 text-white font-bold hover:bg-black shadow-lg transition-all flex items-center justify-center gap-3 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                     @if (isProcessing()) {
                       <svg class="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                       {{ t.translate('books.practice.creating') }}
@@ -239,7 +239,7 @@ import { TranslationService } from '../services/translation.service';
                 </div>
 
                 <div class="p-6 bg-secondary-50 border-t border-secondary-100 flex justify-end">
-                  <button type="button" (click)="submitForEvaluation()" [disabled]="!writtenContent.trim() || isProcessing()" class="px-8 py-3 rounded-xl bg-primary-600 text-white font-bold hover:bg-primary-700 shadow-lg transition-all flex items-center gap-2">
+                  <button type="button" (click)="submitForEvaluation()" [disabled]="!writtenContent.trim() || isProcessing()" class="px-8 py-3 rounded-xl bg-primary-600 text-white font-bold hover:bg-primary-700 shadow-lg transition-all flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                     @if (isProcessing()) {
                       <svg class="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                       {{ t.translate('books.writing.evaluating') }}
@@ -301,10 +301,10 @@ import { TranslationService } from '../services/translation.service';
               </div>
 
               <div class="px-8 py-6 bg-secondary-50 border-t border-secondary-100 flex justify-between items-center">
-                <button type="button" (click)="viewMode.set('writing')" class="text-sm font-bold text-secondary-600 hover:text-secondary-900 transition-colors flex items-center gap-2">
+                <button type="button" (click)="viewMode.set('writing')" class="text-sm font-bold text-secondary-600 hover:text-secondary-900 transition-colors flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                   ← {{ t.translate('books.evaluation.back') }}
                 </button>
-                <button type="button" (click)="resetPractice()" class="px-8 py-3 rounded-xl bg-secondary-900 text-white font-bold hover:bg-black shadow-lg transition-all">
+                <button type="button" (click)="resetPractice()" class="px-8 py-3 rounded-xl bg-secondary-900 text-white font-bold hover:bg-black shadow-lg transition-all focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                   {{ t.translate('books.evaluation.finish') }}
                 </button>
               </div>
