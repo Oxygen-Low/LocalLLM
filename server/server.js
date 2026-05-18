@@ -13,11 +13,15 @@ const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
 const multer = require('multer');
 const parquet = require('@dsnp/parquetjs');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
+const USE_SUPABASE = process.env.USE_SUPABASE === 'true';
+const SUPABASE_URL = 'https://tkwvtbioplwjmkcxayon.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_5BOLWYWytJxcZkBBO3CHUg_xLXOUFMD';
 const SERVER_INSTANCE_ID = crypto.randomUUID();
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -68,6 +72,9 @@ function getOrCreateMasterKey() {
 }
 
 const MASTER_KEY = getOrCreateMasterKey();
+
+// Initialize Supabase client if enabled
+const supabase = USE_SUPABASE ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 // In-memory cache for derived user keys to optimize encryption/decryption performance.
 // PBKDF2 is computationally expensive (100,000 iterations), so we cache the result.
@@ -284,19 +291,41 @@ const sessionCleanupInterval = setInterval(() => {
 sessionCleanupInterval.unref();
 
 // SOC2 CC6.1 – Session authentication middleware
-function requireSession(req, res, next) {
+async function requireSession(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
   const token = authHeader.slice(7);
-  const session = validateSession(token);
-  if (!session) {
-    return res.status(401).json({ success: false, error: 'Invalid or expired session' });
+
+  // 1. Check Supabase session first if enabled (Supabase tokens are JWTs, local tokens are UUIDs)
+  if (USE_SUPABASE && supabase) {
+    try {
+      const { data, error } = await supabase.auth.getUser(token);
+      if (!error && data.user) {
+        req.sessionUser = data.user.user_metadata?.username || data.user.email;
+        req.sessionToken = token;
+        req.supabaseUser = data.user;
+        // Attach user-specific supabase client
+        req.supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+          global: { headers: { Authorization: `Bearer ${token}` } }
+        });
+        return next();
+      }
+    } catch (err) {
+      // Fall through to local session check
+    }
   }
-  req.sessionUser = session.username;
-  req.sessionToken = token;
-  next();
+
+  // 2. Check local session (handles 'admin' and non-supabase mode fallback)
+  const session = validateSession(token);
+  if (session) {
+    req.sessionUser = session.username;
+    req.sessionToken = token;
+    return next();
+  }
+
+  return res.status(401).json({ success: false, error: 'Invalid or expired session' });
 }
 
 // Helper to acquire per-adventure lock and run mutation logic
@@ -2714,6 +2743,11 @@ app.get('/api/settings/demo', (_req, res) => {
   res.json({ success: true, demoMode: DEMO_MODE });
 });
 
+// GET /api/settings/supabase - Returns whether Supabase mode is enabled
+app.get('/api/settings/supabase', (_req, res) => {
+  res.json({ success: true, useSupabase: USE_SUPABASE });
+});
+
 // GET /api/settings/apps – Returns current app settings (requires valid session)
 app.get('/api/settings/apps', requireSession, (req, res) => {
   try {
@@ -3564,6 +3598,33 @@ function writePersonas(username, personas) {
   fs.writeFileSync(file, encrypted, { encoding: 'utf-8', mode: 0o600 });
 }
 
+/**
+ * Fetches personas for a user, supporting both local and Supabase storage.
+ */
+async function getPersonasForUser(req) {
+  if (req.supabase) {
+    try {
+      const { data, error } = await req.supabase
+        .from('personas')
+        .select('id, data, created_at, updated_at');
+      if (error) {
+        console.error('Supabase getPersonas error:', error);
+        return [];
+      }
+      return (data || []).map(p => ({
+        id: p.id,
+        ...p.data,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at
+      }));
+    } catch (err) {
+      console.error('Supabase getPersonas exception:', err);
+      return [];
+    }
+  }
+  return readPersonas(req.sessionUser);
+}
+
 // ---------------------------------------------------------------------------
 // Adventure management – Encrypted per-user storage
 // ---------------------------------------------------------------------------
@@ -3649,7 +3710,7 @@ app.post('/api/adventures', requireSession, async (req, res) => {
     const universe = universes.find(u => u.id === universeId);
     if (!universe) return res.status(404).json({ success: false, error: 'Universe not found' });
 
-    const personas = readPersonas(req.sessionUser);
+    const personas = await getPersonasForUser(req);
     const persona = personas.find(p => p.id === personaId);
     if (!persona) return res.status(404).json({ success: false, error: 'Persona not found' });
 
@@ -3781,7 +3842,7 @@ app.post('/api/adventures/:id/turn', requireSession, async (req, res) => {
     const universe = universes.find(u => u.id === adventure.universeId);
     if (!universe) return res.status(409).json({ success: false, error: 'Adventure references a deleted universe' });
 
-    const personas = readPersonas(req.sessionUser);
+    const personas = await getPersonasForUser(req);
     const persona = personas.find(p => p.id === adventure.personaId);
     if (!persona) return res.status(409).json({ success: false, error: 'Adventure references a deleted persona' });
 
@@ -4213,9 +4274,9 @@ Respond ONLY with a JSON object:
 });
 
 // GET /api/user/personas – List user's personas
-app.get('/api/user/personas', requireSession, (req, res) => {
+app.get('/api/user/personas', requireSession, async (req, res) => {
   try {
-    const personas = readPersonas(req.sessionUser);
+    const personas = await getPersonasForUser(req);
     res.json({ success: true, personas });
   } catch (err) {
     console.error('Get personas error:', err);
@@ -4224,7 +4285,7 @@ app.get('/api/user/personas', requireSession, (req, res) => {
 });
 
 // POST /api/user/personas – Create a new persona
-app.post('/api/user/personas', requireSession, blockInDemo, (req, res) => {
+app.post('/api/user/personas', requireSession, blockInDemo, async (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -4241,7 +4302,17 @@ app.post('/api/user/personas', requireSession, blockInDemo, (req, res) => {
       return res.status(400).json({ success: false, error: `Persona description must be at most ${MAX_PERSONA_DESCRIPTION_LENGTH} characters` });
     }
 
-    const personas = readPersonas(req.sessionUser);
+    if (req.supabase) {
+      const { data, error } = await req.supabase
+        .from('personas')
+        .insert([{ user_id: req.supabaseUser.id, data: { name, description } }])
+        .select()
+        .single();
+      if (error) throw error;
+      return res.status(201).json({ success: true, persona: { id: data.id, ...data.data, createdAt: data.created_at, updatedAt: data.updated_at } });
+    }
+
+    const personas = await getPersonasForUser(req);
     const newPersona = {
       id: crypto.randomUUID(),
       name: name.trim(),
@@ -4260,7 +4331,7 @@ app.post('/api/user/personas', requireSession, blockInDemo, (req, res) => {
 });
 
 // PUT /api/user/personas/:id – Update a persona
-app.put('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => {
+app.put('/api/user/personas/:id', requireSession, blockInDemo, async (req, res) => {
   try {
     const { name, description } = req.body;
     const personaId = req.params.id;
@@ -4278,7 +4349,18 @@ app.put('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => {
       return res.status(400).json({ success: false, error: `Persona description must be at most ${MAX_PERSONA_DESCRIPTION_LENGTH} characters` });
     }
 
-    const personas = readPersonas(req.sessionUser);
+    if (req.supabase) {
+      const { data, error } = await req.supabase
+        .from('personas')
+        .update({ data: { name, description }, updated_at: new Date().toISOString() })
+        .eq('id', personaId)
+        .select()
+        .single();
+      if (error) throw error;
+      return res.json({ success: true, persona: { id: data.id, ...data.data, createdAt: data.created_at, updatedAt: data.updated_at } });
+    }
+
+    const personas = await getPersonasForUser(req);
     const index = personas.findIndex((p) => p.id === personaId);
     if (index === -1) {
       return res.status(404).json({ success: false, error: 'Persona not found' });
@@ -4301,10 +4383,20 @@ app.put('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => {
 });
 
 // DELETE /api/user/personas/:id – Delete a persona
-app.delete('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => {
+app.delete('/api/user/personas/:id', requireSession, blockInDemo, async (req, res) => {
   try {
     const personaId = req.params.id;
-    const personas = readPersonas(req.sessionUser);
+
+    if (req.supabase) {
+      const { error } = await req.supabase
+        .from('personas')
+        .delete()
+        .eq('id', personaId);
+      if (error) throw error;
+      return res.json({ success: true });
+    }
+
+    const personas = await getPersonasForUser(req);
     const index = personas.findIndex((p) => p.id === personaId);
     if (index === -1) {
       return res.status(404).json({ success: false, error: 'Persona not found' });
@@ -4333,10 +4425,10 @@ app.delete('/api/user/personas/:id', requireSession, blockInDemo, (req, res) => 
 });
 
 // PUT /api/user/settings/default-persona – Set default persona
-app.put('/api/user/settings/default-persona', requireSession, (req, res) => {
+app.put('/api/user/settings/default-persona', requireSession, async (req, res) => {
   try {
     const { personaId } = req.body;
-    const personas = readPersonas(req.sessionUser);
+    const personas = await getPersonasForUser(req);
 
     if (personaId && !personas.some(p => p.id === personaId)) {
       return res.status(400).json({ success: false, error: 'Invalid persona ID' });
@@ -10318,7 +10410,7 @@ app.post('/api/chat/send', requireSession, async (req, res) => {
     }
 
     if (personaId) {
-      const personas = readPersonas(req.sessionUser);
+      const personas = await getPersonasForUser(req);
       const persona = personas.find(p => p.id === personaId);
       if (persona) {
         personaPrompt = `### PERSONA CONTEXT: USER\n`;

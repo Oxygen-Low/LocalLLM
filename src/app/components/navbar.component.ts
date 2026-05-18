@@ -199,7 +199,7 @@ export class NavbarComponent {
   }
 
   onLogout() {
-    this.authService.logout();
+    void this.authService.logout();
     this.router.navigate(['/']);
   }
 }

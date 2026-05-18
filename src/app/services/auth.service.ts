@@ -3,6 +3,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { SecurityLoggerService } from './security-logger.service';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export interface AuthSession {
   username: string;
@@ -117,6 +118,9 @@ async function sha256Fallback(message: string): Promise<string> {
   providedIn: 'root',
 })
 export class AuthService {
+  private supabase: SupabaseClient | null = null;
+  private useSupabase = signal(false);
+
   private currentUser = signal<string | null>(null);
   isAuthenticated = computed(() => this.currentUser() !== null);
   username = computed(() => this.currentUser());
@@ -156,8 +160,31 @@ export class AuthService {
   private ngZone = inject(NgZone);
   private http = inject(HttpClient);
 
+  private initPromise: Promise<void>;
+
   constructor() {
-    this.restoreSession();
+    this.initPromise = this.checkSupabaseMode().then(() => {
+      this.restoreSession();
+    });
+  }
+
+  /** Ensures the service is fully initialized (including Supabase mode check) before use. */
+  async ensureInitialized(): Promise<void> {
+    await this.initPromise;
+  }
+
+  private async checkSupabaseMode(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
+      );
+      if (resp.useSupabase && environment.supabaseUrl && environment.supabaseKey) {
+        this.useSupabase.set(true);
+        this.supabase = createClient(environment.supabaseUrl, environment.supabaseKey);
+      }
+    } catch {
+      // Ignore errors, default to local auth
+    }
   }
 
   async hashPassword(password: string): Promise<string> {
@@ -342,7 +369,7 @@ export class AuthService {
       if (this.isAuthenticated()) {
         const user = this.username();
         this.securityLogger.log('INACTIVITY_LOGOUT', 'User logged out due to inactivity', user ?? undefined);
-        this.logout();
+        void this.logout();
       }
     });
   }
@@ -401,7 +428,7 @@ export class AuthService {
       // A 401 response means the session is invalid or expired
       if (error instanceof HttpErrorResponse && error.status === 401) {
         this.securityLogger.log('SESSION_EXPIRED', 'Session invalidated during status check', user);
-        this.logout();
+        void this.logout();
       }
       // Other errors (network, 500) stay silent to avoid impacting UX
     }
@@ -443,8 +470,10 @@ export class AuthService {
 
   async signup(
     username: string,
-    password: string
+    password: string,
+    email?: string
   ): Promise<{ success: boolean; error?: string }> {
+    await this.ensureInitialized();
     const usernameErrors = this.validateUsername(username);
     if (usernameErrors.length > 0) {
       this.securityLogger.log('SIGNUP_FAILURE', `Validation failed: ${usernameErrors[0]}`, username);
@@ -455,6 +484,30 @@ export class AuthService {
     if (passwordErrors.length > 0) {
       this.securityLogger.log('SIGNUP_FAILURE', 'Password validation failed', username);
       return { success: false, error: passwordErrors[0] };
+    }
+
+    if (this.useSupabase() && username.toLowerCase() !== 'admin') {
+      if (!this.supabase) return { success: false, error: 'Supabase not initialized' };
+      if (!email) return { success: false, error: 'Email is required for Supabase signup' };
+
+      const { data, error } = await this.supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username }
+        }
+      });
+
+      if (error) {
+        this.securityLogger.log('SIGNUP_FAILURE', error.message, username);
+        return { success: false, error: error.message };
+      }
+
+      if (data.session) {
+        await this.createSession(username, false, data.session.access_token);
+      }
+      this.securityLogger.log('SIGNUP_SUCCESS', 'New Supabase account created', username);
+      return { success: true };
     }
 
     try {
@@ -481,8 +534,10 @@ export class AuthService {
 
   async login(
     username: string,
-    password: string
+    password: string,
+    email?: string
   ): Promise<{ success: boolean; error?: string; passwordResetRequired?: boolean }> {
+    await this.ensureInitialized();
     const normalizedUsername = username.toLowerCase();
 
     // A04/A07: Check rate limit before processing login
@@ -494,6 +549,31 @@ export class AuthService {
         success: false,
         error: `Account temporarily locked. Try again in ${minutes} minute${minutes !== 1 ? 's' : ''}.`,
       };
+    }
+
+    if (this.useSupabase() && normalizedUsername !== 'admin') {
+      if (!this.supabase) return { success: false, error: 'Supabase not initialized' };
+      if (!email) return { success: false, error: 'Email is required for Supabase login' };
+
+      const { data, error } = await this.supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        this.recordFailedAttempt(normalizedUsername);
+        this.securityLogger.log('LOGIN_FAILURE', error.message, normalizedUsername);
+        return { success: false, error: error.message };
+      }
+
+      if (data.session) {
+        const userUsername = data.user?.user_metadata?.['username'] || normalizedUsername;
+        await this.createSession(userUsername, false, data.session.access_token);
+        this.clearLoginAttempts(normalizedUsername);
+        this.securityLogger.log('LOGIN_SUCCESS', 'Supabase user logged in successfully', userUsername);
+        return { success: true };
+      }
+      return { success: false, error: 'Failed to establish session' };
     }
 
     try {
@@ -564,11 +644,17 @@ export class AuthService {
     return false;
   }
 
-  logout(): void {
+  async logout(): Promise<void> {
+    await this.ensureInitialized();
     const user = this.username();
     const token = this.getSessionToken();
     this.stopInactivityTimer();
     this.stopPasswordResetMonitor();
+
+    if (this.useSupabase() && user !== 'admin' && this.supabase) {
+      void this.supabase.auth.signOut();
+    }
+
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     this.currentUser.set(null);
     this.passwordResetRequired.set(false);
@@ -577,7 +663,7 @@ export class AuthService {
     // SOC2 CC6.3: Invalidate server-side session (fire-and-forget).
     // Client state is already cleared above, so a new login will issue a fresh token
     // even if this request fails. Not awaiting avoids blocking the UI on network issues.
-    if (token) {
+    if (token && (!this.useSupabase() || user === 'admin')) {
       firstValueFrom(
         this.http.post(`${environment.apiUrl}/api/auth/logout`, {})
       ).catch(() => {
@@ -681,7 +767,7 @@ export class AuthService {
 
       if (response.success) {
         this.securityLogger.log('ACCOUNT_DELETED', 'Account deleted', user);
-         this.logout();
+         await this.logout();
          return { success: true };
       }
 

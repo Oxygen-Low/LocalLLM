@@ -1,9 +1,11 @@
-import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
+import { firstValueFrom } from 'rxjs';
 
 @Component({
   selector: 'app-signup',
@@ -39,6 +41,24 @@ import { environment } from '../../environments/environment';
           }
 
           <form (ngSubmit)="onSubmit()" class="space-y-5">
+            @if (useSupabase() && username.toLowerCase() !== 'admin') {
+              <div>
+                <label for="email" class="block text-sm font-medium text-secondary-700 mb-2">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  [(ngModel)]="email"
+                  name="email"
+                  required
+                  autocomplete="email"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
+                  placeholder="Enter your email"
+                />
+              </div>
+            }
+
             <div>
               <label for="username" class="block text-sm font-medium text-secondary-700 mb-2">
                 Username
@@ -173,21 +193,37 @@ import { environment } from '../../environments/environment';
 })
 export class SignupPageComponent {
   username = '';
+  email = '';
   password = '';
   confirmPassword = '';
   showPassword = signal(false);
+  useSupabase = signal(false);
   showConfirmPassword = signal(false);
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
+
+  private http = inject(HttpClient);
 
   constructor(
     private authService: AuthService,
     private router: Router
   ) {
+    this.checkSupabaseMode();
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
     } else {
       this.checkDemoMode();
+    }
+  }
+
+  private async checkSupabaseMode(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
+      );
+      this.useSupabase.set(resp.useSupabase);
+    } catch {
+      // Ignore
     }
   }
 
@@ -236,7 +272,8 @@ export class SignupPageComponent {
     try {
       const result = await this.authService.signup(
         this.username.trim(),
-        this.password
+        this.password,
+        this.email
       );
 
       if (result.success) {
