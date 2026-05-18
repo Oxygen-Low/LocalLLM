@@ -337,7 +337,7 @@ type WizardStep = 'setup' | 'configure' | 'describe-issue' | 'active-session' | 
                 <div class="w-80 border-l border-secondary-200 bg-white flex flex-col overflow-hidden">
                   <div class="p-4 border-b border-secondary-200 flex items-center justify-between">
                     <h3 class="font-semibold text-secondary-900 text-sm">{{ t.translate('localFix.session.setupScript') }}</h3>
-                    <button type="button" (click)="showScriptPanel.set(false)" class="text-secondary-400 hover:text-secondary-600 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
+                    <button type="button" aria-label="Close script panel" (click)="showScriptPanel.set(false)" class="text-secondary-400 hover:text-secondary-600 focus-visible:ring-2 focus-visible:ring-secondary-400 outline-none">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                       </svg>
