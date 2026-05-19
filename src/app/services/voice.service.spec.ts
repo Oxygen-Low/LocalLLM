@@ -50,6 +50,7 @@ describe('VoiceService', () => {
   });
 
   afterEach(() => {
+    TestBed.resetTestingModule();
     Object.defineProperty(window, 'speechSynthesis', {
       value: originalSpeechSynthesis,
       writable: true,

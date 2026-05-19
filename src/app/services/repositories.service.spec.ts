@@ -34,7 +34,8 @@ describe('RepositoriesService', () => {
   });
 
   afterEach(() => {
-    httpMock.verify();
+    httpMock?.verify();
+    TestBed.resetTestingModule();
   });
 
   it('should be created', () => {
