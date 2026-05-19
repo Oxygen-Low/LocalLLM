@@ -303,9 +303,9 @@ async function requireSession(req, res, next) {
     try {
       const { data, error } = await supabase.auth.getUser(token);
       if (!error && data.user) {
-        req.sessionUser = data.user.id;
         req.sessionToken = token;
         req.supabaseUser = data.user;
+        req.supabaseUserId = data.user.id;
         // Attach user-specific supabase client
         req.supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
           global: { headers: { Authorization: `Bearer ${token}` } }
@@ -4354,7 +4354,12 @@ app.put('/api/user/personas/:id', requireSession, blockInDemo, async (req, res) 
         .eq('id', personaId)
         .select()
         .single();
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ success: false, error: 'Persona not found' });
+        }
+        throw error;
+      }
       return res.json({ success: true, persona: { id: data.id, ...data.data, createdAt: data.created_at, updatedAt: data.updated_at } });
     }
 
@@ -4386,11 +4391,31 @@ app.delete('/api/user/personas/:id', requireSession, blockInDemo, async (req, re
     const personaId = req.params.id;
 
     if (req.supabase) {
-      const { error } = await req.supabase
+      const { data: deletedPersona, error } = await req.supabase
         .from('personas')
         .delete()
-        .eq('id', personaId);
-      if (error) throw error;
+        .eq('id', personaId)
+        .select('id')
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ success: false, error: 'Persona not found' });
+        }
+        throw error;
+      }
+
+      const { data: profile } = await req.supabase
+        .from('profiles')
+        .select('defaultPersonaId')
+        .eq('id', req.supabaseUserId)
+        .single();
+      if (profile?.defaultPersonaId === deletedPersona.id) {
+        await req.supabase
+          .from('profiles')
+          .update({ defaultPersonaId: null })
+          .eq('id', req.supabaseUserId);
+      }
+
       return res.json({ success: true });
     }
 
@@ -4433,13 +4458,26 @@ app.put('/api/user/settings/default-persona', requireSession, async (req, res) =
     }
 
     if (req.supabase) {
-      const { error } = await req.supabase
-        .from('profiles')
-        .update({ defaultPersonaId: personaId || null })
-        .eq('id', req.sessionUser);
+      const { error } = await req.supabase.rpc('rpc_set_default_persona', {
+        profile_id: req.supabaseUserId,
+        persona_id: personaId || null,
+      });
 
       if (error) {
         throw error;
+      }
+
+      const { data: profile, error: profileError } = await req.supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', req.supabaseUserId)
+        .single();
+
+      if (profileError && profileError.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: 'User profile not found' });
+      }
+      if (!profile) {
+        return res.status(404).json({ success: false, error: 'User profile not found' });
       }
       return res.json({ success: true });
     }

@@ -496,7 +496,7 @@ export class AuthService {
     username: string,
     password: string,
     email?: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; requiresEmailConfirmation?: boolean; message?: string }> {
     await this.ensureInitialized();
     const usernameErrors = this.validateUsername(username);
     if (usernameErrors.length > 0) {
@@ -528,10 +528,13 @@ export class AuthService {
       }
 
       if (data.session) {
-        await this.createSession(username, false, data.session.access_token);
+        await this.createSession(data.user?.id ?? username, false, data.session.access_token);
+        this.securityLogger.log('SIGNUP_SUCCESS', 'New Supabase account created', data.user?.id ?? username);
+        return { success: true };
       }
-      this.securityLogger.log('SIGNUP_SUCCESS', 'New Supabase account created', username);
-      return { success: true };
+
+      this.securityLogger.log('SIGNUP_FAILURE', 'Supabase signup pending email confirmation', username);
+      return { success: false, requiresEmailConfirmation: true, message: 'Confirmation required' };
     }
 
     try {
@@ -565,9 +568,13 @@ export class AuthService {
     const normalizedUsername = username.toLowerCase();
 
     // A04/A07: Check rate limit before processing login
-    const rateCheck = this.checkRateLimit(normalizedUsername);
+    const normalizedEmail = email?.trim().toLowerCase();
+    const supabaseRateLimitKey = this.useSupabase() && normalizedUsername !== 'admin' && normalizedEmail
+      ? normalizedEmail
+      : normalizedUsername;
+    const rateCheck = this.checkRateLimit(supabaseRateLimitKey);
     if (!rateCheck.allowed) {
-      this.securityLogger.log('LOGIN_RATE_LIMITED', `Login blocked - retry after ${rateCheck.retryAfterSeconds}s`, normalizedUsername);
+      this.securityLogger.log('LOGIN_RATE_LIMITED', `Login blocked - retry after ${rateCheck.retryAfterSeconds}s`, supabaseRateLimitKey);
       const minutes = Math.ceil((rateCheck.retryAfterSeconds ?? 0) / 60);
       return {
         success: false,
@@ -585,16 +592,16 @@ export class AuthService {
       });
 
       if (error) {
-        this.recordFailedAttempt(normalizedUsername);
-        this.securityLogger.log('LOGIN_FAILURE', error.message, normalizedUsername);
+        this.recordFailedAttempt(supabaseRateLimitKey);
+        this.securityLogger.log('LOGIN_FAILURE', error.message, supabaseRateLimitKey);
         return { success: false, error: error.message };
       }
 
       if (data.session) {
-        const userUsername = data.user?.user_metadata?.['username'] || normalizedUsername;
-        await this.createSession(userUsername, false, data.session.access_token);
-        this.clearLoginAttempts(normalizedUsername);
-        this.securityLogger.log('LOGIN_SUCCESS', 'Supabase user logged in successfully', userUsername);
+        const userId = data.user?.id || normalizedUsername;
+        await this.createSession(userId, false, data.session.access_token);
+        this.clearLoginAttempts(data.user?.id ?? supabaseRateLimitKey);
+        this.securityLogger.log('LOGIN_SUCCESS', 'Supabase user logged in successfully', userId);
         return { success: true };
       }
       return { success: false, error: 'Failed to establish session' };
@@ -673,9 +680,6 @@ export class AuthService {
     const token = this.getSessionToken();
     this.stopInactivityTimer();
     this.stopPasswordResetMonitor();
-    this.supabaseAuthSubscription?.unsubscribe();
-    this.supabaseAuthSubscription = null;
-
     if (this.useSupabase() && user !== 'admin' && this.supabase) {
       void this.supabase.auth.signOut();
     }
@@ -777,7 +781,7 @@ export class AuthService {
 
   async deleteAccount(
     password: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; requiresEmailConfirmation?: boolean; message?: string }> {
     const user = this.username();
     if (!user) {
       return { success: false, error: 'Not authenticated' };

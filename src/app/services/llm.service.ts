@@ -304,6 +304,14 @@ export class LlmService {
 
   // --- Personas ---
 
+
+  private async getAuthenticatedSupabaseUser() {
+    if (!this.supabase) throw new AuthenticationRequiredError();
+    const { data: userData } = await this.supabase.auth.getUser();
+    if (!userData.user) throw new AuthenticationRequiredError();
+    return userData.user;
+  }
+
   async getPersonas(): Promise<Persona[]> {
     await this.ensureInitialized();
     if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
@@ -335,13 +343,12 @@ export class LlmService {
   async createPersona(name: string, description: string): Promise<Persona> {
     await this.ensureInitialized();
     if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
-      const { data: userData } = await this.supabase.auth.getUser();
-      if (!userData.user) throw new Error('Not authenticated with Supabase');
+      const user = await this.getAuthenticatedSupabaseUser();
 
       const personaData = { name, description };
       const { data, error } = await this.supabase
         .from('personas')
-        .insert([{ user_id: userData.user.id, data: personaData }])
+        .insert([{ user_id: user.id, data: personaData }])
         .select()
         .single();
 
@@ -366,6 +373,7 @@ export class LlmService {
   async updatePersona(id: string, name: string, description: string): Promise<Persona> {
     await this.ensureInitialized();
     if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
+      await this.getAuthenticatedSupabaseUser();
       const personaData = { name, description };
       const { data, error } = await this.supabase
         .from('personas')
@@ -395,6 +403,7 @@ export class LlmService {
   async deletePersona(id: string): Promise<void> {
     await this.ensureInitialized();
     if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
+      await this.getAuthenticatedSupabaseUser();
       const { error } = await this.supabase
         .from('personas')
         .delete()

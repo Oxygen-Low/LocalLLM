@@ -39,7 +39,7 @@ import { environment } from '../../environments/environment';
           }
 
           <form (ngSubmit)="onSubmit()" class="space-y-5">
-            @if (supabaseEnabled() && username.toLowerCase() !== 'admin') {
+            @if (isSupabaseMode && username.toLowerCase() !== 'admin') {
               <div>
                 <label for="email" class="block text-sm font-medium text-secondary-700 mb-2">
                   Email
@@ -143,18 +143,21 @@ export class LoginPageComponent {
   email = '';
   password = '';
   showPassword = signal(false);
-  supabaseEnabled = signal(false);
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
   usernamePlaceholder = signal('Enter username');
   passwordPlaceholder = signal('Enter password');
   private passwordEasterEggStep = 0;
 
+
+  get isSupabaseMode(): boolean {
+    return this.authService.useSupabaseMode();
+  }
+
   constructor(
     private authService: AuthService,
     private router: Router
   ) {
-    this.supabaseEnabled.set(this.authService.useSupabaseMode());
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
     } else {
@@ -212,7 +215,7 @@ export class LoginPageComponent {
       const result = await this.authService.login(
         this.username.trim(),
         this.password,
-        this.email
+        this.isSupabaseMode && this.username.trim().toLowerCase() !== 'admin' ? this.email : undefined
       );
 
       if (result.success) {

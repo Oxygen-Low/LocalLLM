@@ -39,7 +39,7 @@ import { environment } from '../../environments/environment';
           }
 
           <form (ngSubmit)="onSubmit()" class="space-y-5">
-            @if (supabaseEnabled() && username.toLowerCase() !== 'admin') {
+            @if (isSupabaseMode && username.toLowerCase() !== 'admin') {
               <div>
                 <label for="email" class="block text-sm font-medium text-secondary-700 mb-2">
                   Email
@@ -195,16 +195,19 @@ export class SignupPageComponent {
   password = '';
   confirmPassword = '';
   showPassword = signal(false);
-  supabaseEnabled = signal(false);
   showConfirmPassword = signal(false);
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
+
+
+  get isSupabaseMode(): boolean {
+    return this.authService.useSupabaseMode();
+  }
 
   constructor(
     private authService: AuthService,
     private router: Router
   ) {
-    this.supabaseEnabled.set(this.authService.useSupabaseMode());
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
     } else {
@@ -258,13 +261,13 @@ export class SignupPageComponent {
       const result = await this.authService.signup(
         this.username.trim(),
         this.password,
-        this.email
+        this.isSupabaseMode && this.username.trim().toLowerCase() !== 'admin' ? this.email : undefined
       );
 
       if (result.success) {
         this.router.navigate(['/dashboard']);
       } else {
-        this.errorMessage.set(result.error ?? 'Signup failed');
+        this.errorMessage.set(result.error ?? result.message ?? 'Signup failed');
       }
     } catch {
       this.errorMessage.set('An unexpected error occurred. Please try again.');
