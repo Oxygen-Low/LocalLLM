@@ -303,7 +303,7 @@ async function requireSession(req, res, next) {
     try {
       const { data, error } = await supabase.auth.getUser(token);
       if (!error && data.user) {
-        req.sessionUser = data.user.user_metadata?.username || data.user.email;
+        req.sessionUser = data.user.id;
         req.sessionToken = token;
         req.supabaseUser = data.user;
         // Attach user-specific supabase client
@@ -3608,8 +3608,7 @@ async function getPersonasForUser(req) {
         .from('personas')
         .select('id, data, created_at, updated_at');
       if (error) {
-        console.error('Supabase getPersonas error:', error);
-        return [];
+        throw new Error(`Supabase getPersonas error: ${error.message}`);
       }
       return (data || []).map(p => ({
         id: p.id,
@@ -3618,8 +3617,7 @@ async function getPersonasForUser(req) {
         updatedAt: p.updated_at
       }));
     } catch (err) {
-      console.error('Supabase getPersonas exception:', err);
-      return [];
+      throw err;
     }
   }
   return readPersonas(req.sessionUser);
@@ -4432,6 +4430,18 @@ app.put('/api/user/settings/default-persona', requireSession, async (req, res) =
 
     if (personaId && !personas.some(p => p.id === personaId)) {
       return res.status(400).json({ success: false, error: 'Invalid persona ID' });
+    }
+
+    if (req.supabase) {
+      const { error } = await req.supabase
+        .from('profiles')
+        .update({ defaultPersonaId: personaId || null })
+        .eq('id', req.sessionUser);
+
+      if (error) {
+        throw error;
+      }
+      return res.json({ success: true });
     }
 
     const users = readUsers();

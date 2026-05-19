@@ -1,11 +1,9 @@
-import { Component, signal, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
-import { firstValueFrom } from 'rxjs';
 
 @Component({
   selector: 'app-signup',
@@ -41,7 +39,7 @@ import { firstValueFrom } from 'rxjs';
           }
 
           <form (ngSubmit)="onSubmit()" class="space-y-5">
-            @if (useSupabase() && username.toLowerCase() !== 'admin') {
+            @if (supabaseEnabled() && username.toLowerCase() !== 'admin') {
               <div>
                 <label for="email" class="block text-sm font-medium text-secondary-700 mb-2">
                   Email
@@ -197,33 +195,20 @@ export class SignupPageComponent {
   password = '';
   confirmPassword = '';
   showPassword = signal(false);
-  useSupabase = signal(false);
+  supabaseEnabled = signal(false);
   showConfirmPassword = signal(false);
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
-
-  private http = inject(HttpClient);
 
   constructor(
     private authService: AuthService,
     private router: Router
   ) {
-    this.checkSupabaseMode();
+    this.supabaseEnabled.set(this.authService.useSupabaseMode());
     if (environment.preview || this.authService.isAuthenticated()) {
       this.router.navigate(['/dashboard']);
     } else {
       this.checkDemoMode();
-    }
-  }
-
-  private async checkSupabaseMode(): Promise<void> {
-    try {
-      const resp = await firstValueFrom(
-        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
-      );
-      this.useSupabase.set(resp.useSupabase);
-    } catch {
-      // Ignore
     }
   }
 

@@ -7,6 +7,19 @@ CREATE TABLE IF NOT EXISTS personas (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE OR REPLACE FUNCTION public.set_personas_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER set_personas_updated_at
+  BEFORE UPDATE ON personas
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_personas_updated_at();
+
 -- Enable Row Level Security
 ALTER TABLE personas ENABLE ROW LEVEL SECURITY;
 
@@ -26,7 +39,8 @@ CREATE POLICY "Users can delete their own personas" ON personas
 -- Profile table to store username mapping (since Supabase Auth uses email)
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL CHECK (username <> ''),
+  "defaultPersonaId" UUID NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -34,17 +48,14 @@ CREATE TABLE IF NOT EXISTS profiles (
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Profiles are viewable by everyone" ON profiles
-  FOR SELECT USING (true);
-
-CREATE POLICY "Users can update their own profile" ON profiles
-  FOR UPDATE USING (auth.uid() = id);
+  FOR SELECT USING (auth.uid() IS NOT NULL);
 
 -- Function to handle new user signup and create a profile
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
   INSERT INTO public.profiles (id, username)
-  VALUES (new.id, new.raw_user_meta_data->>'username');
+  VALUES (new.id, NULLIF(btrim(new.raw_user_meta_data->>'username'), ''));
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -59,7 +70,7 @@ CREATE OR REPLACE FUNCTION public.handle_user_update()
 RETURNS trigger AS $$
 BEGIN
   UPDATE public.profiles
-  SET username = new.raw_user_meta_data->>'username'
+  SET username = NULLIF(btrim(new.raw_user_meta_data->>'username'), '')
   WHERE id = new.id;
   RETURN new;
 END;
