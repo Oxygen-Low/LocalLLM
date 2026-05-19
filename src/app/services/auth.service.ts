@@ -4,6 +4,7 @@ import { SecurityLoggerService } from './security-logger.service';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Subscription } from '@supabase/supabase-js';
 
 export interface AuthSession {
   username: string;
@@ -161,6 +162,7 @@ export class AuthService {
   private http = inject(HttpClient);
 
   private initPromise: Promise<void>;
+  private supabaseAuthSubscription: Subscription | null = null;
 
   constructor() {
     this.initPromise = this.checkSupabaseMode().then(() => {
@@ -173,6 +175,10 @@ export class AuthService {
     await this.initPromise;
   }
 
+  useSupabaseMode(): boolean {
+    return this.useSupabase();
+  }
+
   private async checkSupabaseMode(): Promise<void> {
     try {
       const resp = await firstValueFrom(
@@ -181,6 +187,12 @@ export class AuthService {
       if (resp.useSupabase && environment.supabaseUrl && environment.supabaseKey) {
         this.useSupabase.set(true);
         this.supabase = createClient(environment.supabaseUrl, environment.supabaseKey);
+        const { data } = this.supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
+          if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+            this.updateStoredToken(session.access_token);
+          }
+        });
+        this.supabaseAuthSubscription = data.subscription;
       }
     } catch {
       // Ignore errors, default to local auth
@@ -403,6 +415,18 @@ export class AuthService {
       sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     } catch {
       // Storage unavailable - silently fail
+    }
+  }
+
+  private updateStoredToken(token: string): void {
+    try {
+      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionData) return;
+      const session: AuthSession = JSON.parse(sessionData);
+      session.token = token;
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    } catch {
+      // Ignore malformed session storage
     }
   }
 
@@ -645,11 +669,12 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
-    await this.ensureInitialized();
     const user = this.username();
     const token = this.getSessionToken();
     this.stopInactivityTimer();
     this.stopPasswordResetMonitor();
+    this.supabaseAuthSubscription?.unsubscribe();
+    this.supabaseAuthSubscription = null;
 
     if (this.useSupabase() && user !== 'admin' && this.supabase) {
       void this.supabase.auth.signOut();
@@ -664,6 +689,7 @@ export class AuthService {
     // Client state is already cleared above, so a new login will issue a fresh token
     // even if this request fails. Not awaiting avoids blocking the UI on network issues.
     if (token && (!this.useSupabase() || user === 'admin')) {
+      await this.ensureInitialized();
       firstValueFrom(
         this.http.post(`${environment.apiUrl}/api/auth/logout`, {})
       ).catch(() => {

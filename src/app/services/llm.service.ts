@@ -124,6 +124,13 @@ export interface Persona {
   updatedAt?: string;
 }
 
+export class AuthenticationRequiredError extends Error {
+  constructor(message = 'Authentication required. Please sign in again.') {
+    super(message);
+    this.name = 'AuthenticationRequiredError';
+  }
+}
+
 export interface AdventureBookEntry {
   entry: string;
   timestamp: string;
@@ -301,7 +308,7 @@ export class LlmService {
     await this.ensureInitialized();
     if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
       const { data: userData } = await this.supabase.auth.getUser();
-      if (!userData.user) return [];
+      if (!userData.user) throw new AuthenticationRequiredError();
 
       const { data, error } = await this.supabase
         .from('personas')
@@ -391,7 +398,9 @@ export class LlmService {
       const { error } = await this.supabase
         .from('personas')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select('id')
+        .single();
 
       if (error) throw error;
       return;
