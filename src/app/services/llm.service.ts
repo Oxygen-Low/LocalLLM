@@ -1,8 +1,9 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export interface MessageAlternative {
   content: string;
@@ -123,6 +124,13 @@ export interface Persona {
   updatedAt?: string;
 }
 
+export class AuthenticationRequiredError extends Error {
+  constructor(message = 'Authentication required. Please sign in again.') {
+    super(message);
+    this.name = 'AuthenticationRequiredError';
+  }
+}
+
 export interface AdventureBookEntry {
   entry: string;
   timestamp: string;
@@ -162,9 +170,38 @@ export class LlmService {
   private http = inject(HttpClient);
   private authService = inject(AuthService);
 
+  private supabase: SupabaseClient | null = null;
+  private useSupabase = signal(false);
+  private initPromise: Promise<void>;
+
+  constructor() {
+    this.initPromise = this.checkSupabaseMode();
+  }
+
+  /** Ensures the service and its dependencies (AuthService) are fully initialized before use. */
+  async ensureInitialized(): Promise<void> {
+    await this.initPromise;
+    await this.authService.ensureInitialized();
+  }
+
+  private async checkSupabaseMode(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
+      );
+      if (resp.useSupabase && environment.supabaseUrl && environment.supabaseKey) {
+        this.useSupabase.set(true);
+        this.supabase = createClient(environment.supabaseUrl, environment.supabaseKey);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
   // --- Providers ---
 
   async getProviders(): Promise<ProviderInfo[]> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; providers: ProviderInfo[] }>(
         `${environment.apiUrl}/api/providers`
@@ -176,6 +213,7 @@ export class LlmService {
   // --- API Keys ---
 
   async getApiKeyStatus(): Promise<Record<string, ProviderKeyStatus>> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; providers: Record<string, ProviderKeyStatus> }>(
         `${environment.apiUrl}/api/user/api-keys`
@@ -185,6 +223,7 @@ export class LlmService {
   }
 
   async setApiKey(provider: string, apiKey: string, selectedModel?: string): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.put(`${environment.apiUrl}/api/user/api-keys/${provider}`, {
         apiKey,
@@ -194,6 +233,7 @@ export class LlmService {
   }
 
   async removeApiKey(provider: string): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/user/api-keys/${provider}`)
     );
@@ -202,6 +242,7 @@ export class LlmService {
   // --- HuggingFace Integration ---
 
   async getHuggingFaceStatus(): Promise<{ configured: boolean; username: string | null }> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; configured: boolean; username: string | null }>(
         `${environment.apiUrl}/api/user/integrations/huggingface/status`
@@ -211,6 +252,7 @@ export class LlmService {
   }
 
   async setHuggingFaceToken(token: string): Promise<{ username: string | null }> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.put<{ success: boolean; username: string | null }>(
         `${environment.apiUrl}/api/user/integrations/huggingface`,
@@ -221,12 +263,14 @@ export class LlmService {
   }
 
   async removeHuggingFaceToken(): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/user/integrations/huggingface`)
     );
   }
 
   async setProviderModel(provider: string, selectedModel: string): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.put(`${environment.apiUrl}/api/user/api-keys/${provider}/model`, {
         selectedModel,
@@ -237,6 +281,7 @@ export class LlmService {
   // --- Local Models ---
 
   async getLocalModels(): Promise<{ id: string; name: string; huggingFaceId: string; type?: string; size: number; downloadedAt: string }[]> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; models: { id: string; name: string; huggingFaceId: string; type?: string; size: number; downloadedAt: string }[] }>(
         `${environment.apiUrl}/api/local-models`
@@ -248,6 +293,7 @@ export class LlmService {
   // --- Universes ---
 
   async getUniverses(): Promise<UniverseSummary[]> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; universes: UniverseSummary[] }>(
         `${environment.apiUrl}/api/universes`
@@ -258,7 +304,34 @@ export class LlmService {
 
   // --- Personas ---
 
+
+  private async getAuthenticatedSupabaseUser() {
+    if (!this.supabase) throw new AuthenticationRequiredError();
+    const { data: userData } = await this.supabase.auth.getUser();
+    if (!userData.user) throw new AuthenticationRequiredError();
+    return userData.user;
+  }
+
   async getPersonas(): Promise<Persona[]> {
+    await this.ensureInitialized();
+    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
+      const { data: userData } = await this.supabase.auth.getUser();
+      if (!userData.user) throw new AuthenticationRequiredError();
+
+      const { data, error } = await this.supabase
+        .from('personas')
+        .select('id, data, created_at, updated_at')
+        .eq('user_id', userData.user.id);
+
+      if (error) throw error;
+      return (data || []).map(p => ({
+        id: p.id,
+        ...p.data,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at
+      }));
+    }
+
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; personas: Persona[] }>(
         `${environment.apiUrl}/api/user/personas`
@@ -268,6 +341,26 @@ export class LlmService {
   }
 
   async createPersona(name: string, description: string): Promise<Persona> {
+    await this.ensureInitialized();
+    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
+      const user = await this.getAuthenticatedSupabaseUser();
+
+      const personaData = { name, description };
+      const { data, error } = await this.supabase
+        .from('personas')
+        .insert([{ user_id: user.id, data: personaData }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return {
+        id: data.id,
+        ...data.data,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    }
+
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; persona: Persona }>(
         `${environment.apiUrl}/api/user/personas`,
@@ -278,6 +371,26 @@ export class LlmService {
   }
 
   async updatePersona(id: string, name: string, description: string): Promise<Persona> {
+    await this.ensureInitialized();
+    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
+      await this.getAuthenticatedSupabaseUser();
+      const personaData = { name, description };
+      const { data, error } = await this.supabase
+        .from('personas')
+        .update({ data: personaData, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return {
+        id: data.id,
+        ...data.data,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    }
+
     const res = await firstValueFrom(
       this.http.put<{ success: boolean; persona: Persona }>(
         `${environment.apiUrl}/api/user/personas/${id}`,
@@ -288,12 +401,27 @@ export class LlmService {
   }
 
   async deletePersona(id: string): Promise<void> {
+    await this.ensureInitialized();
+    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
+      await this.getAuthenticatedSupabaseUser();
+      const { error } = await this.supabase
+        .from('personas')
+        .delete()
+        .eq('id', id)
+        .select('id')
+        .single();
+
+      if (error) throw error;
+      return;
+    }
+
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/user/personas/${id}`)
     );
   }
 
   async getDefaultPersonaId(): Promise<string | null> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; defaultPersonaId: string | null }>(
         `${environment.apiUrl}/api/user/settings/default-persona`
@@ -303,6 +431,7 @@ export class LlmService {
   }
 
   async setDefaultPersonaId(personaId: string | null): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.put(`${environment.apiUrl}/api/user/settings/default-persona`, {
         personaId,
@@ -313,6 +442,7 @@ export class LlmService {
   // --- Chats ---
 
   async listChats(): Promise<ChatSummary[]> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; chats: ChatSummary[] }>(
         `${environment.apiUrl}/api/chats`
@@ -322,6 +452,7 @@ export class LlmService {
   }
 
   async createChat(provider?: string, model?: string, characterId?: string, personaId?: string): Promise<Chat> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; chat: Chat }>(
         `${environment.apiUrl}/api/chats`,
@@ -332,6 +463,7 @@ export class LlmService {
   }
 
   async getChat(id: string): Promise<Chat> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; chat: Chat }>(
         `${environment.apiUrl}/api/chats/${id}`
@@ -341,6 +473,7 @@ export class LlmService {
   }
 
   async updateChat(id: string, data: Partial<Chat>): Promise<Chat> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.put<{ success: boolean; chat: Chat }>(
         `${environment.apiUrl}/api/chats/${id}`,
@@ -351,6 +484,7 @@ export class LlmService {
   }
 
   async deleteChat(id: string): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/chats/${id}`)
     );
@@ -359,6 +493,7 @@ export class LlmService {
   // --- Adventures ---
 
   async listAdventures(): Promise<AdventureSummary[]> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; adventures: AdventureSummary[] }>(
         `${environment.apiUrl}/api/adventures`
@@ -375,6 +510,7 @@ export class LlmService {
     narratorConfig: { provider: string; model: string };
     characterConfig: { provider: string; model: string };
   }): Promise<Adventure> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; adventure: Adventure }>(
         `${environment.apiUrl}/api/adventures`,
@@ -385,6 +521,7 @@ export class LlmService {
   }
 
   async getAdventure(id: string): Promise<Adventure> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; adventure: Adventure }>(
         `${environment.apiUrl}/api/adventures/${id}`
@@ -393,7 +530,9 @@ export class LlmService {
     return res.adventure;
   }
 
-  async executeAdventureTurn(id: string, action: string | 'skip'): Promise<{ adventure: Adventure; somethingHappened: boolean }> {
+  async executeAdventureTurn(id: string, action: string | 'skip'): Promise<{
+    adventure: Adventure; somethingHappened: boolean }> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; adventure: Adventure; somethingHappened: boolean }>(
         `${environment.apiUrl}/api/adventures/${id}/turn`,
@@ -404,6 +543,7 @@ export class LlmService {
   }
 
   async updateAdventureState(id: string, status: 'playing' | 'ended'): Promise<Adventure> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; adventure: Adventure }>(
         `${environment.apiUrl}/api/adventures/${id}/state`,
@@ -414,6 +554,7 @@ export class LlmService {
   }
 
   async deleteAdventure(id: string): Promise<void> {
+    await this.ensureInitialized();
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/adventures/${id}`)
     );
@@ -421,13 +562,13 @@ export class LlmService {
 
   // --- Send message (streaming via SSE) ---
 
-  async sendMessageStream(
-    messages: ChatMessage[],
+  async sendMessageStream(messages: ChatMessage[],
     provider: string,
     model: string,
     options?: SendMessageOptions,
     callbacks?: StreamCallbacks
   ): Promise<StreamResult> {
+    await this.ensureInitialized();
     const token = this.authService.getSessionToken();
     const body: Record<string, unknown> = { messages, provider, model };
     if (options?.webSearch) body['webSearch'] = true;
@@ -528,12 +669,12 @@ export class LlmService {
   }
 
   /** @deprecated Use sendMessageStream for streaming support */
-  async sendMessage(
-    messages: ChatMessage[],
+  async sendMessage(messages: ChatMessage[],
     provider: string,
     model: string,
     options?: SendMessageOptions
   ): Promise<ChatMessage> {
+    await this.ensureInitialized();
     const body: Record<string, unknown> = { messages, provider, model };
     if (options?.webSearch) body['webSearch'] = true;
     if (options?.think) body['think'] = true;
@@ -552,6 +693,7 @@ export class LlmService {
   // --- MCP Servers ---
 
   async getMcpServers(): Promise<McpServerInfo[]> {
+    await this.ensureInitialized();
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; servers: McpServerInfo[] }>(
         `${environment.apiUrl}/api/mcp-servers`
@@ -561,6 +703,7 @@ export class LlmService {
   }
 
   async setMcpAuth(serverId: string, token: string): Promise<{ success: boolean }> {
+    await this.ensureInitialized();
     return firstValueFrom(
       this.http.put<{ success: boolean }>(
         `${environment.apiUrl}/api/user/mcp-auth/${serverId}`,
@@ -570,6 +713,7 @@ export class LlmService {
   }
 
   async removeMcpAuth(serverId: string): Promise<{ success: boolean }> {
+    await this.ensureInitialized();
     return firstValueFrom(
       this.http.delete<{ success: boolean }>(
         `${environment.apiUrl}/api/user/mcp-auth/${serverId}`
@@ -578,6 +722,7 @@ export class LlmService {
   }
 
   async getMcpAuthStatus(serverId: string): Promise<{ configured: boolean; serverName: string; authRequired: boolean }> {
+    await this.ensureInitialized();
     return firstValueFrom(
       this.http.get<{ configured: boolean; serverName: string; authRequired: boolean }>(
         `${environment.apiUrl}/api/user/mcp-auth/${serverId}/status`

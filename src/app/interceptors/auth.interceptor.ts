@@ -31,7 +31,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
           // If the server session doesn't have an instance ID, or it doesn't match,
           // the session is either legacy or from a different server instance.
           if (!sessionServerId || serverId !== sessionServerId) {
-            authService.logout();
+            void authService.logout();
             router.navigate(['/login']);
           }
         }
@@ -40,7 +40,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     catchError((error: unknown) => {
       if (error instanceof HttpErrorResponse) {
         if (error.status === 401 && authService.isAuthenticated()) {
-          authService.logout();
+          void authService.logout();
           router.navigate(['/login']);
         }
       }

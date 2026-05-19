@@ -39,6 +39,24 @@ import { environment } from '../../environments/environment';
           }
 
           <form (ngSubmit)="onSubmit()" class="space-y-5">
+            @if (isSupabaseMode && username.toLowerCase() !== 'admin') {
+              <div>
+                <label for="email" class="block text-sm font-medium text-secondary-700 mb-2">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  [(ngModel)]="email"
+                  name="email"
+                  required
+                  autocomplete="email"
+                  class="w-full px-4 py-3 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"
+                  placeholder="Enter your email"
+                />
+              </div>
+            }
+
             <div>
               <label for="username" class="block text-sm font-medium text-secondary-700 mb-2">
                 Username
@@ -173,12 +191,18 @@ import { environment } from '../../environments/environment';
 })
 export class SignupPageComponent {
   username = '';
+  email = '';
   password = '';
   confirmPassword = '';
   showPassword = signal(false);
   showConfirmPassword = signal(false);
   errorMessage = signal<string | null>(null);
   isLoading = signal(false);
+
+
+  get isSupabaseMode(): boolean {
+    return this.authService.useSupabaseMode();
+  }
 
   constructor(
     private authService: AuthService,
@@ -236,13 +260,14 @@ export class SignupPageComponent {
     try {
       const result = await this.authService.signup(
         this.username.trim(),
-        this.password
+        this.password,
+        this.isSupabaseMode && this.username.trim().toLowerCase() !== 'admin' ? this.email : undefined
       );
 
       if (result.success) {
         this.router.navigate(['/dashboard']);
       } else {
-        this.errorMessage.set(result.error ?? 'Signup failed');
+        this.errorMessage.set(result.error ?? result.message ?? 'Signup failed');
       }
     } catch {
       this.errorMessage.set('An unexpected error occurred. Please try again.');

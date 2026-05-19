@@ -3,6 +3,8 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { SecurityLoggerService } from './security-logger.service';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Subscription } from '@supabase/supabase-js';
 
 export interface AuthSession {
   username: string;
@@ -117,6 +119,9 @@ async function sha256Fallback(message: string): Promise<string> {
   providedIn: 'root',
 })
 export class AuthService {
+  private supabase: SupabaseClient | null = null;
+  private useSupabase = signal(false);
+
   private currentUser = signal<string | null>(null);
   isAuthenticated = computed(() => this.currentUser() !== null);
   username = computed(() => this.currentUser());
@@ -156,8 +161,42 @@ export class AuthService {
   private ngZone = inject(NgZone);
   private http = inject(HttpClient);
 
+  private initPromise: Promise<void>;
+  private supabaseAuthSubscription: Subscription | null = null;
+
   constructor() {
-    this.restoreSession();
+    this.initPromise = this.checkSupabaseMode().then(() => {
+      this.restoreSession();
+    });
+  }
+
+  /** Ensures the service is fully initialized (including Supabase mode check) before use. */
+  async ensureInitialized(): Promise<void> {
+    await this.initPromise;
+  }
+
+  useSupabaseMode(): boolean {
+    return this.useSupabase();
+  }
+
+  private async checkSupabaseMode(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
+      );
+      if (resp.useSupabase && environment.supabaseUrl && environment.supabaseKey) {
+        this.useSupabase.set(true);
+        this.supabase = createClient(environment.supabaseUrl, environment.supabaseKey);
+        const { data } = this.supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
+          if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+            this.updateStoredToken(session.access_token);
+          }
+        });
+        this.supabaseAuthSubscription = data.subscription;
+      }
+    } catch {
+      // Ignore errors, default to local auth
+    }
   }
 
   async hashPassword(password: string): Promise<string> {
@@ -342,7 +381,7 @@ export class AuthService {
       if (this.isAuthenticated()) {
         const user = this.username();
         this.securityLogger.log('INACTIVITY_LOGOUT', 'User logged out due to inactivity', user ?? undefined);
-        this.logout();
+        void this.logout();
       }
     });
   }
@@ -379,6 +418,18 @@ export class AuthService {
     }
   }
 
+  private updateStoredToken(token: string): void {
+    try {
+      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (!sessionData) return;
+      const session: AuthSession = JSON.parse(sessionData);
+      session.token = token;
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    } catch {
+      // Ignore malformed session storage
+    }
+  }
+
   private async checkPasswordResetStatus(): Promise<void> {
     const user = this.username();
     if (!user) {
@@ -401,7 +452,7 @@ export class AuthService {
       // A 401 response means the session is invalid or expired
       if (error instanceof HttpErrorResponse && error.status === 401) {
         this.securityLogger.log('SESSION_EXPIRED', 'Session invalidated during status check', user);
-        this.logout();
+        void this.logout();
       }
       // Other errors (network, 500) stay silent to avoid impacting UX
     }
@@ -443,8 +494,10 @@ export class AuthService {
 
   async signup(
     username: string,
-    password: string
-  ): Promise<{ success: boolean; error?: string }> {
+    password: string,
+    email?: string
+  ): Promise<{ success: boolean; error?: string; requiresEmailConfirmation?: boolean; message?: string }> {
+    await this.ensureInitialized();
     const usernameErrors = this.validateUsername(username);
     if (usernameErrors.length > 0) {
       this.securityLogger.log('SIGNUP_FAILURE', `Validation failed: ${usernameErrors[0]}`, username);
@@ -455,6 +508,33 @@ export class AuthService {
     if (passwordErrors.length > 0) {
       this.securityLogger.log('SIGNUP_FAILURE', 'Password validation failed', username);
       return { success: false, error: passwordErrors[0] };
+    }
+
+    if (this.useSupabase() && username.toLowerCase() !== 'admin') {
+      if (!this.supabase) return { success: false, error: 'Supabase not initialized' };
+      if (!email) return { success: false, error: 'Email is required for Supabase signup' };
+
+      const { data, error } = await this.supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username }
+        }
+      });
+
+      if (error) {
+        this.securityLogger.log('SIGNUP_FAILURE', error.message, username);
+        return { success: false, error: error.message };
+      }
+
+      if (data.session) {
+        await this.createSession(data.user?.id ?? username, false, data.session.access_token);
+        this.securityLogger.log('SIGNUP_SUCCESS', 'New Supabase account created', data.user?.id ?? username);
+        return { success: true };
+      }
+
+      this.securityLogger.log('SIGNUP_FAILURE', 'Supabase signup pending email confirmation', username);
+      return { success: false, requiresEmailConfirmation: true, message: 'Confirmation required' };
     }
 
     try {
@@ -481,19 +561,50 @@ export class AuthService {
 
   async login(
     username: string,
-    password: string
+    password: string,
+    email?: string
   ): Promise<{ success: boolean; error?: string; passwordResetRequired?: boolean }> {
+    await this.ensureInitialized();
     const normalizedUsername = username.toLowerCase();
 
     // A04/A07: Check rate limit before processing login
-    const rateCheck = this.checkRateLimit(normalizedUsername);
+    const normalizedEmail = email?.trim().toLowerCase();
+    const supabaseRateLimitKey = this.useSupabase() && normalizedUsername !== 'admin' && normalizedEmail
+      ? normalizedEmail
+      : normalizedUsername;
+    const rateCheck = this.checkRateLimit(supabaseRateLimitKey);
     if (!rateCheck.allowed) {
-      this.securityLogger.log('LOGIN_RATE_LIMITED', `Login blocked - retry after ${rateCheck.retryAfterSeconds}s`, normalizedUsername);
+      this.securityLogger.log('LOGIN_RATE_LIMITED', `Login blocked - retry after ${rateCheck.retryAfterSeconds}s`, supabaseRateLimitKey);
       const minutes = Math.ceil((rateCheck.retryAfterSeconds ?? 0) / 60);
       return {
         success: false,
         error: `Account temporarily locked. Try again in ${minutes} minute${minutes !== 1 ? 's' : ''}.`,
       };
+    }
+
+    if (this.useSupabase() && normalizedUsername !== 'admin') {
+      if (!this.supabase) return { success: false, error: 'Supabase not initialized' };
+      if (!email) return { success: false, error: 'Email is required for Supabase login' };
+
+      const { data, error } = await this.supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        this.recordFailedAttempt(supabaseRateLimitKey);
+        this.securityLogger.log('LOGIN_FAILURE', error.message, supabaseRateLimitKey);
+        return { success: false, error: error.message };
+      }
+
+      if (data.session) {
+        const userId = data.user?.id || normalizedUsername;
+        await this.createSession(userId, false, data.session.access_token);
+        this.clearLoginAttempts(data.user?.id ?? supabaseRateLimitKey);
+        this.securityLogger.log('LOGIN_SUCCESS', 'Supabase user logged in successfully', userId);
+        return { success: true };
+      }
+      return { success: false, error: 'Failed to establish session' };
     }
 
     try {
@@ -564,11 +675,15 @@ export class AuthService {
     return false;
   }
 
-  logout(): void {
+  async logout(): Promise<void> {
     const user = this.username();
     const token = this.getSessionToken();
     this.stopInactivityTimer();
     this.stopPasswordResetMonitor();
+    if (this.useSupabase() && user !== 'admin' && this.supabase) {
+      void this.supabase.auth.signOut();
+    }
+
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     this.currentUser.set(null);
     this.passwordResetRequired.set(false);
@@ -577,7 +692,8 @@ export class AuthService {
     // SOC2 CC6.3: Invalidate server-side session (fire-and-forget).
     // Client state is already cleared above, so a new login will issue a fresh token
     // even if this request fails. Not awaiting avoids blocking the UI on network issues.
-    if (token) {
+    if (token && (!this.useSupabase() || user === 'admin')) {
+      await this.ensureInitialized();
       firstValueFrom(
         this.http.post(`${environment.apiUrl}/api/auth/logout`, {})
       ).catch(() => {
@@ -665,7 +781,7 @@ export class AuthService {
 
   async deleteAccount(
     password: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; requiresEmailConfirmation?: boolean; message?: string }> {
     const user = this.username();
     if (!user) {
       return { success: false, error: 'Not authenticated' };
@@ -681,7 +797,7 @@ export class AuthService {
 
       if (response.success) {
         this.securityLogger.log('ACCOUNT_DELETED', 'Account deleted', user);
-         this.logout();
+         await this.logout();
          return { success: true };
       }
 
