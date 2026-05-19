@@ -2475,6 +2475,115 @@ app.get('/api/universes', requireSession, (req, res) => {
   }
 });
 
+// GET /api/characters – user-owned characters with privacy and favorites
+app.get('/api/characters', requireSession, async (req, res) => {
+  try {
+    if (req.supabase && req.supabaseUserId) {
+      const { data, error } = await req.supabase
+        .from('characters')
+        .select('*')
+        .or(`owner_id.eq.${req.supabaseUserId},privacy.eq.public`)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      return res.json({ success: true, characters: data || [] });
+    }
+    const users = readUsers();
+    const me = users.find((u) => u.username === req.sessionUser);
+    return res.json({ success: true, characters: me?.characters || [] });
+  } catch (err) {
+    console.error('List characters error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to list characters' });
+  }
+});
+
+app.post('/api/characters', requireSession, async (req, res) => {
+  try {
+    const { name, description, relationships, privacy, favorite } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) return res.status(400).json({ success: false, error: 'Character name is required' });
+    const validPrivacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : 'private';
+    if (req.supabase && req.supabaseUserId) {
+      const payload = {
+        name: name.trim(),
+        description: typeof description === 'string' ? description.trim() : '',
+        owner_id: req.supabaseUserId,
+        relationships: Array.isArray(relationships) ? relationships.map((r) => String(r)) : [],
+        privacy: validPrivacy,
+        favorite: !!favorite,
+      };
+      const { data, error } = await req.supabase.from('characters').insert([payload]).select().single();
+      if (error) throw error;
+      return res.status(201).json({ success: true, character: data });
+    }
+    const users = readUsers();
+    const idx = users.findIndex((u) => u.username === req.sessionUser);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'User not found' });
+    const character = { id: crypto.randomUUID(), name: name.trim(), description: (description || '').trim(), relationships: Array.isArray(relationships) ? relationships.map((r) => String(r)) : [], privacy: validPrivacy, favorite: !!favorite, ownerId: req.sessionUser, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    users[idx].characters = users[idx].characters || [];
+    users[idx].characters.push(character);
+    writeUsers(users);
+    return res.status(201).json({ success: true, character });
+  } catch (err) {
+    console.error('Create character error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to create character' });
+  }
+});
+
+app.put('/api/characters/:id', requireSession, async (req, res) => {
+  try {
+    const { name, description, relationships, privacy, favorite } = req.body;
+    const validPrivacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : undefined;
+    if (req.supabase && req.supabaseUserId) {
+      const updates = {
+        ...(typeof name === 'string' ? { name: name.trim() } : {}),
+        ...(typeof description === 'string' ? { description: description.trim() } : {}),
+        ...(Array.isArray(relationships) ? { relationships: relationships.map((r) => String(r)) } : {}),
+        ...(validPrivacy ? { privacy: validPrivacy } : {}),
+        ...(typeof favorite === 'boolean' ? { favorite } : {}),
+      };
+      const { data, error } = await req.supabase
+        .from('characters')
+        .update(updates)
+        .eq('id', req.params.id)
+        .eq('owner_id', req.supabaseUserId)
+        .select()
+        .single();
+      if (error) throw error;
+      return res.json({ success: true, character: data });
+    }
+    const users = readUsers();
+    const uidx = users.findIndex((u) => u.username === req.sessionUser);
+    const chars = users[uidx]?.characters || [];
+    const cidx = chars.findIndex((c) => c.id === req.params.id);
+    if (cidx === -1) return res.status(404).json({ success: false, error: 'Character not found' });
+    chars[cidx] = { ...chars[cidx], ...(name ? { name: name.trim() } : {}), ...(typeof description === 'string' ? { description: description.trim() } : {}), ...(Array.isArray(relationships) ? { relationships: relationships.map((r) => String(r)) } : {}), ...(validPrivacy ? { privacy: validPrivacy } : {}), ...(typeof favorite === 'boolean' ? { favorite } : {}), updatedAt: new Date().toISOString() };
+    users[uidx].characters = chars;
+    writeUsers(users);
+    return res.json({ success: true, character: chars[cidx] });
+  } catch (err) {
+    console.error('Update character error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update character' });
+  }
+});
+
+app.delete('/api/characters/:id', requireSession, async (req, res) => {
+  try {
+    if (req.supabase && req.supabaseUserId) {
+      const { error } = await req.supabase.from('characters').delete().eq('id', req.params.id).eq('owner_id', req.supabaseUserId);
+      if (error) throw error;
+      return res.json({ success: true });
+    }
+    const users = readUsers();
+    const uidx = users.findIndex((u) => u.username === req.sessionUser);
+    const chars = users[uidx]?.characters || [];
+    users[uidx].characters = chars.filter((c) => c.id !== req.params.id);
+    writeUsers(users);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Delete character error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to delete character' });
+  }
+});
+
 // GET /api/universes/admin – List all universes with full character details (admin only)
 app.post('/api/admin/universes/list', async (req, res) => {
   try {
