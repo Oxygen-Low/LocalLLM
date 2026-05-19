@@ -40,7 +40,7 @@ CREATE POLICY "Users can delete their own personas" ON personas
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username TEXT UNIQUE NOT NULL CHECK (username <> ''),
-  "defaultPersonaId" UUID NULL,
+  "defaultPersonaId" UUID NULL REFERENCES personas(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -82,3 +82,20 @@ CREATE OR REPLACE TRIGGER on_auth_user_updated
   FOR EACH ROW
   WHEN (old.raw_user_meta_data->>'username' IS DISTINCT FROM new.raw_user_meta_data->>'username')
   EXECUTE FUNCTION public.handle_user_update();
+
+
+-- Secure server-side RPC for updating default persona without relaxing RLS
+CREATE OR REPLACE FUNCTION public.rpc_set_default_persona(profile_id UUID, persona_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE public.profiles
+  SET "defaultPersonaId" = persona_id
+  WHERE id = profile_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.rpc_set_default_persona(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_set_default_persona(UUID, UUID) TO service_role;
