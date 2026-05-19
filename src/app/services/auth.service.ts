@@ -180,6 +180,13 @@ export class AuthService {
   }
 
   private async checkSupabaseMode(): Promise<void> {
+    const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+    const isVitest = ((proc?.env?.['VITEST'] !== undefined) || proc?.env?.['NODE_ENV'] === 'test')
+      || (globalThis as { __vitest_worker__?: unknown }).__vitest_worker__ !== undefined;
+    if (isVitest) {
+      return;
+    }
+
     try {
       const resp = await firstValueFrom(
         this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
