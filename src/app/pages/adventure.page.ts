@@ -216,10 +216,10 @@ import { LlmService, type ProviderInfo, type Adventure, type AdventureSummary, t
               </div>
 
               <!-- Page Turn Buttons -->
-              <button type="button" (click)="prevPage()" [disabled]="currentPage() === 0" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
+              <button type="button" aria-label="Previous page" (click)="prevPage()" [disabled]="currentPage() === 0" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button type="button" (click)="nextPage()" [disabled]="(currentPage() + 2) * 5 >= currentBook().length" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm">
+              <button type="button" aria-label="Next page" (click)="nextPage()" [disabled]="(currentPage() + 2) * 5 >= currentBook().length" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 border border-[#8b7355] text-[#8b7355] hover:bg-white disabled:opacity-0 transition-all z-20 shadow-sm focus-visible:ring-2 focus-visible:ring-primary-400 outline-none">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
 
