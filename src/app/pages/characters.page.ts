@@ -55,7 +55,16 @@ export class CharactersPageComponent implements OnDestroy {
   ngOnDestroy(): void {
     if (this.refreshInterval) clearInterval(this.refreshInterval);
   }
-  async load() { this.characters.set(await this.llm.getCharacters()); }
+  async load() {
+    try {
+      const characters = await this.llm.getCharacters();
+      this.characters.set(characters);
+      this.errorMessage.set('');
+    } catch (error) {
+      console.error('Load characters failed:', error);
+      this.errorMessage.set('Failed to load characters. Please refresh and try again.');
+    }
+  }
   async create() {
     const trimmedName = this.newName.trim();
     if (!trimmedName) {

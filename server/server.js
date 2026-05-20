@@ -2569,6 +2569,10 @@ app.put('/api/characters/:id', requireSession, async (req, res) => {
     const chars = users[uidx]?.characters || [];
     const cidx = chars.findIndex((c) => c.id === req.params.id);
     if (cidx === -1) return res.status(404).json({ success: false, error: 'Character not found' });
+    if (typeof name === 'string') {
+      const trimmedName = name.trim();
+      if (!trimmedName) return res.status(400).json({ success: false, error: 'Character name is required' });
+    }
     chars[cidx] = { ...chars[cidx], ...(typeof name === 'string' ? { name: name.trim() } : {}), ...(typeof description === 'string' ? { description: description.trim() } : {}), ...(Array.isArray(relationships) ? { relationships: relationships.map((r) => String(r)) } : {}), ...(validPrivacy ? { privacy: validPrivacy } : {}), ...(typeof favorite === 'boolean' ? { favorite } : {}), updatedAt: new Date().toISOString() };
     users[uidx].characters = chars;
     writeUsers(users);
