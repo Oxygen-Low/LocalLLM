@@ -115,6 +115,14 @@ export interface UniverseSummary {
   name: string;
   characters: UniverseCharacterSummary[];
 }
+export interface UserCharacter {
+  id: string;
+  name: string;
+  description: string;
+  relationships: string[];
+  privacy: 'public' | 'friends' | 'private';
+  favorite: boolean;
+}
 
 export interface Persona {
   id: string;
@@ -300,6 +308,29 @@ export class LlmService {
       )
     );
     return res.universes || [];
+  }
+
+  async getCharacters(): Promise<UserCharacter[]> {
+    await this.ensureInitialized();
+    const res = await firstValueFrom(this.http.get<{ success: boolean; characters: UserCharacter[] }>(`${environment.apiUrl}/api/characters`));
+    return res.characters || [];
+  }
+
+  async createCharacter(payload: Omit<UserCharacter, 'id'>): Promise<UserCharacter> {
+    await this.ensureInitialized();
+    const res = await firstValueFrom(this.http.post<{ success: boolean; character: UserCharacter }>(`${environment.apiUrl}/api/characters`, payload));
+    return res.character;
+  }
+
+  async updateCharacter(id: string, payload: Partial<Omit<UserCharacter, 'id'>>): Promise<UserCharacter> {
+    await this.ensureInitialized();
+    const res = await firstValueFrom(this.http.put<{ success: boolean; character: UserCharacter }>(`${environment.apiUrl}/api/characters/${id}`, payload));
+    return res.character;
+  }
+
+  async deleteCharacter(id: string): Promise<void> {
+    await this.ensureInitialized();
+    await firstValueFrom(this.http.delete(`${environment.apiUrl}/api/characters/${id}`));
   }
 
   // --- Personas ---
