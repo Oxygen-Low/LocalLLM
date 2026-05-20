@@ -2517,7 +2517,17 @@ app.post('/api/characters', requireSession, async (req, res) => {
     const users = readUsers();
     const idx = users.findIndex((u) => u.username === req.sessionUser);
     if (idx === -1) return res.status(404).json({ success: false, error: 'User not found' });
-    const character = { id: crypto.randomUUID(), name: name.trim(), description: (description || '').trim(), relationships: Array.isArray(relationships) ? relationships.map((r) => String(r)) : [], privacy: validPrivacy, favorite: !!favorite, ownerId: req.sessionUser, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const character = {
+      id: crypto.randomUUID(),
+      name: typeof name === 'string' ? name.trim() : '',
+      description: typeof description === 'string' ? description.trim() : '',
+      relationships: Array.isArray(relationships) ? relationships.map((r) => String(r)) : [],
+      privacy: validPrivacy,
+      favorite: !!favorite,
+      ownerId: req.sessionUser,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     users[idx].characters = users[idx].characters || [];
     users[idx].characters.push(character);
     writeUsers(users);
@@ -2547,15 +2557,19 @@ app.put('/api/characters/:id', requireSession, async (req, res) => {
         .eq('owner_id', req.supabaseUserId)
         .select()
         .single();
+      if (error && error.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: 'Character not found' });
+      }
       if (error) throw error;
       return res.json({ success: true, character: data });
     }
     const users = readUsers();
     const uidx = users.findIndex((u) => u.username === req.sessionUser);
+    if (uidx === -1) return res.status(404).json({ success: false, error: 'User not found' });
     const chars = users[uidx]?.characters || [];
     const cidx = chars.findIndex((c) => c.id === req.params.id);
     if (cidx === -1) return res.status(404).json({ success: false, error: 'Character not found' });
-    chars[cidx] = { ...chars[cidx], ...(name ? { name: name.trim() } : {}), ...(typeof description === 'string' ? { description: description.trim() } : {}), ...(Array.isArray(relationships) ? { relationships: relationships.map((r) => String(r)) } : {}), ...(validPrivacy ? { privacy: validPrivacy } : {}), ...(typeof favorite === 'boolean' ? { favorite } : {}), updatedAt: new Date().toISOString() };
+    chars[cidx] = { ...chars[cidx], ...(typeof name === 'string' ? { name: name.trim() } : {}), ...(typeof description === 'string' ? { description: description.trim() } : {}), ...(Array.isArray(relationships) ? { relationships: relationships.map((r) => String(r)) } : {}), ...(validPrivacy ? { privacy: validPrivacy } : {}), ...(typeof favorite === 'boolean' ? { favorite } : {}), updatedAt: new Date().toISOString() };
     users[uidx].characters = chars;
     writeUsers(users);
     return res.json({ success: true, character: chars[cidx] });
@@ -2574,6 +2588,7 @@ app.delete('/api/characters/:id', requireSession, async (req, res) => {
     }
     const users = readUsers();
     const uidx = users.findIndex((u) => u.username === req.sessionUser);
+    if (uidx === -1) return res.status(404).json({ success: false, error: 'User not found' });
     const chars = users[uidx]?.characters || [];
     users[uidx].characters = chars.filter((c) => c.id !== req.params.id);
     writeUsers(users);

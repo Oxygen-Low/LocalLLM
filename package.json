@@ -4,6 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "concurrently --names server,angular --prefix-colors blue,green \"cross-env HOST=127.0.0.1 npm run server\" \"ng serve\"",
+    "start:lan": "concurrently --names server,angular --prefix-colors blue,green \"cross-env HOST=0.0.0.0 npm run server\" \"ng serve --configuration lan\"",
     "start:demo": "concurrently --names server,angular --prefix-colors blue,green \"cross-env DEMO_MODE=true npm run server\" \"ng serve --configuration lan\"",
     "start:supabase": "cross-env USE_SUPABASE=true npm run start",
     "server": "node server/server.js",
