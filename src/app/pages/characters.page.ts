@@ -12,13 +12,13 @@ import { LlmService, UserCharacter } from '../services/llm.service';
   <div class="container-custom py-8 space-y-4">
     <h1 class="text-2xl font-bold">Characters</h1>
     <div class="grid gap-3 p-4 border rounded-lg">
-      <input [(ngModel)]="newName" placeholder="Name" class="input" />
-      <textarea [(ngModel)]="newDescription" placeholder="Description" class="input"></textarea>
-      <input [(ngModel)]="newRelationships" placeholder="Relationships (plain text, comma-separated)" class="input" />
-      <select [(ngModel)]="newPrivacy" class="input">
+      <input [(ngModel)]="newName" placeholder="Name" class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all" />
+      <textarea [(ngModel)]="newDescription" placeholder="Description" class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all"></textarea>
+      <input [(ngModel)]="newRelationships" placeholder="Relationships (plain text, comma-separated)" class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all" />
+      <select [(ngModel)]="newPrivacy" class="w-full px-4 py-2 rounded-lg border border-secondary-200 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-100 transition-all">
         <option value="public">Public</option><option value="friends">Friends-Only</option><option value="private">Private</option>
       </select>
-      <button class="btn-primary" (click)="create()">Create Character</button>
+      <button type="button" class="btn-primary" (click)="create()">Create Character</button>
       @if (errorMessage()) {
         <p class="text-sm text-red-600">{{ errorMessage() }}</p>
       }
@@ -28,11 +28,11 @@ import { LlmService, UserCharacter } from '../services/llm.service';
         <div class="border rounded-lg p-4">
           <div class="flex justify-between items-center gap-2">
             <h3 class="font-semibold">{{ char.name }}</h3>
-            <button class="btn-primary" (click)="confirmRemove(char)">Delete</button>
+            <button type="button" class="btn-primary" (click)="confirmRemove(char)">Delete</button>
           </div>
           <p class="text-sm text-muted">{{ char.description }}</p>
           <p class="text-xs">Privacy: {{ char.privacy }} • Favorite: {{ char.favorite ? 'Yes' : 'No' }}</p>
-          <button class="btn-primary mt-2" (click)="toggleFavorite(char)">Toggle Favorite</button>
+          <button type="button" class="btn-primary mt-2" (click)="toggleFavorite(char)">Toggle Favorite</button>
         </div>
       }
     </div>
