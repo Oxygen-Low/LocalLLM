@@ -5278,7 +5278,6 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
       ].join(' && ');
 
       try {
-        const { execFileSync } = require('child_process');
         const dockerArgs = [
           'run', '-d',
           '--name', containerName,
@@ -5292,7 +5291,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
           'bash', '-c', initScript,
         ];
 
-        const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+        const dockerOut = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+        const dockerId = dockerOut.trim();
 
         const containerEntry = {
           id: containerId,
@@ -5317,11 +5317,12 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         writeUserContainers(req.sessionUser, containers);
 
         // Link container back to the local repo
-        const repoIdx = repos.findIndex(r => r.id === localRepoId);
+        const currentRepos = readUserRepos(req.sessionUser);
+        const repoIdx = currentRepos.findIndex(r => r.id === localRepoId);
         if (repoIdx !== -1) {
-          repos[repoIdx].containerId = containerId;
-          repos[repoIdx].containerName = containerName;
-          writeUserRepos(req.sessionUser, repos);
+          currentRepos[repoIdx].containerId = containerId;
+          currentRepos[repoIdx].containerName = containerName;
+          writeUserRepos(req.sessionUser, currentRepos);
         }
 
         auditLog({ event: 'CONTAINER_CREATED', message: `Container created for local repo "${localRepo.name}"`, username: req.sessionUser, req });
@@ -5372,8 +5373,6 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
     }
 
     try {
-      const { execFileSync } = require('child_process');
-
       // Build a shell script that conditionally uses a git credential helper when a
       // token is available (private repos). For public repos no token is required.
       // The token is passed via environment variable and never appears in the process
@@ -5395,7 +5394,7 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'tail -f /dev/null',
       ].join(' && ');
 
-      // Use execFileSync with argument array to prevent shell injection.
+      // Use an array with argument array to prevent shell injection.
       // Only pass GIT_TOKEN env var when a token is available.
       const dockerArgs = [
         'run', '-d',
@@ -5410,7 +5409,8 @@ app.post('/api/coding-agent/containers', requireSession, async (req, res) => {
         'bash', '-c', initScript,
       ];
 
-      const dockerId = execFileSync('docker', dockerArgs, { timeout: 60000, encoding: 'utf-8' }).trim();
+      const dockerOut = await runCommandAsync('docker', dockerArgs, { timeout: 60000 });
+      const dockerId = dockerOut.trim();
 
       // Track container
       const containerEntry = {
