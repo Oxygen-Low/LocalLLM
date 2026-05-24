@@ -5,12 +5,19 @@ import { LlmService } from './llm.service';
 import { AuthService } from './auth.service';
 import { vi } from 'vitest';
 
+async function flushAsync(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  }
+}
+
 describe('LlmService', () => {
   let service: LlmService;
   let httpMock: HttpTestingController;
 
   const mockAuthService = {
     getSessionToken: () => 'test-token',
+    ensureInitialized: () => Promise.resolve(),
   };
 
   beforeEach(() => {
@@ -40,6 +47,7 @@ describe('LlmService', () => {
         { id: 'openai', name: 'OpenAI', model: 'gpt-4', available: true },
       ];
       const promise = service.getProviders();
+      await flushAsync();
       const req = httpMock.expectOne('/api/providers');
       expect(req.request.method).toBe('GET');
       req.flush({ success: true, providers: mockProviders });
@@ -49,6 +57,7 @@ describe('LlmService', () => {
 
     it('should return empty array when providers is undefined', async () => {
       const promise = service.getProviders();
+      await flushAsync();
       const req = httpMock.expectOne('/api/providers');
       req.flush({ success: true });
       const result = await promise;
@@ -63,6 +72,7 @@ describe('LlmService', () => {
         anthropic: { configured: false, selectedModel: null },
       };
       const promise = service.getApiKeyStatus();
+      await flushAsync();
       const req = httpMock.expectOne('/api/user/api-keys');
       expect(req.request.method).toBe('GET');
       req.flush({ success: true, providers: mockStatus });
@@ -74,6 +84,7 @@ describe('LlmService', () => {
   describe('setApiKey', () => {
     it('should send PUT request with API key and model', async () => {
       const promise = service.setApiKey('openai', 'sk-test-key', 'gpt-4');
+      await flushAsync();
       const req = httpMock.expectOne('/api/user/api-keys/openai');
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual({ apiKey: 'sk-test-key', selectedModel: 'gpt-4' });
@@ -85,6 +96,7 @@ describe('LlmService', () => {
   describe('removeApiKey', () => {
     it('should send DELETE request for provider', async () => {
       const promise = service.removeApiKey('openai');
+      await flushAsync();
       const req = httpMock.expectOne('/api/user/api-keys/openai');
       expect(req.request.method).toBe('DELETE');
       req.flush({ success: true });
@@ -98,6 +110,7 @@ describe('LlmService', () => {
         { id: '1', title: 'Chat 1', createdAt: '2026-01-01', updatedAt: '2026-01-01', provider: null, model: null },
       ];
       const promise = service.listChats();
+      await flushAsync();
       const req = httpMock.expectOne('/api/chats');
       expect(req.request.method).toBe('GET');
       req.flush({ success: true, chats: mockChats });
@@ -114,6 +127,7 @@ describe('LlmService', () => {
         provider: 'openai', model: 'gpt-4',
       };
       const promise = service.createChat('openai', 'gpt-4');
+      await flushAsync();
       const req = httpMock.expectOne('/api/chats');
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({ provider: 'openai', model: 'gpt-4' });
@@ -131,6 +145,7 @@ describe('LlmService', () => {
         provider: null, model: null,
       };
       const promise = service.getChat('abc');
+      await flushAsync();
       const req = httpMock.expectOne('/api/chats/abc');
       expect(req.request.method).toBe('GET');
       req.flush({ success: true, chat: mockChat });
@@ -147,6 +162,7 @@ describe('LlmService', () => {
         provider: null, model: null,
       };
       const promise = service.updateChat('abc', { title: 'Updated' });
+      await flushAsync();
       const req = httpMock.expectOne('/api/chats/abc');
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual({ title: 'Updated' });
@@ -159,6 +175,7 @@ describe('LlmService', () => {
   describe('deleteChat', () => {
     it('should send DELETE request for chat', async () => {
       const promise = service.deleteChat('abc');
+      await flushAsync();
       const req = httpMock.expectOne('/api/chats/abc');
       expect(req.request.method).toBe('DELETE');
       req.flush({ success: true });
@@ -171,6 +188,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Hello' }];
       const mockResponse = { role: 'assistant' as const, content: 'Hi there!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4');
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4' });
@@ -184,6 +202,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Search something' }];
       const mockResponse = { role: 'assistant' as const, content: 'Found it!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4', { webSearch: true });
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', webSearch: true });
       req.flush({ success: true, message: mockResponse });
@@ -194,6 +213,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Think about this' }];
       const mockResponse = { role: 'assistant' as const, content: 'Thought about it!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4', { think: true });
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', think: true });
       req.flush({ success: true, message: mockResponse });
@@ -204,6 +224,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Search and think' }];
       const mockResponse = { role: 'assistant' as const, content: 'Done!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4', { webSearch: true, think: true });
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', webSearch: true, think: true });
       req.flush({ success: true, message: mockResponse });
@@ -214,6 +235,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Hello' }];
       const mockResponse = { role: 'assistant' as const, content: 'Hi!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4', { webSearch: false, think: false });
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4' });
       req.flush({ success: true, message: mockResponse });
@@ -224,6 +246,7 @@ describe('LlmService', () => {
   describe('getLocalModels', () => {
     it('should fetch local models list', async () => {
       const promise = service.getLocalModels();
+      await flushAsync();
       const req = httpMock.expectOne('/api/local-models');
       expect(req.request.method).toBe('GET');
       req.flush({ success: true, models: [{ id: 'abc', name: 'Test Model', huggingFaceId: 'test/model', size: 1024, downloadedAt: '2025-01-01' }] });
@@ -234,6 +257,7 @@ describe('LlmService', () => {
 
     it('should return empty array when no models', async () => {
       const promise = service.getLocalModels();
+      await flushAsync();
       const req = httpMock.expectOne('/api/local-models');
       req.flush({ success: true, models: [] });
       const result = await promise;
@@ -339,7 +363,7 @@ describe('LlmService', () => {
 
       const thinkingChunks: string[] = [];
       const contentChunks: string[] = [];
-      const searchEvents: unknown[] = [];
+      const searchEvents: any[] = [];
       let doneCalled = false;
 
       await service.sendMessageStream(
@@ -445,6 +469,7 @@ describe('LlmService', () => {
   describe('setProviderModel', () => {
     it('should send PUT request to update model', async () => {
       const promise = service.setProviderModel('openai', 'gpt-4-turbo');
+      await flushAsync();
       const req = httpMock.expectOne('/api/user/api-keys/openai/model');
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual({ selectedModel: 'gpt-4-turbo' });
@@ -466,6 +491,7 @@ describe('LlmService', () => {
         },
       ];
       const promise = service.getUniverses();
+      await flushAsync();
       const req = httpMock.expectOne('/api/universes');
       expect(req.request.method).toBe('GET');
       req.flush({ success: true, universes: mockUniverses });
@@ -476,6 +502,7 @@ describe('LlmService', () => {
 
     it('should return empty array when universes is undefined', async () => {
       const promise = service.getUniverses();
+      await flushAsync();
       const req = httpMock.expectOne('/api/universes');
       req.flush({ success: true });
       const result = await promise;
@@ -484,6 +511,7 @@ describe('LlmService', () => {
 
     it('should return empty array when no universes exist', async () => {
       const promise = service.getUniverses();
+      await flushAsync();
       const req = httpMock.expectOne('/api/universes');
       req.flush({ success: true, universes: [] });
       const result = await promise;
@@ -496,6 +524,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Hello' }];
       const mockResponse = { role: 'assistant' as const, content: 'Hi!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4', { characterId: 'char-123' });
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4', characterId: 'char-123' });
       req.flush({ success: true, message: mockResponse });
@@ -506,6 +535,7 @@ describe('LlmService', () => {
       const messages = [{ role: 'user' as const, content: 'Hello' }];
       const mockResponse = { role: 'assistant' as const, content: 'Hi!' };
       const promise = service.sendMessage(messages, 'openai', 'gpt-4');
+      await flushAsync();
       const req = httpMock.expectOne('/api/chat/send');
       expect(req.request.body).toEqual({ messages, provider: 'openai', model: 'gpt-4' });
       req.flush({ success: true, message: mockResponse });

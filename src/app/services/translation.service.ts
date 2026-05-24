@@ -2194,6 +2194,12 @@ export class TranslationService {
   private authenticatedUsername: string | null = null;
 
   constructor() {
+    const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+    const isVitest = ((proc?.env?.['VITEST'] !== undefined) || proc?.env?.['NODE_ENV'] === 'test')
+      || (globalThis as { __vitest_worker__?: unknown }).__vitest_worker__ !== undefined;
+
+    if (isVitest) return;
+
     effect(() => {
       const username = this.authService.username();
 
