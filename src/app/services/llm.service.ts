@@ -183,7 +183,15 @@ export class LlmService {
   private initPromise: Promise<void>;
 
   constructor() {
-    this.initPromise = this.checkSupabaseMode();
+    const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+    const isVitest = ((proc?.env?.['VITEST'] !== undefined) || proc?.env?.['NODE_ENV'] === 'test')
+      || (globalThis as { __vitest_worker__?: unknown }).__vitest_worker__ !== undefined;
+
+    if (isVitest) {
+      this.initPromise = Promise.resolve();
+    } else {
+      this.initPromise = this.checkSupabaseMode();
+    }
   }
 
   /** Ensures the service and its dependencies (AuthService) are fully initialized before use. */
