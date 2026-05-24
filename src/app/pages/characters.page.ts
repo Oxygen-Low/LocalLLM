@@ -18,7 +18,7 @@ import { LlmService, UserCharacter } from '../services/llm.service';
       <select [(ngModel)]="newPrivacy" class="input">
         <option value="public">Public</option><option value="friends">Friends-Only</option><option value="private">Private</option>
       </select>
-      <button class="btn-primary" (click)="create()">Create Character</button>
+      <button type="button" class="btn-primary" (click)="create()">Create Character</button>
       @if (errorMessage()) {
         <p class="text-sm text-red-600">{{ errorMessage() }}</p>
       }
@@ -28,11 +28,11 @@ import { LlmService, UserCharacter } from '../services/llm.service';
         <div class="border rounded-lg p-4">
           <div class="flex justify-between items-center gap-2">
             <h3 class="font-semibold">{{ char.name }}</h3>
-            <button class="btn-primary" (click)="confirmRemove(char)">Delete</button>
+            <button type="button" class="btn-primary" (click)="confirmRemove(char)">Delete</button>
           </div>
           <p class="text-sm text-muted">{{ char.description }}</p>
           <p class="text-xs">Privacy: {{ char.privacy }} • Favorite: {{ char.favorite ? 'Yes' : 'No' }}</p>
-          <button class="btn-primary mt-2" (click)="toggleFavorite(char)">Toggle Favorite</button>
+          <button type="button" class="btn-primary mt-2" (click)="toggleFavorite(char)">Toggle Favorite</button>
         </div>
       }
     </div>
