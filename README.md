@@ -1,3 +1,5 @@
+### Local.LLM has been replaced by [Oxygen Low's Software](https://github.com/Oxygen-Low/Oxygen-Lows-Software). You may still use it if it isn't completely broken, though I recommend you use Oxygen Low's Software since I'm planning to add some of the features from Local.LLM there.
+
 # Local.LLM
 
 ## Preview
