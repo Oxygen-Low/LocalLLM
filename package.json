@@ -55,7 +55,7 @@
     "@tailwindcss/typography": "^0.5.16",
     "autoprefixer": "^10.5.0",
     "jsdom": "^29.1.1",
-    "typescript": "~5.9.3",
+    "typescript": "~7.0.2",
     "vitest": "^4.1.7"
   },
   "overrides": {
