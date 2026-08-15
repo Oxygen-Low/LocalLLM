@@ -29,7 +29,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
         <section>
           <h2 class="text-2xl font-bold text-secondary-900 mb-4">What is Local.LLM?</h2>
           <p class="text-secondary-700 leading-relaxed">
-            Local.LLM is a unified platform for accessing and managing multiple AI applications. Whether you're using our cloud service or self-hosting on your own infrastructure, Local.LLM provides a consistent interface to run, manage, and scale AI workloads.
+            Local.LLM is a unified platform for accessing and managing multiple AI applications. It provides a consistent interface to run, manage, and scale AI workloads on your own infrastructure.
           </p>
         </section>
 
@@ -37,10 +37,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
         <section>
           <h2 class="text-2xl font-bold text-secondary-900 mb-4">Key Features</h2>
           <ul class="space-y-3 text-secondary-700">
-            <li class="flex gap-3">
-              <span class="text-primary-600 font-bold flex-shrink-0">•</span>
-              <span><strong>Cloud & Self-Hosted:</strong> Deploy on our infrastructure or host it yourself</span>
-            </li>
+
             <li class="flex gap-3">
               <span class="text-primary-600 font-bold flex-shrink-0">•</span>
               <span><strong>Enterprise Ready:</strong> Built for production workloads with security and scalability</span>
@@ -68,17 +65,17 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
           <div class="space-y-4">
             <!-- Step 1 -->
             <div class="border-l-4 border-primary-600 pl-4">
-              <h3 class="font-semibold text-secondary-900 mb-2">1. Create an Account</h3>
+              <h3 class="font-semibold text-secondary-900 mb-2">1. Check Requirements</h3>
               <p class="text-secondary-700 text-sm">
-                Sign up at <a href="#" class="text-primary-600 hover:text-primary-700">local.llm</a> to access the cloud platform.
+                Ensure you have Docker or a compatible container environment installed on your system.
               </p>
             </div>
 
             <!-- Step 2 -->
             <div class="border-l-4 border-primary-600 pl-4">
-              <h3 class="font-semibold text-secondary-900 mb-2">2. Choose Your Deployment</h3>
+              <h3 class="font-semibold text-secondary-900 mb-2">2. Install the Platform</h3>
               <p class="text-secondary-700 text-sm">
-                Select between our managed cloud service or self-hosted deployment on your infrastructure.
+                Follow our deployment guides to run Local.LLM on your own infrastructure.
               </p>
             </div>
 

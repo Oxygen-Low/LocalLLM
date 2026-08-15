@@ -3,7 +3,6 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export interface MessageAlternative {
   content: string;
@@ -177,9 +176,6 @@ export interface AdventureSummary {
 export class LlmService {
   private http = inject(HttpClient);
   private authService = inject(AuthService);
-
-  private supabase: SupabaseClient | null = null;
-  private useSupabase = signal(false);
   private initPromise: Promise<void>;
 
   constructor() {
@@ -187,31 +183,13 @@ export class LlmService {
     const isVitest = ((proc?.env?.['VITEST'] !== undefined) || proc?.env?.['NODE_ENV'] === 'test')
       || (globalThis as { __vitest_worker__?: unknown }).__vitest_worker__ !== undefined;
 
-    if (isVitest) {
-      this.initPromise = Promise.resolve();
-    } else {
-      this.initPromise = this.checkSupabaseMode();
-    }
+    this.initPromise = Promise.resolve();
   }
 
   /** Ensures the service and its dependencies (AuthService) are fully initialized before use. */
   async ensureInitialized(): Promise<void> {
     await this.initPromise;
     await this.authService.ensureInitialized();
-  }
-
-  private async checkSupabaseMode(): Promise<void> {
-    try {
-      const resp = await firstValueFrom(
-        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
-      );
-      if (resp.useSupabase && environment.supabaseUrl && environment.supabaseKey) {
-        this.useSupabase.set(true);
-        this.supabase = createClient(environment.supabaseUrl, environment.supabaseKey);
-      }
-    } catch {
-      // Ignore
-    }
   }
 
   // --- Providers ---
@@ -343,33 +321,8 @@ export class LlmService {
 
   // --- Personas ---
 
-
-  private async getAuthenticatedSupabaseUser() {
-    if (!this.supabase) throw new AuthenticationRequiredError();
-    const { data: userData } = await this.supabase.auth.getUser();
-    if (!userData.user) throw new AuthenticationRequiredError();
-    return userData.user;
-  }
-
   async getPersonas(): Promise<Persona[]> {
-    await this.ensureInitialized();
-    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
-      const { data: userData } = await this.supabase.auth.getUser();
-      if (!userData.user) throw new AuthenticationRequiredError();
-
-      const { data, error } = await this.supabase
-        .from('personas')
-        .select('id, data, created_at, updated_at')
-        .eq('user_id', userData.user.id);
-
-      if (error) throw error;
-      return (data || []).map(p => ({
-        id: p.id,
-        ...p.data,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      }));
-    }
+    await this.ensureInitialized();
 
     const res = await firstValueFrom(
       this.http.get<{ success: boolean; personas: Persona[] }>(
@@ -380,25 +333,7 @@ export class LlmService {
   }
 
   async createPersona(name: string, description: string): Promise<Persona> {
-    await this.ensureInitialized();
-    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
-      const user = await this.getAuthenticatedSupabaseUser();
-
-      const personaData = { name, description };
-      const { data, error } = await this.supabase
-        .from('personas')
-        .insert([{ user_id: user.id, data: personaData }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return {
-        id: data.id,
-        ...data.data,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at
-      };
-    }
+    await this.ensureInitialized();
 
     const res = await firstValueFrom(
       this.http.post<{ success: boolean; persona: Persona }>(
@@ -410,25 +345,7 @@ export class LlmService {
   }
 
   async updatePersona(id: string, name: string, description: string): Promise<Persona> {
-    await this.ensureInitialized();
-    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
-      await this.getAuthenticatedSupabaseUser();
-      const personaData = { name, description };
-      const { data, error } = await this.supabase
-        .from('personas')
-        .update({ data: personaData, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return {
-        id: data.id,
-        ...data.data,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at
-      };
-    }
+    await this.ensureInitialized();
 
     const res = await firstValueFrom(
       this.http.put<{ success: boolean; persona: Persona }>(
@@ -440,19 +357,7 @@ export class LlmService {
   }
 
   async deletePersona(id: string): Promise<void> {
-    await this.ensureInitialized();
-    if (this.useSupabase() && this.authService.username() !== 'admin' && this.supabase) {
-      await this.getAuthenticatedSupabaseUser();
-      const { error } = await this.supabase
-        .from('personas')
-        .delete()
-        .eq('id', id)
-        .select('id')
-        .single();
-
-      if (error) throw error;
-      return;
-    }
+    await this.ensureInitialized();
 
     await firstValueFrom(
       this.http.delete(`${environment.apiUrl}/api/user/personas/${id}`)

@@ -10,7 +10,7 @@ A self-hosted AI platform built with Angular, Express, and Python — supporting
 - **Styling**: TailwindCSS 3 with Typography Plugin + PostCSS + Autoprefixer
 - **Testing**: Vitest (via `ng test`)
 - **Build Tool**: Angular CLI with Vite
-- **Package Manager**: npm
+- **Package Manager**: pnpm
 
 ## Project Structure
 
@@ -65,7 +65,7 @@ The application uses Angular's modern standalone component architecture:
 // Example of TailwindCSS usage in Angular templates
 <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
   <div class="text-center">
-    <h1 class="text-2xl font-semibold text-slate-800">Welcome to Fusion</h1>
+    <h1 class="text-2xl font-semibold text-slate-800">Welcome to Local.LLM</h1>
   </div>
 </div>
 ```
@@ -87,13 +87,12 @@ export const routes: Routes = [
 ### Development Commands
 
 ```bash
-npm start          # Start dev server (Express backend + Angular frontend)
-npm run start:no-lan  # Start dev server on localhost only (no LAN access)
-npm run server     # Start Express backend only
-npm run build      # Production build
-npm run watch      # Build with watch mode
-npm test           # Run tests (Vitest via ng test)
-npm run resetadmin # Reset admin password
+pnpm start          # Start dev server (Express backend + Angular frontend)
+pnpm run server     # Start Express backend only
+pnpm run build      # Production build
+pnpm run watch      # Build with watch mode
+pnpm test           # Run tests (Vitest via ng test)
+pnpm run resetadmin # Reset admin password
 ```
 
 ## Adding Features
@@ -192,9 +191,9 @@ module.exports = {
 
 ## Production Deployment
 
-- **Standard**: `npm run build` creates optimized production build
-- **Development**: `npm start` for local development
-- **Testing**: `npm test` runs tests with Vitest
+- **Standard**: `pnpm run build` creates optimized production build
+- **Development**: `pnpm start` for local development
+- **Testing**: `pnpm test` runs tests with Vitest
 
 ## Architecture Notes
 

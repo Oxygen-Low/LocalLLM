@@ -19,50 +19,15 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
       <div class="mb-8">
         <h1 class="text-4xl font-bold text-secondary-900 mb-4">Installation</h1>
         <p class="text-lg text-secondary-600">
-          Choose your installation method: cloud-hosted or self-hosted.
+          Follow this guide to install Local.LLM on your infrastructure.
         </p>
       </div>
 
       <!-- Content -->
       <div class="prose prose-lg max-w-none space-y-8">
-        <!-- Cloud Installation -->
         <section>
-          <h2 class="text-2xl font-bold text-secondary-900 mb-4">Cloud Hosted Installation</h2>
           <p class="text-secondary-700 leading-relaxed">
-            The quickest way to get started with Local.LLM is to use our managed cloud service. No installation needed!
-          </p>
-
-          <div class="mt-4 space-y-3">
-            <div class="flex gap-3">
-              <span class="text-primary-600 font-bold flex-shrink-0">1.</span>
-              <span class="text-secondary-700">Visit <a href="#" class="text-primary-600 hover:text-primary-700">local.llm</a></span>
-            </div>
-            <div class="flex gap-3">
-              <span class="text-primary-600 font-bold flex-shrink-0">2.</span>
-              <span class="text-secondary-700">Click "Sign Up" and create your account</span>
-            </div>
-            <div class="flex gap-3">
-              <span class="text-primary-600 font-bold flex-shrink-0">3.</span>
-              <span class="text-secondary-700">Verify your email and log in</span>
-            </div>
-            <div class="flex gap-3">
-              <span class="text-primary-600 font-bold flex-shrink-0">4.</span>
-              <span class="text-secondary-700">Start using AI applications immediately</span>
-            </div>
-          </div>
-
-          <div class="mt-4 bg-blue-50 border-l-4 border-blue-600 p-4 rounded">
-            <p class="text-sm text-blue-900">
-              <strong>Tip:</strong> Cloud hosted accounts include free trial credits. No credit card required.
-            </p>
-          </div>
-        </section>
-
-        <!-- Self-Hosted Installation -->
-        <section>
-          <h2 class="text-2xl font-bold text-secondary-900 mb-4">Self-Hosted Installation</h2>
-          <p class="text-secondary-700 leading-relaxed">
-            For complete control and privacy, you can self-host Local.LLM on your own infrastructure.
+            Local.LLM is designed to run on your own infrastructure for complete control and privacy.
           </p>
 
           <h3 class="text-xl font-semibold text-secondary-900 mt-6 mb-3">Requirements</h3>

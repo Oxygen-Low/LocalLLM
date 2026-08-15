@@ -13,15 +13,11 @@ const { execFileSync, spawn } = require('child_process');
 const { rateLimit } = require('express-rate-limit');
 const multer = require('multer');
 const parquet = require('@dsnp/parquetjs');
-const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = process.env.HOST || '127.0.0.1';
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
-const USE_SUPABASE = process.env.USE_SUPABASE === 'true';
-const SUPABASE_URL = 'https://tkwvtbioplwjmkcxayon.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_5BOLWYWytJxcZkBBO3CHUg_xLXOUFMD';
 const SERVER_INSTANCE_ID = crypto.randomUUID();
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -73,8 +69,6 @@ function getOrCreateMasterKey() {
 
 const MASTER_KEY = getOrCreateMasterKey();
 
-// Initialize Supabase client if enabled
-const supabase = USE_SUPABASE ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 // In-memory cache for derived user keys to optimize encryption/decryption performance.
 // PBKDF2 is computationally expensive (100,000 iterations), so we cache the result.
@@ -297,25 +291,6 @@ async function requireSession(req, res, next) {
     return res.status(401).json({ success: false, error: 'Authentication required' });
   }
   const token = authHeader.slice(7);
-
-  // 1. Check Supabase session first if enabled (Supabase tokens are JWTs, local tokens are UUIDs)
-  if (USE_SUPABASE && supabase) {
-    try {
-      const { data, error } = await supabase.auth.getUser(token);
-      if (!error && data.user) {
-        req.sessionToken = token;
-        req.supabaseUser = data.user;
-        req.supabaseUserId = data.user.id;
-        // Attach user-specific supabase client
-        req.supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-          global: { headers: { Authorization: `Bearer ${token}` } }
-        });
-        return next();
-      }
-    } catch (err) {
-      // Fall through to local session check
-    }
-  }
 
   // 2. Check local session (handles 'admin' and non-supabase mode fallback)
   const session = validateSession(token);
@@ -2477,16 +2452,7 @@ app.get('/api/universes', requireSession, (req, res) => {
 
 // GET /api/characters – user-owned characters with privacy and favorites
 app.get('/api/characters', requireSession, async (req, res) => {
-  try {
-    if (req.supabase && req.supabaseUserId) {
-      const { data, error } = await req.supabase
-        .from('characters')
-        .select('*')
-        .or(`owner_id.eq.${req.supabaseUserId},privacy.eq.public`)
-        .order('updated_at', { ascending: false });
-      if (error) throw error;
-      return res.json({ success: true, characters: data || [] });
-    }
+  try {
     const users = readUsers();
     const me = users.find((u) => u.username === req.sessionUser);
     return res.json({ success: true, characters: me?.characters || [] });
@@ -2500,20 +2466,7 @@ app.post('/api/characters', requireSession, async (req, res) => {
   try {
     const { name, description, relationships, privacy, favorite } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) return res.status(400).json({ success: false, error: 'Character name is required' });
-    const validPrivacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : 'private';
-    if (req.supabase && req.supabaseUserId) {
-      const payload = {
-        name: name.trim(),
-        description: typeof description === 'string' ? description.trim() : '',
-        owner_id: req.supabaseUserId,
-        relationships: Array.isArray(relationships) ? relationships.map((r) => String(r)) : [],
-        privacy: validPrivacy,
-        favorite: !!favorite,
-      };
-      const { data, error } = await req.supabase.from('characters').insert([payload]).select().single();
-      if (error) throw error;
-      return res.status(201).json({ success: true, character: data });
-    }
+    const validPrivacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : 'private';
     const users = readUsers();
     const idx = users.findIndex((u) => u.username === req.sessionUser);
     if (idx === -1) return res.status(404).json({ success: false, error: 'User not found' });
@@ -2541,28 +2494,7 @@ app.post('/api/characters', requireSession, async (req, res) => {
 app.put('/api/characters/:id', requireSession, async (req, res) => {
   try {
     const { name, description, relationships, privacy, favorite } = req.body;
-    const validPrivacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : undefined;
-    if (req.supabase && req.supabaseUserId) {
-      const updates = {
-        ...(typeof name === 'string' ? { name: name.trim() } : {}),
-        ...(typeof description === 'string' ? { description: description.trim() } : {}),
-        ...(Array.isArray(relationships) ? { relationships: relationships.map((r) => String(r)) } : {}),
-        ...(validPrivacy ? { privacy: validPrivacy } : {}),
-        ...(typeof favorite === 'boolean' ? { favorite } : {}),
-      };
-      const { data, error } = await req.supabase
-        .from('characters')
-        .update(updates)
-        .eq('id', req.params.id)
-        .eq('owner_id', req.supabaseUserId)
-        .select()
-        .single();
-      if (error && error.code === 'PGRST116') {
-        return res.status(404).json({ success: false, error: 'Character not found' });
-      }
-      if (error) throw error;
-      return res.json({ success: true, character: data });
-    }
+    const validPrivacy = ['public', 'friends', 'private'].includes(privacy) ? privacy : undefined;
     const users = readUsers();
     const uidx = users.findIndex((u) => u.username === req.sessionUser);
     if (uidx === -1) return res.status(404).json({ success: false, error: 'User not found' });
@@ -2584,12 +2516,7 @@ app.put('/api/characters/:id', requireSession, async (req, res) => {
 });
 
 app.delete('/api/characters/:id', requireSession, async (req, res) => {
-  try {
-    if (req.supabase && req.supabaseUserId) {
-      const { error } = await req.supabase.from('characters').delete().eq('id', req.params.id).eq('owner_id', req.supabaseUserId);
-      if (error) throw error;
-      return res.json({ success: true });
-    }
+  try {
     const users = readUsers();
     const uidx = users.findIndex((u) => u.username === req.sessionUser);
     if (uidx === -1) return res.status(404).json({ success: false, error: 'User not found' });
@@ -2869,11 +2796,6 @@ app.delete('/api/admin/universes/:universeId/characters/:characterId', async (re
 // GET /api/settings/demo – Returns whether the server is running in demo mode (public, no auth)
 app.get('/api/settings/demo', (_req, res) => {
   res.json({ success: true, demoMode: DEMO_MODE });
-});
-
-// GET /api/settings/supabase - Returns whether Supabase mode is enabled
-app.get('/api/settings/supabase', (_req, res) => {
-  res.json({ success: true, useSupabase: USE_SUPABASE });
 });
 
 // GET /api/settings/apps – Returns current app settings (requires valid session)
@@ -3729,25 +3651,7 @@ function writePersonas(username, personas) {
 /**
  * Fetches personas for a user, supporting both local and Supabase storage.
  */
-async function getPersonasForUser(req) {
-  if (req.supabase) {
-    try {
-      const { data, error } = await req.supabase
-        .from('personas')
-        .select('id, data, created_at, updated_at');
-      if (error) {
-        throw new Error(`Supabase getPersonas error: ${error.message}`);
-      }
-      return (data || []).map(p => ({
-        id: p.id,
-        ...p.data,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      }));
-    } catch (err) {
-      throw err;
-    }
-  }
+async function getPersonasForUser(req) {
   return readPersonas(req.sessionUser);
 }
 
@@ -4427,16 +4331,7 @@ app.post('/api/user/personas', requireSession, blockInDemo, async (req, res) => 
     if (description.trim().length > MAX_PERSONA_DESCRIPTION_LENGTH) {
       return res.status(400).json({ success: false, error: `Persona description must be at most ${MAX_PERSONA_DESCRIPTION_LENGTH} characters` });
     }
-
-    if (req.supabase) {
-      const { data, error } = await req.supabase
-        .from('personas')
-        .insert([{ user_id: req.supabaseUser.id, data: { name, description } }])
-        .select()
-        .single();
-      if (error) throw error;
-      return res.status(201).json({ success: true, persona: { id: data.id, ...data.data, createdAt: data.created_at, updatedAt: data.updated_at } });
-    }
+
 
     const personas = await getPersonasForUser(req);
     const newPersona = {
@@ -4474,22 +4369,7 @@ app.put('/api/user/personas/:id', requireSession, blockInDemo, async (req, res) 
     if (description.trim().length > MAX_PERSONA_DESCRIPTION_LENGTH) {
       return res.status(400).json({ success: false, error: `Persona description must be at most ${MAX_PERSONA_DESCRIPTION_LENGTH} characters` });
     }
-
-    if (req.supabase) {
-      const { data, error } = await req.supabase
-        .from('personas')
-        .update({ data: { name, description }, updated_at: new Date().toISOString() })
-        .eq('id', personaId)
-        .select()
-        .single();
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ success: false, error: 'Persona not found' });
-        }
-        throw error;
-      }
-      return res.json({ success: true, persona: { id: data.id, ...data.data, createdAt: data.created_at, updatedAt: data.updated_at } });
-    }
+
 
     const personas = await getPersonasForUser(req);
     const index = personas.findIndex((p) => p.id === personaId);
@@ -4517,35 +4397,7 @@ app.put('/api/user/personas/:id', requireSession, blockInDemo, async (req, res) 
 app.delete('/api/user/personas/:id', requireSession, blockInDemo, async (req, res) => {
   try {
     const personaId = req.params.id;
-
-    if (req.supabase) {
-      const { data: deletedPersona, error } = await req.supabase
-        .from('personas')
-        .delete()
-        .eq('id', personaId)
-        .select('id')
-        .single();
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ success: false, error: 'Persona not found' });
-        }
-        throw error;
-      }
-
-      const { data: profile } = await req.supabase
-        .from('profiles')
-        .select('defaultPersonaId')
-        .eq('id', req.supabaseUserId)
-        .single();
-      if (profile?.defaultPersonaId === deletedPersona.id) {
-        await req.supabase
-          .from('profiles')
-          .update({ defaultPersonaId: null })
-          .eq('id', req.supabaseUserId);
-      }
-
-      return res.json({ success: true });
-    }
+
 
     const personas = await getPersonasForUser(req);
     const index = personas.findIndex((p) => p.id === personaId);
@@ -4584,31 +4436,7 @@ app.put('/api/user/settings/default-persona', requireSession, async (req, res) =
     if (personaId && !personas.some(p => p.id === personaId)) {
       return res.status(400).json({ success: false, error: 'Invalid persona ID' });
     }
-
-    if (req.supabase) {
-      const { error } = await req.supabase.rpc('rpc_set_default_persona', {
-        profile_id: req.supabaseUserId,
-        persona_id: personaId || null,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      const { data: profile, error: profileError } = await req.supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', req.supabaseUserId)
-        .single();
-
-      if (profileError && profileError.code === 'PGRST116') {
-        return res.status(404).json({ success: false, error: 'User profile not found' });
-      }
-      if (!profile) {
-        return res.status(404).json({ success: false, error: 'User profile not found' });
-      }
-      return res.json({ success: true });
-    }
+
 
     const users = readUsers();
     const index = users.findIndex(u => u.username === req.sessionUser);

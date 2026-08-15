@@ -14,10 +14,10 @@ type TranslationDictionary = Record<string, Record<string, string>>;
 const translations: TranslationDictionary = {
   // Hero component
   'hero.badge': {
-    en: 'Unified AI Hub - Cloud or Self-Hosted',
-    ko: '통합 AI 허브 - 클라우드 또는 자체 호스팅',
-    ja: '統合AIハブ - クラウドまたはセルフホスト',
-    ru: 'Единый ИИ-хаб — облако или собственный хостинг',
+    en: 'Unified AI Hub - Self-Hosted',
+    ko: '통합 AI 허브 - 자체 호스팅',
+    ja: '統合AIハブ - セルフホスト',
+    ru: 'Единый ИИ-хаб — собственный хостинг',
   },
   'hero.headline': {
     en: 'Tools For Everyone',
@@ -26,16 +26,16 @@ const translations: TranslationDictionary = {
     ru: 'Инструменты для всех',
   },
   'hero.subheading': {
-    en: 'Local.LLM is your platform for accessing developer and creative AI applications. Use our cloud or host it yourself.',
-    ko: 'Local.LLM은 개발자 및 크리에이티브 AI 애플리케이션을 위한 플랫폼입니다. 클라우드를 사용하거나 직접 호스팅하세요.',
-    ja: 'Local.LLMは、開発者やクリエイティブなAIアプリケーションにアクセスするためのプラットフォームです。クラウドを利用することも、自分でホストすることもできます。',
-    ru: 'Local.LLM — это платформа для доступа к ИИ-приложениям для разработчиков и творческих задач. Используйте наше облако или разместите её у себя.',
+    en: 'Local.LLM is your platform for accessing developer and creative AI applications. Host it yourself for privacy and control.',
+    ko: 'Local.LLM은 개발자 및 크리에이티브 AI 애플리케이션을 위한 플랫폼입니다. 프라이버시와 제어를 위해 직접 호스팅하세요.',
+    ja: 'Local.LLMは、開発者やクリエイティブなAIアプリケーションにアクセスするためのプラットフォームです。プライバシーと制御のために自分でホストしてください。',
+    ru: 'Local.LLM — это платформа для доступа к ИИ-приложениям для разработчиков и творческих задач. Разместите её у себя для конфиденциальности и контроля.',
   },
-  'hero.feature.cloud': {
-    en: 'Cloud & Self-Hosted',
-    ko: '클라우드 & 자체 호스팅',
-    ja: 'クラウド & セルフホスト',
-    ru: 'Облако и собственный хостинг',
+  'hero.feature.selfhosted': {
+    en: 'Self-Hosted',
+    ko: '자체 호스팅',
+    ja: 'セルフホスト',
+    ru: 'Собственный хостинг',
   },
   'hero.feature.enterprise': {
     en: 'Enterprise Ready',
@@ -88,10 +88,10 @@ const translations: TranslationDictionary = {
     ru: 'Молниеносно быстро',
   },
   'home.features.fast.desc': {
-    en: 'Cloud deployment with ultra-low latency, or self-host for local AI processing. Instant responses and complete control.',
-    ko: '초저지연 클라우드 배포 또는 로컬 AI 처리를 위한 자체 호스팅. 즉각적인 응답과 완벽한 제어.',
-    ja: '超低遅延のクラウドデプロイ、またはローカルAI処理のためのセルフホストに対応。即時の応答と完全な制御を実現します。',
-    ru: 'Развёртывание в облаке с сверхнизкой задержкой или собственный хостинг для локальной обработки ИИ. Мгновенные ответы и полный контроль.',
+    en: 'Self-host for local AI processing with ultra-low latency. Instant responses and complete control.',
+    ko: '초저지연 로컬 AI 처리를 위한 자체 호스팅. 즉각적인 응답과 완벽한 제어.',
+    ja: '超低遅延のローカルAI処理のためのセルフホスト。即時の応答と完全な制御を実現します。',
+    ru: 'Собственный хостинг для локальной обработки ИИ со сверхнизкой задержкой. Мгновенные ответы и полный контроль.',
   },
   'home.features.security.title': {
     en: 'Data Security',
@@ -100,10 +100,10 @@ const translations: TranslationDictionary = {
     ru: 'Безопасность данных',
   },
   'home.features.security.desc': {
-    en: 'Choose cloud hosting for convenience or self-host for complete data privacy. Your choice, your data, your control.',
-    ko: '편의를 위해 클라우드 호스팅을 선택하거나 완전한 데이터 프라이버시를 위해 자체 호스팅하세요.',
-    ja: '利便性のためにクラウドホスティングを選ぶことも、完全なデータプライバシーのためにセルフホストを選ぶこともできます。選ぶのはあなたです。',
-    ru: 'Выберите облачный хостинг для удобства или собственный хостинг для полной конфиденциальности данных. Ваш выбор, ваши данные, ваш контроль.',
+    en: 'Self-host for complete data privacy. Your choice, your data, your control.',
+    ko: '완전한 데이터 프라이버시를 위해 자체 호스팅하세요.',
+    ja: '完全なデータプライバシーのためにセルフホストを選びましょう。選ぶのはあなたです。',
+    ru: 'Собственный хостинг для полной конфиденциальности данных. Ваш выбор, ваши данные, ваш контроль.',
   },
   'home.features.opensource.title': {
     en: 'Open Source',
@@ -124,10 +124,10 @@ const translations: TranslationDictionary = {
     ru: 'Простая интеграция',
   },
   'home.features.integration.desc': {
-    en: 'Simple APIs and web interface. Integrate AI into your workflow whether cloud or self-hosted.',
-    ko: '간단한 API와 웹 인터페이스. 클라우드 또는 자체 호스팅으로 워크플로우에 AI를 통합하세요.',
-    ja: 'シンプルなAPIとWebインターフェース。クラウドでもセルフホストでも、AIをワークフローに統合できます。',
-    ru: 'Простые API и веб-интерфейс. Встраивайте ИИ в свой рабочий процесс как в облаке, так и на собственном хостинге.',
+    en: 'Simple APIs and web interface. Integrate AI seamlessly into your workflow.',
+    ko: '간단한 API와 웹 인터페이스. 워크플로우에 AI를 통합하세요.',
+    ja: 'シンプルなAPIとWebインターフェース。AIをワークフローに統合できます。',
+    ru: 'Простые API и веб-интерфейс. Встраивайте ИИ в свой рабочий процесс.',
   },
   'home.features.monitor.title': {
     en: 'Performance Monitor',
@@ -148,10 +148,10 @@ const translations: TranslationDictionary = {
     ru: 'Гибкое развёртывание',
   },
   'home.features.deployment.desc': {
-    en: 'Deploy on our cloud infrastructure or host it yourself on your own servers. Full flexibility.',
-    ko: '클라우드 인프라에 배포하거나 자체 서버에서 호스팅하세요. 완전한 유연성.',
-    ja: '当社のクラウド基盤にデプロイすることも、自社サーバーでホストすることも可能です。完全な柔軟性を提供します。',
-    ru: 'Развёртывайте в нашей облачной инфраструктуре или размещайте на собственных серверах. Полная гибкость.',
+    en: 'Host it yourself on your own servers. Full flexibility and control.',
+    ko: '자체 서버에서 호스팅하세요. 완전한 유연성.',
+    ja: '自社サーバーでホストすることが可能です。完全な柔軟性を提供します。',
+    ru: 'Размещайте на собственных серверах. Полная гибкость и контроль.',
   },
 
   // Home page - CTA section
@@ -162,10 +162,10 @@ const translations: TranslationDictionary = {
     ru: 'Готовы начать?',
   },
   'home.cta.subtitle': {
-    en: 'Access your dashboard and start running powerful AI applications on the cloud or self-hosted.',
-    ko: '대시보드에 접속하여 클라우드 또는 자체 호스팅으로 강력한 AI 애플리케이션을 실행하세요.',
-    ja: 'ダッシュボードにアクセスして、クラウドまたはセルフホスト環境で強力なAIアプリケーションを実行しましょう。',
-    ru: 'Откройте панель управления и запускайте мощные ИИ-приложения в облаке или на собственном хостинге.',
+    en: 'Access your dashboard and start running powerful AI applications on your own infrastructure.',
+    ko: '대시보드에 접속하여 자체 호스팅으로 강력한 AI 애플리케이션을 실행하세요.',
+    ja: 'ダッシュボードにアクセスして、セルフホスト環境で強力なAIアプリケーションを実行しましょう。',
+    ru: 'Откройте панель управления и запускайте мощные ИИ-приложения на собственном хостинге.',
   },
   'home.cta.button': {
     en: 'Launch Dashboard',
@@ -188,10 +188,10 @@ const translations: TranslationDictionary = {
     ru: 'Центр ИИ-приложений',
   },
   'dashboard.subtitle': {
-    en: 'Access your suite of AI applications. Available on our cloud platform or self-hosted on your infrastructure.',
-    ko: 'AI 애플리케이션 모음에 접근하세요. 클라우드 플랫폼 또는 자체 인프라에서 사용할 수 있습니다.',
-    ja: 'AIアプリケーション群にアクセスしましょう。クラウドプラットフォームまたは自社インフラでご利用いただけます。',
-    ru: 'Получите доступ к набору ИИ-приложений. Доступно в облаке или на вашей собственной инфраструктуре.',
+    en: 'Access your suite of AI applications. Available self-hosted on your infrastructure.',
+    ko: 'AI 애플리케이션 모음에 접근하세요. 자체 인프라에서 사용할 수 있습니다.',
+    ja: 'AIアプリケーション群にアクセスしましょう。自社インフラでセルフホストしてご利用いただけます。',
+    ru: 'Получите доступ к набору ИИ-приложений. Доступно на вашей собственной инфраструктуре.',
   },
   'dashboard.settings': {
     en: 'Settings',

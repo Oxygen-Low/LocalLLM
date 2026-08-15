@@ -19,7 +19,7 @@ import { RouterLink } from '@angular/router';
             Terms of Service
           </h1>
           <p class="text-lg text-muted">
-            By using the Local.LLM cloud service provided by Oxygen Low's Software, you agree to the following terms. Violation of these terms may result in warnings, account restrictions, or permanent account deletion.
+            By using the Local.LLM software provided by Oxygen Low's Software, you agree to the following terms. Violation of these terms may result in warnings, account restrictions, or permanent account deletion.
           </p>
           <p class="text-sm text-muted mt-2">Last updated: March 2026</p>
         </div>
@@ -32,7 +32,7 @@ import { RouterLink } from '@angular/router';
             <section>
               <h2 class="text-2xl font-bold text-secondary-900 mb-3">1. AI Usage</h2>
               <p class="text-secondary-700 mb-4">
-                The Local.LLM cloud service is intended for lawful and responsible use. The following rules apply to all content generated using the LLM:
+                Local.LLM is intended for lawful and responsible use. The following rules apply to all content generated using the LLM:
               </p>
               <div class="space-y-4">
                 <div class="bg-secondary-50 rounded-lg p-4 border border-secondary-200">
@@ -122,15 +122,15 @@ import { RouterLink } from '@angular/router';
               </div>
             </section>
 
-            <!-- 4. Self-Hosted Instances -->
+            <!-- 4. Disclaimer -->
             <section>
-              <h2 class="text-2xl font-bold text-secondary-900 mb-3">4. Self-Hosted Instances</h2>
+              <h2 class="text-2xl font-bold text-secondary-900 mb-3">4. Disclaimer</h2>
               <p class="text-secondary-700 mb-4">
-                Local.LLM can be self-hosted by individuals and organisations. The following applies to self-hosted deployments:
+                Local.LLM is self-hosted software. The following applies to all deployments:
               </p>
               <div class="bg-secondary-50 rounded-lg p-4 border border-secondary-200">
                 <p class="text-secondary-700 text-sm">
-                  Oxygen Low's Software is <strong>not responsible</strong> for any content that is generated on self-hosted versions of Local.LLM. The individual or organisation hosting the instance is solely responsible for moderating usage and establishing their own rules and policies.
+                  Oxygen Low's Software is <strong>not responsible</strong> for any content that is generated on instances of Local.LLM. The individual or organisation hosting the instance is solely responsible for moderating usage and establishing their own rules and policies.
                 </p>
               </div>
             </section>

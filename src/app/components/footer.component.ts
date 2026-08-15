@@ -21,7 +21,7 @@ import { RouterLink } from '@angular/router';
               </span>
             </div>
             <p class="text-sm text-muted">
-              Unified AI hub. Cloud or self-hosted.
+              Self-hosted Unified AI hub.
             </p>
           </div>
 

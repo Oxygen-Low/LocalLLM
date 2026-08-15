@@ -6,20 +6,14 @@
 If you would like to see the current state of the ui, and apps currently available, go check out [the preview server](https://localllm-preview.onrender.com/) (it may take up to 5 minutes to load).
 
 ## Setup
-Just clone the repository and enter the directory ("git clone https://github.com/Oxygen-Low/LocalLLM.git", "cd LocalLLM"), then run "npm install", then test with "npm test" (optional), then start it with "npm start".
+Just clone the repository and enter the directory ("git clone https://github.com/Oxygen-Low/LocalLLM.git", "cd LocalLLM"), then run "pnpm install", then test with "pnpm test" (optional), then start it with "pnpm start".
 
-By default, the server listens on all network interfaces, so you can access it from other devices on your local network (e.g. a phone or tablet on the same Wi-Fi). Open `https://<your-ip>:3000` from the other device, where `<your-ip>` is the local IP address of the machine running the server (e.g. `192.168.1.100`).
-
-To restrict the server to localhost only (no LAN access), run:
-
-```
-npm run start:no-lan
-```
+By default, the server is restricted to localhost for security. Open `http://localhost:4200` to access the application after starting it.
 
 ## Admin Account
 Once you start for the first time, you will gain your admin credentials, and you can log in via them to gain access to the admin panel/settings.
 
-If you lose the password to the admin account, just stop the server and run "npm run resetadmin" to receive a new password for the account.
+If you lose the password to the admin account, just stop the server and run "pnpm run resetadmin" to receive a new password for the account.
 
 ## Characters
 If you want the LLM to act like one of your favourite characters, just go create a universe and that character in the admin panel.

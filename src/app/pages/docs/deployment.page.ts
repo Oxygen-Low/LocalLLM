@@ -87,8 +87,7 @@ API_KEY=your-api-key
 MODEL_CACHE_SIZE=10gb
 MAX_CONCURRENT_REQUESTS=5
 
-# Deployment Mode
-DEPLOYMENT_MODE=cloud  # or 'self-hosted'
+
 ENABLE_GPU=true</code></pre>
           </div>
 

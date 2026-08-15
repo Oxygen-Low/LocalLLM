@@ -46,7 +46,7 @@ import { TranslationService } from '../services/translation.service';
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                 </svg>
               </div>
-              <span class="text-secondary-700 font-medium">{{ t.translate('hero.feature.cloud') }}</span>
+              <span class="text-secondary-700 font-medium">{{ t.translate('hero.feature.selfhosted') }}</span>
             </div>
             <div class="flex items-center justify-center sm:justify-start gap-3">
               <div class="w-5 h-5 rounded-full bg-accent-600 flex-shrink-0 flex items-center justify-center">

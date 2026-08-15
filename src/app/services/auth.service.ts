@@ -3,8 +3,6 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { SecurityLoggerService } from './security-logger.service';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import type { AuthChangeEvent, Subscription } from '@supabase/supabase-js';
 
 export interface AuthSession {
   username: string;
@@ -119,9 +117,6 @@ async function sha256Fallback(message: string): Promise<string> {
   providedIn: 'root',
 })
 export class AuthService {
-  private supabase: SupabaseClient | null = null;
-  private useSupabase = signal(false);
-
   private currentUser = signal<string | null>(null);
   isAuthenticated = computed(() => this.currentUser() !== null);
   username = computed(() => this.currentUser());
@@ -162,48 +157,15 @@ export class AuthService {
   private http = inject(HttpClient);
 
   private initPromise: Promise<void>;
-  private supabaseAuthSubscription: Subscription | null = null;
 
   constructor() {
-    this.initPromise = this.checkSupabaseMode().then(() => {
+    this.initPromise = Promise.resolve().then(() => {
       this.restoreSession();
     });
   }
 
-  /** Ensures the service is fully initialized (including Supabase mode check) before use. */
   async ensureInitialized(): Promise<void> {
     await this.initPromise;
-  }
-
-  useSupabaseMode(): boolean {
-    return this.useSupabase();
-  }
-
-  private async checkSupabaseMode(): Promise<void> {
-    const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
-    const isVitest = ((proc?.env?.['VITEST'] !== undefined) || proc?.env?.['NODE_ENV'] === 'test')
-      || (globalThis as { __vitest_worker__?: unknown }).__vitest_worker__ !== undefined;
-    if (isVitest) {
-      return;
-    }
-
-    try {
-      const resp = await firstValueFrom(
-        this.http.get<{ success: boolean; useSupabase: boolean }>(`${environment.apiUrl}/api/settings/supabase`)
-      );
-      if (resp.useSupabase && environment.supabaseUrl && environment.supabaseKey) {
-        this.useSupabase.set(true);
-        this.supabase = createClient(environment.supabaseUrl, environment.supabaseKey);
-        const { data } = this.supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
-          if (event === 'TOKEN_REFRESHED' && session?.access_token) {
-            this.updateStoredToken(session.access_token);
-          }
-        });
-        this.supabaseAuthSubscription = data.subscription;
-      }
-    } catch {
-      // Ignore errors, default to local auth
-    }
   }
 
   async hashPassword(password: string): Promise<string> {
@@ -425,17 +387,6 @@ export class AuthService {
     }
   }
 
-  private updateStoredToken(token: string): void {
-    try {
-      const sessionData = sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionData) return;
-      const session: AuthSession = JSON.parse(sessionData);
-      session.token = token;
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    } catch {
-      // Ignore malformed session storage
-    }
-  }
 
   private async checkPasswordResetStatus(): Promise<void> {
     const user = this.username();
@@ -517,33 +468,6 @@ export class AuthService {
       return { success: false, error: passwordErrors[0] };
     }
 
-    if (this.useSupabase() && username.toLowerCase() !== 'admin') {
-      if (!this.supabase) return { success: false, error: 'Supabase not initialized' };
-      if (!email) return { success: false, error: 'Email is required for Supabase signup' };
-
-      const { data, error } = await this.supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { username }
-        }
-      });
-
-      if (error) {
-        this.securityLogger.log('SIGNUP_FAILURE', error.message, username);
-        return { success: false, error: error.message };
-      }
-
-      if (data.session) {
-        await this.createSession(data.user?.id ?? username, false, data.session.access_token);
-        this.securityLogger.log('SIGNUP_SUCCESS', 'New Supabase account created', data.user?.id ?? username);
-        return { success: true };
-      }
-
-      this.securityLogger.log('SIGNUP_FAILURE', 'Supabase signup pending email confirmation', username);
-      return { success: false, requiresEmailConfirmation: true, message: 'Confirmation required' };
-    }
-
     try {
       const hashedPassword = await this.hashPassword(password);
       const response = await firstValueFrom(
@@ -575,43 +499,15 @@ export class AuthService {
     const normalizedUsername = username.toLowerCase();
 
     // A04/A07: Check rate limit before processing login
-    const normalizedEmail = email?.trim().toLowerCase();
-    const supabaseRateLimitKey = this.useSupabase() && normalizedUsername !== 'admin' && normalizedEmail
-      ? normalizedEmail
-      : normalizedUsername;
-    const rateCheck = this.checkRateLimit(supabaseRateLimitKey);
+    const rateLimitKey = normalizedUsername;
+    const rateCheck = this.checkRateLimit(rateLimitKey);
     if (!rateCheck.allowed) {
-      this.securityLogger.log('LOGIN_RATE_LIMITED', `Login blocked - retry after ${rateCheck.retryAfterSeconds}s`, supabaseRateLimitKey);
+      this.securityLogger.log('LOGIN_RATE_LIMITED', `Login blocked - retry after ${rateCheck.retryAfterSeconds}s`, rateLimitKey);
       const minutes = Math.ceil((rateCheck.retryAfterSeconds ?? 0) / 60);
       return {
         success: false,
         error: `Account temporarily locked. Try again in ${minutes} minute${minutes !== 1 ? 's' : ''}.`,
       };
-    }
-
-    if (this.useSupabase() && normalizedUsername !== 'admin') {
-      if (!this.supabase) return { success: false, error: 'Supabase not initialized' };
-      if (!email) return { success: false, error: 'Email is required for Supabase login' };
-
-      const { data, error } = await this.supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        this.recordFailedAttempt(supabaseRateLimitKey);
-        this.securityLogger.log('LOGIN_FAILURE', error.message, supabaseRateLimitKey);
-        return { success: false, error: error.message };
-      }
-
-      if (data.session) {
-        const userId = data.user?.id || normalizedUsername;
-        await this.createSession(userId, false, data.session.access_token);
-        this.clearLoginAttempts(data.user?.id ?? supabaseRateLimitKey);
-        this.securityLogger.log('LOGIN_SUCCESS', 'Supabase user logged in successfully', userId);
-        return { success: true };
-      }
-      return { success: false, error: 'Failed to establish session' };
     }
 
     try {
@@ -687,9 +583,6 @@ export class AuthService {
     const token = this.getSessionToken();
     this.stopInactivityTimer();
     this.stopPasswordResetMonitor();
-    if (this.useSupabase() && user !== 'admin' && this.supabase) {
-      void this.supabase.auth.signOut();
-    }
 
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     this.currentUser.set(null);
@@ -699,7 +592,7 @@ export class AuthService {
     // SOC2 CC6.3: Invalidate server-side session (fire-and-forget).
     // Client state is already cleared above, so a new login will issue a fresh token
     // even if this request fails. Not awaiting avoids blocking the UI on network issues.
-    if (token && (!this.useSupabase() || user === 'admin')) {
+    if (token) {
       await this.ensureInitialized();
       firstValueFrom(
         this.http.post(`${environment.apiUrl}/api/auth/logout`, {})

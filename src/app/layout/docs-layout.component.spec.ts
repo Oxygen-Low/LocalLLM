@@ -112,7 +112,5 @@ describe('DocsLayoutComponent', () => {
     const component = fixture.componentInstance;
     expect(component.docNavigation[0].labelKey).toBe('docs.nav.getting-started');
     expect(component.docNavigation[1].labelKey).toBe('docs.nav.installation');
-    expect(component.docNavigation[1].children?.[0].labelKey).toBe('docs.nav.cloud-hosted');
-    expect(component.docNavigation[1].children?.[1].labelKey).toBe('docs.nav.self-hosted');
   });
 });

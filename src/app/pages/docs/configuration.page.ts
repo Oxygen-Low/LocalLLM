@@ -176,14 +176,7 @@ import { DocsContentTranslationDirective } from './docs-content-translation.dire
           <h2 class="text-2xl font-bold text-secondary-900 mb-4">Deployment Settings</h2>
 
           <div class="space-y-4">
-            <div class="border border-secondary-200 rounded-lg p-4">
-              <h4 class="font-semibold text-secondary-900 mb-2">DEPLOYMENT_MODE</h4>
-              <p class="text-secondary-700 text-sm mb-2">Deployment type and behavior</p>
-              <div class="bg-secondary-50 px-3 py-2 rounded text-sm font-mono text-secondary-900 mb-2">
-                Values: <span class="font-semibold">cloud, self-hosted</span>
-              </div>
-              <p class="text-secondary-700 text-sm">Use <code class="bg-secondary-100 px-2 py-1 rounded">cloud</code> for cloud deployments or <code class="bg-secondary-100 px-2 py-1 rounded">self-hosted</code> for self-managed</p>
-            </div>
+
 
             <div class="border border-secondary-200 rounded-lg p-4">
               <h4 class="font-semibold text-secondary-900 mb-2">ENABLE_METRICS</h4>

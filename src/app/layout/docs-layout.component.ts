@@ -175,10 +175,6 @@ export class DocsLayoutComponent implements OnInit {
     {
       labelKey: 'docs.nav.installation',
       path: '/docs/installation',
-      children: [
-        { labelKey: 'docs.nav.cloud-hosted', path: '/docs/installation' },
-        { labelKey: 'docs.nav.self-hosted', path: '/docs/installation-self-hosted' },
-      ],
     },
     {
       labelKey: 'docs.nav.deployment',
